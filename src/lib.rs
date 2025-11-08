@@ -23,6 +23,7 @@ pub mod attributes;
 pub mod intrinsics;
 pub mod verification;
 pub mod printer;
+pub mod lexer;
 pub mod parser;
 pub mod cfg;
 pub mod passes;

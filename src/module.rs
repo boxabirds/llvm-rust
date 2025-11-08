@@ -26,10 +26,10 @@ struct ModuleData {
 /// A global variable in a module
 #[derive(Clone)]
 pub struct GlobalVariable {
-    name: String,
-    ty: Type,
-    is_constant: bool,
-    initializer: Option<Value>,
+    pub name: String,
+    pub ty: Type,
+    pub is_constant: bool,
+    pub initializer: Option<Value>,
 }
 
 impl Module {

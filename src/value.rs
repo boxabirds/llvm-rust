@@ -19,7 +19,7 @@ pub(crate) struct ValueData {
     name: Option<String>,
 }
 
-pub(crate) enum ValueKind {
+pub enum ValueKind {
     /// A constant integer value
     ConstantInt { value: i64 },
     /// A constant floating point value

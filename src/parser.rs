@@ -2,8 +2,8 @@
 //!
 //! This module provides functionality to parse LLVM IR from text format (.ll files).
 
-use std::collections::HashMap;
-use crate::module::Module;
+use crate::lexer::{Lexer, Token};
+use crate::module::{Module, GlobalVariable};
 use crate::function::Function;
 use crate::basic_block::BasicBlock;
 use crate::instruction::{Instruction, Opcode};
@@ -15,15 +15,17 @@ use crate::context::Context;
 #[derive(Debug, Clone)]
 pub enum ParseError {
     /// Unexpected token
-    UnexpectedToken { expected: String, found: String, line: usize },
+    UnexpectedToken { expected: String, found: String, position: usize },
     /// Invalid syntax
-    InvalidSyntax { message: String, line: usize },
+    InvalidSyntax { message: String, position: usize },
     /// Unknown type
-    UnknownType { type_name: String, line: usize },
+    UnknownType { type_name: String, position: usize },
     /// Unknown instruction
-    UnknownInstruction { opcode: String, line: usize },
+    UnknownInstruction { opcode: String, position: usize },
     /// End of file
     UnexpectedEOF,
+    /// Lexer error
+    LexerError(String),
 }
 
 /// Parse result
@@ -34,43 +36,6 @@ pub struct Parser {
     context: Context,
     tokens: Vec<Token>,
     current: usize,
-    line: usize,
-}
-
-/// Token types
-#[derive(Debug, Clone, PartialEq)]
-enum Token {
-    // Keywords
-    Define,
-    Declare,
-    Global,
-    Constant,
-    Ret,
-    Br,
-    Label,
-
-    // Literals
-    Identifier(String),
-    LocalIdent(String),
-    GlobalIdent(String),
-    Integer(i64),
-    Float(f64),
-    String(String),
-
-    // Types
-    TypeName(String),
-
-    // Symbols
-    Equal,
-    Comma,
-    LParen,
-    RParen,
-    LBrace,
-    RBrace,
-    Colon,
-
-    // Special
-    EOF,
 }
 
 impl Parser {
@@ -79,29 +44,69 @@ impl Parser {
             context,
             tokens: Vec::new(),
             current: 0,
-            line: 1,
         }
     }
 
     /// Parse a module from source code
     pub fn parse_module(&mut self, source: &str) -> ParseResult<Module> {
-        self.tokenize(source)?;
+        // Tokenize
+        let mut lexer = Lexer::new(source);
+        self.tokens = lexer.tokenize().map_err(ParseError::LexerError)?;
         self.current = 0;
 
         let module = Module::new("parsed_module".to_string(), self.context.clone());
 
         // Parse module contents
         while !self.is_at_end() {
-            if self.match_token(&Token::Define) {
-                let function = self.parse_function()?;
-                module.add_function(function);
-            } else if self.match_token(&Token::Declare) {
+            // Skip metadata and attributes at module level
+            if self.check(&Token::Exclaim) || self.check(&Token::Attributes) {
+                self.skip_until_newline_or_semicolon();
+                continue;
+            }
+
+            // Parse target datalayout/triple
+            if self.match_token(&Token::Target) {
+                self.parse_target_directive()?;
+                continue;
+            }
+
+            // Parse source_filename
+            if self.match_token(&Token::Source_filename) {
+                self.parse_source_filename()?;
+                continue;
+            }
+
+            // Parse type declarations
+            if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
+                && self.peek_ahead(2) == Some(&Token::Type) {
+                self.parse_type_declaration()?;
+                continue;
+            }
+
+            // Parse global variables
+            if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
+                && (self.peek_ahead(2) == Some(&Token::Global) || self.peek_ahead(2) == Some(&Token::Constant)) {
+                let global = self.parse_global_variable()?;
+                module.add_global(global);
+                continue;
+            }
+
+            // Parse function declarations
+            if self.match_token(&Token::Declare) {
                 let function = self.parse_function_declaration()?;
                 module.add_function(function);
-            } else if self.match_token(&Token::Global) {
-                // Parse global variable
-                self.parse_global()?;
-            } else {
+                continue;
+            }
+
+            // Parse function definitions
+            if self.match_token(&Token::Define) {
+                let function = self.parse_function_definition()?;
+                module.add_function(function);
+                continue;
+            }
+
+            // Skip unknown tokens
+            if !self.is_at_end() {
                 self.advance();
             }
         }
@@ -109,202 +114,169 @@ impl Parser {
         Ok(module)
     }
 
-    fn tokenize(&mut self, source: &str) -> ParseResult<()> {
-        self.tokens.clear();
-        self.line = 1;
-
-        let mut chars = source.chars().peekable();
-        let mut current_token = String::new();
-
-        while let Some(&ch) = chars.peek() {
-            match ch {
-                ' ' | '\t' | '\r' => {
-                    if !current_token.is_empty() {
-                        self.add_token(&current_token);
-                        current_token.clear();
-                    }
-                    chars.next();
-                }
-                '\n' => {
-                    if !current_token.is_empty() {
-                        self.add_token(&current_token);
-                        current_token.clear();
-                    }
-                    self.line += 1;
-                    chars.next();
-                }
-                ';' => {
-                    // Comment - skip to end of line
-                    while let Some(&c) = chars.peek() {
-                        chars.next();
-                        if c == '\n' {
-                            self.line += 1;
-                            break;
-                        }
-                    }
-                }
-                '=' | ',' | '(' | ')' | '{' | '}' | ':' => {
-                    if !current_token.is_empty() {
-                        self.add_token(&current_token);
-                        current_token.clear();
-                    }
-                    self.tokens.push(match ch {
-                        '=' => Token::Equal,
-                        ',' => Token::Comma,
-                        '(' => Token::LParen,
-                        ')' => Token::RParen,
-                        '{' => Token::LBrace,
-                        '}' => Token::RBrace,
-                        ':' => Token::Colon,
-                        _ => unreachable!(),
-                    });
-                    chars.next();
-                }
-                '"' => {
-                    // String literal
-                    chars.next();
-                    let mut string_val = String::new();
-                    while let Some(&c) = chars.peek() {
-                        chars.next();
-                        if c == '"' {
-                            break;
-                        }
-                        string_val.push(c);
-                    }
-                    self.tokens.push(Token::String(string_val));
-                }
-                _ => {
-                    current_token.push(ch);
-                    chars.next();
-                }
+    fn parse_target_directive(&mut self) -> ParseResult<()> {
+        // target datalayout = "..."
+        // target triple = "..."
+        if self.match_token(&Token::Datalayout) || self.match_token(&Token::Triple) {
+            self.consume(&Token::Equal)?;
+            if let Some(Token::StringLit(_)) = self.peek() {
+                self.advance();
             }
         }
-
-        if !current_token.is_empty() {
-            self.add_token(&current_token);
-        }
-
-        self.tokens.push(Token::EOF);
         Ok(())
     }
 
-    fn add_token(&mut self, token_str: &str) {
-        let token = match token_str {
-            "define" => Token::Define,
-            "declare" => Token::Declare,
-            "global" => Token::Global,
-            "constant" => Token::Constant,
-            "ret" => Token::Ret,
-            "br" => Token::Br,
-            "label" => Token::Label,
-            _ if token_str.starts_with('@') => Token::GlobalIdent(token_str[1..].to_string()),
-            _ if token_str.starts_with('%') => Token::LocalIdent(token_str[1..].to_string()),
-            _ if token_str.starts_with('i') && token_str[1..].parse::<u32>().is_ok() => {
-                Token::TypeName(token_str.to_string())
-            }
-            _ if token_str.parse::<i64>().is_ok() => {
-                Token::Integer(token_str.parse().unwrap())
-            }
-            _ if token_str.parse::<f64>().is_ok() => {
-                Token::Float(token_str.parse().unwrap())
-            }
-            "void" | "float" | "double" | "label" | "metadata" => {
-                Token::TypeName(token_str.to_string())
-            }
-            _ => Token::Identifier(token_str.to_string()),
-        };
-        self.tokens.push(token);
+    fn parse_source_filename(&mut self) -> ParseResult<()> {
+        // source_filename = "..."
+        self.consume(&Token::Equal)?;
+        if let Some(Token::StringLit(_)) = self.peek() {
+            self.advance();
+        }
+        Ok(())
     }
 
-    fn parse_function(&mut self) -> ParseResult<Function> {
-        // Parse return type
-        let _return_type = self.parse_type()?;
+    fn parse_type_declaration(&mut self) -> ParseResult<()> {
+        // %TypeName = type { ... }
+        self.advance(); // global ident
+        self.consume(&Token::Equal)?;
+        self.consume(&Token::Type)?;
+        self.parse_type()?;
+        Ok(())
+    }
 
-        // Parse function name
-        let name = if let Some(Token::GlobalIdent(n)) = self.peek().cloned() {
-            self.advance();
-            n
+    fn parse_global_variable(&mut self) -> ParseResult<GlobalVariable> {
+        // @name = [linkage] [visibility] global/constant type [initializer]
+        let name = self.expect_global_ident()?;
+        self.consume(&Token::Equal)?;
+
+        // Skip linkage and visibility keywords
+        self.skip_linkage_and_visibility();
+
+        let is_constant = if self.match_token(&Token::Constant) {
+            true
+        } else if self.match_token(&Token::Global) {
+            false
         } else {
             return Err(ParseError::InvalidSyntax {
-                message: "Expected function name".to_string(),
-                line: self.line,
+                message: "Expected 'global' or 'constant'".to_string(),
+                position: self.current,
             });
         };
 
-        // Parse parameters
+        let ty = self.parse_type()?;
+
+        // Parse initializer if present
+        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) {
+            // Skip initializer parsing for now (complex)
+            None
+        } else {
+            None
+        };
+
+        Ok(GlobalVariable {
+            name,
+            ty,
+            is_constant,
+            initializer,
+        })
+    }
+
+    fn parse_function_declaration(&mut self) -> ParseResult<Function> {
+        // declare [ret attrs] type @name([params])
+        self.skip_attributes();
+
+        let return_type = self.parse_type()?;
+        let name = self.expect_global_ident()?;
+
         self.consume(&Token::LParen)?;
-        let _params = self.parse_parameter_list()?;
+        let param_types = self.parse_parameter_types()?;
         self.consume(&Token::RParen)?;
 
+        // Skip function attributes
+        self.skip_function_attributes();
+
+        let fn_type = self.context.function_type(return_type, param_types, false);
+        Ok(Function::new(name, fn_type))
+    }
+
+    fn parse_function_definition(&mut self) -> ParseResult<Function> {
+        // define [linkage] [ret attrs] type @name([params]) [fn attrs] { body }
+        self.skip_linkage_and_visibility();
+        self.skip_attributes();
+
+        let return_type = self.parse_type()?;
+        let name = self.expect_global_ident()?;
+
+        self.consume(&Token::LParen)?;
+        let params = self.parse_parameters()?;
+        self.consume(&Token::RParen)?;
+
+        // Skip function attributes
+        self.skip_function_attributes();
+
         // Create function
-        let fn_type = self.context.function_type(
-            self.context.void_type(),
-            vec![],
-            false,
-        );
+        let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
+        let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+
+        // Set arguments
+        let args: Vec<Value> = params.iter().enumerate().map(|(idx, (ty, name))| {
+            Value::argument(ty.clone(), idx, Some(name.clone()))
+        }).collect();
+        function.set_arguments(args);
 
         // Parse body if present
         if self.match_token(&Token::LBrace) {
-            while !self.match_token(&Token::RBrace) && !self.is_at_end() {
+            while !self.check(&Token::RBrace) && !self.is_at_end() {
                 if let Some(bb) = self.parse_basic_block()? {
                     function.add_basic_block(bb);
+                } else {
+                    break;
                 }
             }
+            self.consume(&Token::RBrace)?;
         }
 
         Ok(function)
     }
 
-    fn parse_function_declaration(&mut self) -> ParseResult<Function> {
-        // Similar to parse_function but without body
-        self.parse_function()
-    }
-
-    fn parse_global(&mut self) -> ParseResult<()> {
-        // Parse global variable
-        // Simplified implementation
-        Ok(())
-    }
-
     fn parse_basic_block(&mut self) -> ParseResult<Option<BasicBlock>> {
-        // Parse label if present
+        // Check for label
         let name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
-            self.advance();
-            self.consume(&Token::Colon)?;
-            Some(n)
-        } else if let Some(Token::Identifier(n)) = self.peek().cloned() {
-            self.advance();
-            self.consume(&Token::Colon)?;
-            Some(n)
+            if self.peek_ahead(1) == Some(&Token::Colon) {
+                self.advance(); // consume ident
+                self.advance(); // consume colon
+                Some(n)
+            } else {
+                // Entry block without label
+                None
+            }
         } else {
             None
         };
 
-        if name.is_none() {
+        // If we didn't find a label and we're at end of function, return None
+        if name.is_none() && (self.check(&Token::RBrace) || self.is_at_end()) {
             return Ok(None);
         }
 
         let bb = BasicBlock::new(name);
 
-        // Parse instructions until next label or end of block
-        while !self.is_at_end() {
-            if let Some(Token::LocalIdent(_)) = self.peek() {
-                // Check if this is a label (has colon after)
-                if self.peek_ahead(1) == Some(&Token::Colon) {
-                    break;
-                }
-            }
-            if let Some(Token::Identifier(_)) = self.peek() {
-                if self.peek_ahead(1) == Some(&Token::Colon) {
-                    break;
-                }
-            }
-            if self.match_token(&Token::RBrace) {
-                self.current -= 1; // Put back the brace
+        // Parse instructions
+        loop {
+            // Stop if we hit next label, closing brace, or EOF
+            if self.check(&Token::RBrace) || self.is_at_end() {
                 break;
             }
 
+            // Check if next token is a label (local ident followed by colon)
+            if let Some(Token::LocalIdent(_)) = self.peek() {
+                if self.peek_ahead(1) == Some(&Token::Colon) {
+                    break;
+                }
+            }
+
+            // Parse instruction
             if let Some(inst) = self.parse_instruction()? {
                 let is_term = inst.is_terminator();
                 bb.add_instruction(inst);
@@ -320,74 +292,455 @@ impl Parser {
     }
 
     fn parse_instruction(&mut self) -> ParseResult<Option<Instruction>> {
-        // Parse instruction
+        // Check for result assignment: %name = ...
         let _result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
-            self.advance();
-            self.consume(&Token::Equal)?;
-            Some(n)
+            if self.peek_ahead(1) == Some(&Token::Equal) {
+                self.advance(); // consume ident
+                self.advance(); // consume =
+                Some(n)
+            } else {
+                None
+            }
         } else {
             None
         };
 
-        // Parse opcode
-        let opcode = if let Some(Token::Ret) = self.peek() {
-            self.advance();
-            Opcode::Ret
-        } else if let Some(Token::Br) = self.peek() {
-            self.advance();
-            Opcode::Br
-        } else if let Some(Token::Identifier(op)) = self.peek().cloned() {
-            self.advance();
-            self.parse_opcode(&op)?
+        // Parse instruction opcode
+        let opcode = if let Some(op) = self.parse_opcode()? {
+            op
         } else {
             return Ok(None);
         };
 
-        // Parse operands (simplified)
-        let operands = Vec::new();
+        // Parse operands (simplified for now)
+        let operands = self.parse_instruction_operands(opcode)?;
 
         Ok(Some(Instruction::new(opcode, operands, None)))
     }
 
-    fn parse_type(&mut self) -> ParseResult<Type> {
-        if let Some(Token::TypeName(name)) = self.peek().cloned() {
-            self.advance();
+    fn parse_opcode(&mut self) -> ParseResult<Option<Opcode>> {
+        let token = self.peek().ok_or(ParseError::UnexpectedEOF)?;
 
-            let ty = match name.as_str() {
-                "void" => self.context.void_type(),
-                "i1" => self.context.bool_type(),
-                "i8" => self.context.int8_type(),
-                "i16" => self.context.int16_type(),
-                "i32" => self.context.int32_type(),
-                "i64" => self.context.int64_type(),
-                "float" => self.context.float_type(),
-                "double" => self.context.double_type(),
-                "label" => self.context.label_type(),
-                "metadata" => self.context.metadata_type(),
-                _ if name.starts_with('i') => {
-                    let bits = name[1..].parse().unwrap();
-                    self.context.int_type(bits)
+        let opcode = match token {
+            Token::Ret => { self.advance(); Opcode::Ret }
+            Token::Br => { self.advance(); Opcode::Br }
+            Token::Switch => { self.advance(); Opcode::Switch }
+            Token::IndirectBr => { self.advance(); Opcode::IndirectBr }
+            Token::Invoke => { self.advance(); Opcode::Invoke }
+            Token::Resume => { self.advance(); Opcode::Resume }
+            Token::Unreachable => { self.advance(); Opcode::Unreachable }
+            Token::CleanupRet => { self.advance(); Opcode::CleanupRet }
+            Token::CatchRet => { self.advance(); Opcode::CatchRet }
+            Token::CatchSwitch => { self.advance(); Opcode::CatchSwitch }
+            Token::CallBr => { self.advance(); Opcode::CallBr }
+            Token::FNeg => { self.advance(); Opcode::FNeg }
+            Token::Add => { self.advance(); Opcode::Add }
+            Token::FAdd => { self.advance(); Opcode::FAdd }
+            Token::Sub => { self.advance(); Opcode::Sub }
+            Token::FSub => { self.advance(); Opcode::FSub }
+            Token::Mul => { self.advance(); Opcode::Mul }
+            Token::FMul => { self.advance(); Opcode::FMul }
+            Token::UDiv => { self.advance(); Opcode::UDiv }
+            Token::SDiv => { self.advance(); Opcode::SDiv }
+            Token::FDiv => { self.advance(); Opcode::FDiv }
+            Token::URem => { self.advance(); Opcode::URem }
+            Token::SRem => { self.advance(); Opcode::SRem }
+            Token::FRem => { self.advance(); Opcode::FRem }
+            Token::Shl => { self.advance(); Opcode::Shl }
+            Token::LShr => { self.advance(); Opcode::LShr }
+            Token::AShr => { self.advance(); Opcode::AShr }
+            Token::And => { self.advance(); Opcode::And }
+            Token::Or => { self.advance(); Opcode::Or }
+            Token::Xor => { self.advance(); Opcode::Xor }
+            Token::ExtractElement => { self.advance(); Opcode::ExtractElement }
+            Token::InsertElement => { self.advance(); Opcode::InsertElement }
+            Token::ShuffleVector => { self.advance(); Opcode::ShuffleVector }
+            Token::ExtractValue => { self.advance(); Opcode::ExtractValue }
+            Token::InsertValue => { self.advance(); Opcode::InsertValue }
+            Token::Alloca => { self.advance(); Opcode::Alloca }
+            Token::Load => { self.advance(); Opcode::Load }
+            Token::Store => { self.advance(); Opcode::Store }
+            Token::GetElementPtr => { self.advance(); Opcode::GetElementPtr }
+            Token::Fence => { self.advance(); Opcode::Fence }
+            Token::AtomicCmpXchg => { self.advance(); Opcode::AtomicCmpXchg }
+            Token::AtomicRMW => { self.advance(); Opcode::AtomicRMW }
+            Token::Trunc => { self.advance(); Opcode::Trunc }
+            Token::ZExt => { self.advance(); Opcode::ZExt }
+            Token::SExt => { self.advance(); Opcode::SExt }
+            Token::FPToUI => { self.advance(); Opcode::FPToUI }
+            Token::FPToSI => { self.advance(); Opcode::FPToSI }
+            Token::UIToFP => { self.advance(); Opcode::UIToFP }
+            Token::SIToFP => { self.advance(); Opcode::SIToFP }
+            Token::FPTrunc => { self.advance(); Opcode::FPTrunc }
+            Token::FPExt => { self.advance(); Opcode::FPExt }
+            Token::PtrToInt => { self.advance(); Opcode::PtrToInt }
+            Token::IntToPtr => { self.advance(); Opcode::IntToPtr }
+            Token::BitCast => { self.advance(); Opcode::BitCast }
+            Token::AddrSpaceCast => { self.advance(); Opcode::AddrSpaceCast }
+            Token::ICmp => { self.advance(); Opcode::ICmp }
+            Token::FCmp => { self.advance(); Opcode::FCmp }
+            Token::Phi => { self.advance(); Opcode::PHI }
+            Token::Call => { self.advance(); Opcode::Call }
+            Token::Select => { self.advance(); Opcode::Select }
+            Token::VAArg => { self.advance(); Opcode::VAArg }
+            Token::LandingPad => { self.advance(); Opcode::LandingPad }
+            _ => return Ok(None),
+        };
+
+        Ok(Some(opcode))
+    }
+
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<Vec<Value>> {
+        let mut operands = Vec::new();
+
+        // Parse based on instruction type
+        match opcode {
+            Opcode::Ret => {
+                // ret void or ret type value
+                if self.match_token(&Token::Void) {
+                    // void return
+                } else {
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
                 }
-                _ => return Err(ParseError::UnknownType {
-                    type_name: name.clone(),
-                    line: self.line,
-                }),
-            };
+            }
+            Opcode::Br => {
+                // br label %dest or br i1 %cond, label %iftrue, label %iffalse
+                if self.match_token(&Token::Label) {
+                    let _dest = self.expect_local_ident()?;
+                } else {
+                    let _cond_ty = self.parse_type()?;
+                    let _cond = self.parse_value()?;
+                    self.consume(&Token::Comma)?;
+                    self.consume(&Token::Label)?;
+                    let _true_dest = self.expect_local_ident()?;
+                    self.consume(&Token::Comma)?;
+                    self.consume(&Token::Label)?;
+                    let _false_dest = self.expect_local_ident()?;
+                }
+            }
+            Opcode::Call => {
+                // call type @func(args...)
+                let _ret_ty = self.parse_type()?;
+                let _func = self.parse_value()?;
+                self.consume(&Token::LParen)?;
+                let _args = self.parse_call_arguments()?;
+                self.consume(&Token::RParen)?;
+            }
+            Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
+            Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
+            Opcode::And | Opcode::Or | Opcode::Xor |
+            Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
+                // Binary ops: op [flags] type op1, op2
+                self.skip_instruction_flags();
+                let _ty = self.parse_type()?;
+                let _op1 = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _op2 = self.parse_value()?;
+            }
+            Opcode::Alloca => {
+                // alloca type [, align ...]
+                let _ty = self.parse_type()?;
+                // Skip alignment and other attributes
+                while self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+            Opcode::Load => {
+                // load type, ptr %ptr [, align ...]
+                let _ty = self.parse_type()?;
+                self.consume(&Token::Comma)?;
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                // Skip attributes
+                self.skip_load_store_attributes();
+            }
+            Opcode::Store => {
+                // store type %val, ptr %ptr [, align ...]
+                let _val_ty = self.parse_type()?;
+                let _val = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                // Skip attributes
+                self.skip_load_store_attributes();
+            }
+            Opcode::GetElementPtr => {
+                // getelementptr [inbounds] type, ptr %ptr, indices...
+                self.match_token(&Token::Inbounds);
+                let _ty = self.parse_type()?;
+                self.consume(&Token::Comma)?;
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                // Parse indices
+                while self.match_token(&Token::Comma) {
+                    let _idx_ty = self.parse_type()?;
+                    let _idx = self.parse_value()?;
+                }
+            }
+            Opcode::ICmp | Opcode::FCmp => {
+                // icmp/fcmp predicate type op1, op2
+                self.parse_comparison_predicate()?;
+                let _ty = self.parse_type()?;
+                let _op1 = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _op2 = self.parse_value()?;
+            }
+            Opcode::PHI => {
+                // phi type [ val1, %bb1 ], [ val2, %bb2 ], ...
+                let _ty = self.parse_type()?;
+                while !self.is_at_end() {
+                    if !self.match_token(&Token::LBracket) {
+                        break;
+                    }
+                    let _val = self.parse_value()?;
+                    self.consume(&Token::Comma)?;
+                    let _bb = self.expect_local_ident()?;
+                    self.consume(&Token::RBracket)?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+            }
+            Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt |
+            Opcode::FPToUI | Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
+            Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast | Opcode::AddrSpaceCast => {
+                // cast type1 %val to type2
+                let _src_ty = self.parse_type()?;
+                let _val = self.parse_value()?;
+                self.consume(&Token::To)?;
+                let _dest_ty = self.parse_type()?;
+            }
+            Opcode::Select => {
+                // select i1 %cond, type %val1, type %val2
+                let _cond_ty = self.parse_type()?;
+                let _cond = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _ty1 = self.parse_type()?;
+                let _val1 = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _ty2 = self.parse_type()?;
+                let _val2 = self.parse_value()?;
+            }
+            _ => {
+                // For other instructions, skip to end of line or next instruction
+                // This is a simplified approach
+            }
+        }
 
-            Ok(ty)
+        Ok(operands)
+    }
+
+    fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
+        // Parse comparison predicate (eq, ne, ugt, etc.)
+        if self.match_token(&Token::Eq) || self.match_token(&Token::Ne) ||
+           self.match_token(&Token::Ugt) || self.match_token(&Token::Uge) ||
+           self.match_token(&Token::Ult) || self.match_token(&Token::Ule) ||
+           self.match_token(&Token::Sgt) || self.match_token(&Token::Sge) ||
+           self.match_token(&Token::Slt) || self.match_token(&Token::Sle) ||
+           self.match_token(&Token::Oeq) || self.match_token(&Token::Ogt) ||
+           self.match_token(&Token::Oge) || self.match_token(&Token::Olt) ||
+           self.match_token(&Token::Ole) || self.match_token(&Token::One) ||
+           self.match_token(&Token::Ord) || self.match_token(&Token::Uno) ||
+           self.match_token(&Token::Ueq) {
+            Ok(())
         } else {
             Err(ParseError::InvalidSyntax {
-                message: "Expected type".to_string(),
-                line: self.line,
+                message: "Expected comparison predicate".to_string(),
+                position: self.current,
             })
         }
     }
 
-    fn parse_parameter_list(&mut self) -> ParseResult<Vec<(Type, String)>> {
+    fn parse_call_arguments(&mut self) -> ParseResult<Vec<(Type, Value)>> {
+        let mut args = Vec::new();
+
+        while !self.check(&Token::RParen) && !self.is_at_end() {
+            let ty = self.parse_type()?;
+            let val = self.parse_value()?;
+            args.push((ty, val));
+
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+        }
+
+        Ok(args)
+    }
+
+    fn parse_type(&mut self) -> ParseResult<Type> {
+        let token = self.peek().cloned().ok_or(ParseError::UnexpectedEOF)?;
+
+        match token {
+            Token::Void => {
+                self.advance();
+                Ok(self.context.void_type())
+            }
+            Token::IntType(bits) => {
+                self.advance();
+                Ok(self.context.int_type(bits))
+            }
+            Token::Half | Token::Bfloat | Token::Float | Token::Double |
+            Token::X86_fp80 | Token::Fp128 | Token::Ppc_fp128 => {
+                let is_half = matches!(token, Token::Half);
+                let is_double = matches!(token, Token::Double);
+                self.advance();
+                if is_half {
+                    Ok(self.context.half_type())
+                } else if is_double {
+                    Ok(self.context.double_type())
+                } else {
+                    Ok(self.context.float_type())
+                }
+            }
+            Token::Ptr => {
+                self.advance();
+                // Modern LLVM uses opaque pointers (ptr)
+                Ok(self.context.ptr_type(self.context.int8_type()))
+            }
+            Token::Label => {
+                self.advance();
+                Ok(self.context.label_type())
+            }
+            Token::Metadata => {
+                self.advance();
+                Ok(self.context.metadata_type())
+            }
+            Token::LBracket => {
+                // Array type: [ size x type ]
+                self.advance();
+                let size = if let Some(Token::Integer(n)) = self.peek() {
+                    let size = *n as u64;
+                    self.advance();
+                    size
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "Expected array size".to_string(),
+                        position: self.current,
+                    });
+                };
+                self.consume(&Token::X)?; // 'x'
+                let elem_ty = self.parse_type()?;
+                self.consume(&Token::RBracket)?;
+                Ok(self.context.array_type(elem_ty, size as usize))
+            }
+            Token::LBrace => {
+                // Struct type: { type1, type2, ... }
+                self.advance();
+                let mut field_types = Vec::new();
+                while !self.check(&Token::RBrace) && !self.is_at_end() {
+                    let ty = self.parse_type()?;
+                    field_types.push(ty);
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RBrace)?;
+                Ok(crate::types::Type::struct_type(&self.context, field_types, None))
+            }
+            Token::LAngle => {
+                // Vector type: < size x type >
+                self.advance();
+                let size = if let Some(Token::Integer(n)) = self.peek() {
+                    let size = *n as u64;
+                    self.advance();
+                    size
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "Expected vector size".to_string(),
+                        position: self.current,
+                    });
+                };
+                self.consume(&Token::X)?; // 'x'
+                let elem_ty = self.parse_type()?;
+                self.consume(&Token::RAngle)?;
+                Ok(self.context.vector_type(elem_ty, size as usize))
+            }
+            Token::LocalIdent(_) => {
+                // Type reference like %TypeName
+                self.advance();
+                // For now, treat as opaque type
+                Ok(self.context.void_type())
+            }
+            _ => {
+                Err(ParseError::UnknownType {
+                    type_name: format!("{:?}", token),
+                    position: self.current,
+                })
+            }
+        }
+    }
+
+    fn parse_value(&mut self) -> ParseResult<Value> {
+        let token = self.peek().ok_or(ParseError::UnexpectedEOF)?;
+
+        match token {
+            Token::LocalIdent(name) => {
+                let name = name.clone();
+                self.advance();
+                // Create a placeholder instruction value for local variables
+                Ok(Value::instruction(self.context.void_type(), Opcode::Add, Some(name)))
+            }
+            Token::GlobalIdent(name) => {
+                let name = name.clone();
+                self.advance();
+                // Create a global variable value
+                Ok(Value::new(self.context.void_type(), crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
+            }
+            Token::Integer(n) => {
+                let n = *n;
+                self.advance();
+                Ok(Value::const_int(self.context.int32_type(), n as i64, None))
+            }
+            Token::Float64(f) => {
+                let f = *f;
+                self.advance();
+                Ok(Value::const_float(self.context.double_type(), f, None))
+            }
+            Token::True => {
+                self.advance();
+                Ok(Value::const_int(self.context.bool_type(), 1, None))
+            }
+            Token::False => {
+                self.advance();
+                Ok(Value::const_int(self.context.bool_type(), 0, None))
+            }
+            Token::Null => {
+                self.advance();
+                Ok(Value::const_null(self.context.ptr_type(self.context.int8_type())))
+            }
+            Token::Undef => {
+                self.advance();
+                Ok(Value::undef(self.context.void_type()))
+            }
+            Token::Zeroinitializer => {
+                self.advance();
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
+            _ => {
+                Err(ParseError::InvalidSyntax {
+                    message: format!("Expected value, found {:?}", token),
+                    position: self.current,
+                })
+            }
+        }
+    }
+
+    fn parse_parameters(&mut self) -> ParseResult<Vec<(Type, String)>> {
         let mut params = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             let ty = self.parse_type()?;
+
+            // Parse parameter attributes (readonly, etc.)
+            self.skip_parameter_attributes();
+
             let name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
                 self.advance();
                 n
@@ -405,56 +758,166 @@ impl Parser {
         Ok(params)
     }
 
-    fn parse_opcode(&self, opcode_str: &str) -> ParseResult<Opcode> {
-        match opcode_str {
-            "add" => Ok(Opcode::Add),
-            "sub" => Ok(Opcode::Sub),
-            "mul" => Ok(Opcode::Mul),
-            "sdiv" => Ok(Opcode::SDiv),
-            "udiv" => Ok(Opcode::UDiv),
-            "srem" => Ok(Opcode::SRem),
-            "urem" => Ok(Opcode::URem),
-            "fadd" => Ok(Opcode::FAdd),
-            "fsub" => Ok(Opcode::FSub),
-            "fmul" => Ok(Opcode::FMul),
-            "fdiv" => Ok(Opcode::FDiv),
-            "frem" => Ok(Opcode::FRem),
-            "and" => Ok(Opcode::And),
-            "or" => Ok(Opcode::Or),
-            "xor" => Ok(Opcode::Xor),
-            "shl" => Ok(Opcode::Shl),
-            "lshr" => Ok(Opcode::LShr),
-            "ashr" => Ok(Opcode::AShr),
-            "icmp" => Ok(Opcode::ICmp),
-            "fcmp" => Ok(Opcode::FCmp),
-            "phi" => Ok(Opcode::PHI),
-            "call" => Ok(Opcode::Call),
-            "alloca" => Ok(Opcode::Alloca),
-            "load" => Ok(Opcode::Load),
-            "store" => Ok(Opcode::Store),
-            "getelementptr" => Ok(Opcode::GetElementPtr),
-            "trunc" => Ok(Opcode::Trunc),
-            "zext" => Ok(Opcode::ZExt),
-            "sext" => Ok(Opcode::SExt),
-            "fptrunc" => Ok(Opcode::FPTrunc),
-            "fpext" => Ok(Opcode::FPExt),
-            "fptoui" => Ok(Opcode::FPToUI),
-            "fptosi" => Ok(Opcode::FPToSI),
-            "uitofp" => Ok(Opcode::UIToFP),
-            "sitofp" => Ok(Opcode::SIToFP),
-            "ptrtoint" => Ok(Opcode::PtrToInt),
-            "inttoptr" => Ok(Opcode::IntToPtr),
-            "bitcast" => Ok(Opcode::BitCast),
-            "select" => Ok(Opcode::Select),
-            "extractvalue" => Ok(Opcode::ExtractValue),
-            "insertvalue" => Ok(Opcode::InsertValue),
-            "extractelement" => Ok(Opcode::ExtractElement),
-            "insertelement" => Ok(Opcode::InsertElement),
-            "shufflevector" => Ok(Opcode::ShuffleVector),
-            _ => Err(ParseError::UnknownInstruction {
-                opcode: opcode_str.to_string(),
-                line: self.line,
-            }),
+    fn parse_parameter_types(&mut self) -> ParseResult<Vec<Type>> {
+        let mut types = Vec::new();
+
+        while !self.check(&Token::RParen) && !self.is_at_end() {
+            // Check for varargs
+            if self.check(&Token::Ellipsis) {
+                self.advance();
+                break;
+            }
+
+            let ty = self.parse_type()?;
+            types.push(ty);
+
+            // Skip parameter attributes
+            self.skip_parameter_attributes();
+
+            // Skip local ident if present
+            if self.check_local_ident() {
+                self.advance();
+            }
+
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+        }
+
+        Ok(types)
+    }
+
+    // Helper methods
+
+    fn skip_linkage_and_visibility(&mut self) {
+        while self.match_token(&Token::Private) ||
+              self.match_token(&Token::Internal) ||
+              self.match_token(&Token::External) ||
+              self.match_token(&Token::Weak) ||
+              self.match_token(&Token::Linkonce) ||
+              self.match_token(&Token::Common) ||
+              self.match_token(&Token::Appending) ||
+              self.match_token(&Token::Hidden) ||
+              self.match_token(&Token::Protected) ||
+              self.match_token(&Token::Default) ||
+              self.match_token(&Token::Dllimport) ||
+              self.match_token(&Token::Dllexport) ||
+              self.match_token(&Token::Unnamed_addr) {
+            // Keep consuming
+        }
+    }
+
+    fn skip_attributes(&mut self) {
+        while self.check(&Token::Hash) || self.check_attr_group_id() {
+            self.advance();
+        }
+    }
+
+    fn skip_parameter_attributes(&mut self) {
+        // Skip attributes like readonly, nonnull, etc.
+        while !self.is_at_end() {
+            if self.check_local_ident() || self.check(&Token::Comma) ||
+               self.check(&Token::RParen) || self.check_type_token() {
+                break;
+            }
+            self.advance();
+        }
+    }
+
+    fn skip_function_attributes(&mut self) {
+        // Skip function attributes like noinline, alwaysinline, etc.
+        while !self.is_at_end() && !self.check(&Token::LBrace) {
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+            } else {
+                break;
+            }
+        }
+    }
+
+    fn skip_instruction_flags(&mut self) {
+        while self.match_token(&Token::Nuw) ||
+              self.match_token(&Token::Nsw) ||
+              self.match_token(&Token::Exact) {
+            // Continue
+        }
+    }
+
+    fn skip_load_store_attributes(&mut self) {
+        while self.match_token(&Token::Comma) {
+            if self.match_token(&Token::Align) {
+                if let Some(Token::Integer(_)) = self.peek() {
+                    self.advance();
+                }
+            } else if self.match_token(&Token::Volatile) {
+                // consumed
+            } else {
+                self.current -= 1; // put back the comma
+                break;
+            }
+        }
+    }
+
+    fn skip_until_newline_or_semicolon(&mut self) {
+        // Skip metadata and other directives we don't parse yet
+        while !self.is_at_end() {
+            let token = self.peek().unwrap();
+            if matches!(token, Token::Define | Token::Declare | Token::Global | Token::Target | Token::Source_filename)
+                || self.check_global_ident() {
+                break;
+            }
+            self.advance();
+        }
+    }
+
+    fn check_type_token(&self) -> bool {
+        matches!(self.peek(), Some(Token::Void) | Some(Token::IntType(_)) |
+                 Some(Token::Half) | Some(Token::Float) | Some(Token::Double) |
+                 Some(Token::Ptr) | Some(Token::Label) | Some(Token::LBracket) |
+                 Some(Token::LBrace) | Some(Token::LAngle))
+    }
+
+    fn check_local_ident(&self) -> bool {
+        matches!(self.peek(), Some(Token::LocalIdent(_)))
+    }
+
+    fn check_global_ident(&self) -> bool {
+        matches!(self.peek(), Some(Token::GlobalIdent(_)))
+    }
+
+    fn check_attr_group_id(&self) -> bool {
+        matches!(self.peek(), Some(Token::AttrGroupId(_)))
+    }
+
+    fn peek_global_ident(&self) -> Option<String> {
+        if let Some(Token::GlobalIdent(name)) = self.peek() {
+            Some(name.clone())
+        } else {
+            None
+        }
+    }
+
+    fn expect_global_ident(&mut self) -> ParseResult<String> {
+        if let Some(Token::GlobalIdent(name)) = self.peek().cloned() {
+            self.advance();
+            Ok(name)
+        } else {
+            Err(ParseError::InvalidSyntax {
+                message: "Expected global identifier".to_string(),
+                position: self.current,
+            })
+        }
+    }
+
+    fn expect_local_ident(&mut self) -> ParseResult<String> {
+        if let Some(Token::LocalIdent(name)) = self.peek().cloned() {
+            self.advance();
+            Ok(name)
+        } else {
+            Err(ParseError::InvalidSyntax {
+                message: "Expected local identifier".to_string(),
+                position: self.current,
+            })
         }
     }
 
@@ -468,19 +931,15 @@ impl Parser {
         self.tokens.get(self.current + n)
     }
 
-    fn advance(&mut self) -> &Token {
+    fn advance(&mut self) -> Option<&Token> {
         if !self.is_at_end() {
             self.current += 1;
         }
-        self.previous()
-    }
-
-    fn previous(&self) -> &Token {
-        &self.tokens[self.current - 1]
+        self.tokens.get(self.current - 1)
     }
 
     fn is_at_end(&self) -> bool {
-        matches!(self.peek(), Some(Token::EOF))
+        matches!(self.peek(), Some(Token::EOF) | None)
     }
 
     fn match_token(&mut self, token: &Token) -> bool {
@@ -507,7 +966,7 @@ impl Parser {
             Err(ParseError::UnexpectedToken {
                 expected: format!("{:?}", token),
                 found: format!("{:?}", self.peek()),
-                line: self.line,
+                position: self.current,
             })
         }
     }
@@ -534,14 +993,21 @@ mod tests {
         "#;
 
         let result = parse(source, ctx);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
+        let module = result.unwrap();
+        assert_eq!(module.function_count(), 1);
     }
 
     #[test]
-    fn test_parse_empty_module() {
+    fn test_parse_function_with_return() {
         let ctx = Context::new();
-        let source = "";
+        let source = r#"
+            define i32 @foo() {
+                ret i32 42
+            }
+        "#;
+
         let result = parse(source, ctx);
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "Parse failed: {:?}", result.err());
     }
 }
