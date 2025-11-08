@@ -92,4 +92,24 @@ impl Context {
     pub fn function_type(&self, return_type: crate::types::Type, param_types: Vec<crate::types::Type>, is_var_arg: bool) -> crate::types::Type {
         crate::types::Type::function(self, return_type, param_types, is_var_arg)
     }
+
+    /// Get a vector type
+    pub fn vector_type(&self, element: crate::types::Type, size: usize) -> crate::types::Type {
+        crate::types::Type::vector(self, element, size)
+    }
+
+    /// Get a label type
+    pub fn label_type(&self) -> crate::types::Type {
+        crate::types::Type::label(self)
+    }
+
+    /// Get a token type
+    pub fn token_type(&self) -> crate::types::Type {
+        crate::types::Type::token(self)
+    }
+
+    /// Get a metadata type
+    pub fn metadata_type(&self) -> crate::types::Type {
+        crate::types::Type::metadata(self)
+    }
 }

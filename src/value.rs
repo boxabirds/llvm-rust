@@ -28,6 +28,18 @@ pub(crate) enum ValueKind {
     ConstantNull,
     /// An undefined value
     Undef,
+    /// A poison value
+    Poison,
+    /// A constant array
+    ConstantArray { elements: Vec<Value> },
+    /// A constant struct
+    ConstantStruct { fields: Vec<Value> },
+    /// A constant vector
+    ConstantVector { elements: Vec<Value> },
+    /// Zero initializer
+    ZeroInitializer,
+    /// A constant expression
+    ConstantExpr { opcode: crate::instruction::Opcode, operands: Vec<Value> },
     /// A function argument
     Argument { index: usize },
     /// An instruction (reference to instruction data)
@@ -38,6 +50,8 @@ pub(crate) enum ValueKind {
     Function,
     /// A global variable
     GlobalVariable { is_constant: bool },
+    /// Block address
+    BlockAddress { function: Box<Value>, block: Box<Value> },
 }
 
 impl Value {
@@ -63,7 +77,14 @@ impl Value {
             ValueKind::ConstantInt { .. } |
             ValueKind::ConstantFloat { .. } |
             ValueKind::ConstantNull |
-            ValueKind::Undef
+            ValueKind::Undef |
+            ValueKind::Poison |
+            ValueKind::ConstantArray { .. } |
+            ValueKind::ConstantStruct { .. } |
+            ValueKind::ConstantVector { .. } |
+            ValueKind::ZeroInitializer |
+            ValueKind::ConstantExpr { .. } |
+            ValueKind::BlockAddress { .. }
         )
     }
 
@@ -97,6 +118,48 @@ impl Value {
         Self::new(ty, ValueKind::Undef, None)
     }
 
+    /// Create a poison value
+    pub fn poison(ty: Type) -> Self {
+        Self::new(ty, ValueKind::Poison, None)
+    }
+
+    /// Create a constant array
+    pub fn const_array(ty: Type, elements: Vec<Value>) -> Self {
+        assert!(ty.is_array(), "const_array requires an array type");
+        Self::new(ty, ValueKind::ConstantArray { elements }, None)
+    }
+
+    /// Create a constant struct
+    pub fn const_struct(ty: Type, fields: Vec<Value>) -> Self {
+        assert!(ty.is_struct(), "const_struct requires a struct type");
+        Self::new(ty, ValueKind::ConstantStruct { fields }, None)
+    }
+
+    /// Create a constant vector
+    pub fn const_vector(ty: Type, elements: Vec<Value>) -> Self {
+        assert!(ty.is_vector(), "const_vector requires a vector type");
+        Self::new(ty, ValueKind::ConstantVector { elements }, None)
+    }
+
+    /// Create a zero initializer
+    pub fn zero_initializer(ty: Type) -> Self {
+        Self::new(ty, ValueKind::ZeroInitializer, None)
+    }
+
+    /// Create a constant expression
+    pub fn const_expr(ty: Type, opcode: crate::instruction::Opcode, operands: Vec<Value>) -> Self {
+        Self::new(ty, ValueKind::ConstantExpr { opcode, operands }, None)
+    }
+
+    /// Create a block address constant
+    pub fn block_address(ty: Type, function: Value, block: Value) -> Self {
+        assert!(ty.is_pointer(), "block_address requires a pointer type");
+        Self::new(ty, ValueKind::BlockAddress {
+            function: Box::new(function),
+            block: Box::new(block),
+        }, None)
+    }
+
     /// Create a function argument value
     pub fn argument(ty: Type, index: usize, name: Option<String>) -> Self {
         Self::new(ty, ValueKind::Argument { index }, name)
@@ -126,6 +189,51 @@ impl fmt::Display for Value {
             }
             ValueKind::ConstantNull => write!(f, "null"),
             ValueKind::Undef => write!(f, "undef"),
+            ValueKind::Poison => write!(f, "poison"),
+            ValueKind::ZeroInitializer => write!(f, "zeroinitializer"),
+            ValueKind::ConstantArray { elements } => {
+                write!(f, "[")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{} {}", elem.get_type(), elem)?;
+                }
+                write!(f, "]")
+            }
+            ValueKind::ConstantStruct { fields } => {
+                write!(f, "{{ ")?;
+                for (i, field) in fields.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{} {}", field.get_type(), field)?;
+                }
+                write!(f, " }}")
+            }
+            ValueKind::ConstantVector { elements } => {
+                write!(f, "<")?;
+                for (i, elem) in elements.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{} {}", elem.get_type(), elem)?;
+                }
+                write!(f, ">")
+            }
+            ValueKind::ConstantExpr { opcode, operands } => {
+                write!(f, "{:?}(", opcode)?;
+                for (i, op) in operands.iter().enumerate() {
+                    if i > 0 {
+                        write!(f, ", ")?;
+                    }
+                    write!(f, "{} {}", op.get_type(), op)?;
+                }
+                write!(f, ")")
+            }
+            ValueKind::BlockAddress { function, block } => {
+                write!(f, "blockaddress({}, {})", function, block)
+            }
             ValueKind::Argument { index } => {
                 if let Some(name) = &self.data.name {
                     write!(f, "%{}", name)

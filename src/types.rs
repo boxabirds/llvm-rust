@@ -25,8 +25,12 @@ pub(crate) enum TypeData {
     Float { kind: FloatKind },
     Pointer { pointee: Type },
     Array { element: Type, size: usize },
-    Struct { fields: Vec<Type>, name: Option<String> },
+    Vector { element: Type, size: usize },
+    Struct { fields: Vec<Type>, name: Option<String>, packed: bool },
     Function { return_type: Type, param_types: Vec<Type>, is_var_arg: bool },
+    Label,
+    Token,
+    Metadata,
 }
 
 /// Floating point type kinds
@@ -104,16 +108,44 @@ impl Type {
     }
 
     pub fn struct_type(ctx: &crate::Context, fields: Vec<Type>, name: Option<String>) -> Self {
+        Self::struct_type_packed(ctx, fields, name, false)
+    }
+
+    pub fn struct_type_packed(ctx: &crate::Context, fields: Vec<Type>, name: Option<String>, packed: bool) -> Self {
         let fields_str = fields.iter()
             .map(|t| format!("{}", t))
             .collect::<Vec<_>>()
             .join(", ");
         let key = if let Some(ref n) = name {
-            format!("struct {} {{ {} }}", n, fields_str)
+            format!("struct {} {{ {} }}{}", n, fields_str, if packed { " packed" } else { "" })
         } else {
-            format!("{{ {} }}", fields_str)
+            format!("{{ {} }}{}", fields_str, if packed { " packed" } else { "" })
         };
-        let data = ctx.intern_type(key, TypeData::Struct { fields: fields.clone(), name: name.clone() });
+        let data = ctx.intern_type(key, TypeData::Struct { fields: fields.clone(), name: name.clone(), packed });
+        Self { data }
+    }
+
+    pub fn vector(ctx: &crate::Context, element: Type, size: usize) -> Self {
+        let key = format!("<{} x {}>", size, element);
+        let data = ctx.intern_type(key, TypeData::Vector { element: element.clone(), size });
+        Self { data }
+    }
+
+    pub fn label(ctx: &crate::Context) -> Self {
+        let key = "label".to_string();
+        let data = ctx.intern_type(key, TypeData::Label);
+        Self { data }
+    }
+
+    pub fn token(ctx: &crate::Context) -> Self {
+        let key = "token".to_string();
+        let data = ctx.intern_type(key, TypeData::Token);
+        Self { data }
+    }
+
+    pub fn metadata(ctx: &crate::Context) -> Self {
+        let key = "metadata".to_string();
+        let data = ctx.intern_type(key, TypeData::Metadata);
         Self { data }
     }
 
@@ -147,6 +179,22 @@ impl Type {
         matches!(&*self.data, TypeData::Function { .. })
     }
 
+    pub fn is_vector(&self) -> bool {
+        matches!(&*self.data, TypeData::Vector { .. })
+    }
+
+    pub fn is_label(&self) -> bool {
+        matches!(&*self.data, TypeData::Label)
+    }
+
+    pub fn is_token(&self) -> bool {
+        matches!(&*self.data, TypeData::Token)
+    }
+
+    pub fn is_metadata(&self) -> bool {
+        matches!(&*self.data, TypeData::Metadata)
+    }
+
     /// Get the bit width of an integer type
     pub fn int_width(&self) -> Option<u32> {
         match &*self.data {
@@ -170,6 +218,14 @@ impl Type {
             _ => None,
         }
     }
+
+    /// Get the element type and size of a vector
+    pub fn vector_info(&self) -> Option<(&Type, usize)> {
+        match &*self.data {
+            TypeData::Vector { element, size } => Some((element, *size)),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Type {
@@ -184,18 +240,27 @@ impl fmt::Display for Type {
             },
             TypeData::Pointer { pointee } => write!(f, "{}*", pointee),
             TypeData::Array { element, size } => write!(f, "[{} x {}]", size, element),
-            TypeData::Struct { fields, name } => {
+            TypeData::Vector { element, size } => write!(f, "<{} x {}>", size, element),
+            TypeData::Struct { fields, name, packed } => {
                 if let Some(n) = name {
                     write!(f, "%{}", n)
                 } else {
-                    write!(f, "{{ ")?;
+                    if *packed {
+                        write!(f, "<{{ ")?;
+                    } else {
+                        write!(f, "{{ ")?;
+                    }
                     for (i, field) in fields.iter().enumerate() {
                         if i > 0 {
                             write!(f, ", ")?;
                         }
                         write!(f, "{}", field)?;
                     }
-                    write!(f, " }}")
+                    if *packed {
+                        write!(f, " }}>")
+                    } else {
+                        write!(f, " }}")
+                    }
                 }
             }
             TypeData::Function { return_type, param_types, is_var_arg } => {
@@ -214,6 +279,9 @@ impl fmt::Display for Type {
                 }
                 write!(f, ")")
             }
+            TypeData::Label => write!(f, "label"),
+            TypeData::Token => write!(f, "token"),
+            TypeData::Metadata => write!(f, "metadata"),
         }
     }
 }

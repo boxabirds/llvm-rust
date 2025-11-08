@@ -17,24 +17,38 @@ pub struct Instruction {
 /// Instruction opcodes
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Opcode {
-    // Terminator instructions
+    // Terminator instructions (7)
     Ret,
     Br,
     CondBr,
     Switch,
     IndirectBr,
+    Invoke,
+    Resume,
     Unreachable,
+    CleanupRet,
+    CatchRet,
+    CatchSwitch,
+    CallBr,
 
-    // Binary operations
+    // Unary operations (1)
+    FNeg,
+
+    // Binary operations (28)
     Add,
+    FAdd,
     Sub,
+    FSub,
     Mul,
+    FMul,
     UDiv,
     SDiv,
+    FDiv,
     URem,
     SRem,
+    FRem,
 
-    // Bitwise operations
+    // Bitwise binary operations (6)
     Shl,
     LShr,
     AShr,
@@ -42,43 +56,52 @@ pub enum Opcode {
     Or,
     Xor,
 
-    // Floating point operations
-    FAdd,
-    FSub,
-    FMul,
-    FDiv,
-    FRem,
+    // Vector operations (3)
+    ExtractElement,
+    InsertElement,
+    ShuffleVector,
 
-    // Memory operations
+    // Aggregate operations (4)
+    ExtractValue,
+    InsertValue,
+
+    // Memory addressing and access (5)
     Alloca,
     Load,
     Store,
     GetElementPtr,
+    Fence,
+    AtomicCmpXchg,
+    AtomicRMW,
 
-    // Comparison operations
-    ICmp,
-    FCmp,
-
-    // Conversion operations
+    // Conversion operations (14)
     Trunc,
     ZExt,
     SExt,
-    FPTrunc,
-    FPExt,
     FPToUI,
     FPToSI,
     UIToFP,
     SIToFP,
+    FPTrunc,
+    FPExt,
     PtrToInt,
     IntToPtr,
     BitCast,
+    AddrSpaceCast,
 
-    // Other operations
+    // Other operations (11)
+    ICmp,
+    FCmp,
     PHI,
     Call,
     Select,
-    ExtractValue,
-    InsertValue,
+    UserOp1,
+    UserOp2,
+    VAArg,
+    LandingPad,
+    CleanupPad,
+    CatchPad,
+    Freeze,
 }
 
 impl Instruction {
@@ -114,27 +137,69 @@ impl Instruction {
             Opcode::CondBr |
             Opcode::Switch |
             Opcode::IndirectBr |
-            Opcode::Unreachable
+            Opcode::Invoke |
+            Opcode::Resume |
+            Opcode::Unreachable |
+            Opcode::CleanupRet |
+            Opcode::CatchRet |
+            Opcode::CatchSwitch |
+            Opcode::CallBr
         )
     }
 
     /// Check if this is a binary operation
     pub fn is_binary_op(&self) -> bool {
         matches!(self.opcode,
-            Opcode::Add | Opcode::Sub | Opcode::Mul |
-            Opcode::UDiv | Opcode::SDiv | Opcode::URem | Opcode::SRem |
+            Opcode::Add | Opcode::FAdd |
+            Opcode::Sub | Opcode::FSub |
+            Opcode::Mul | Opcode::FMul |
+            Opcode::UDiv | Opcode::SDiv | Opcode::FDiv |
+            Opcode::URem | Opcode::SRem | Opcode::FRem |
             Opcode::Shl | Opcode::LShr | Opcode::AShr |
-            Opcode::And | Opcode::Or | Opcode::Xor |
-            Opcode::FAdd | Opcode::FSub | Opcode::FMul |
-            Opcode::FDiv | Opcode::FRem
+            Opcode::And | Opcode::Or | Opcode::Xor
         )
+    }
+
+    /// Check if this is a unary operation
+    pub fn is_unary_op(&self) -> bool {
+        matches!(self.opcode, Opcode::FNeg)
     }
 
     /// Check if this is a memory operation
     pub fn is_memory_op(&self) -> bool {
         matches!(self.opcode,
-            Opcode::Alloca | Opcode::Load | Opcode::Store | Opcode::GetElementPtr
+            Opcode::Alloca | Opcode::Load | Opcode::Store |
+            Opcode::GetElementPtr | Opcode::Fence |
+            Opcode::AtomicCmpXchg | Opcode::AtomicRMW
         )
+    }
+
+    /// Check if this is a cast/conversion operation
+    pub fn is_cast(&self) -> bool {
+        matches!(self.opcode,
+            Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
+            Opcode::FPToUI | Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
+            Opcode::FPTrunc | Opcode::FPExt |
+            Opcode::PtrToInt | Opcode::IntToPtr |
+            Opcode::BitCast | Opcode::AddrSpaceCast
+        )
+    }
+
+    /// Check if this is a comparison operation
+    pub fn is_comparison(&self) -> bool {
+        matches!(self.opcode, Opcode::ICmp | Opcode::FCmp)
+    }
+
+    /// Check if this is a vector operation
+    pub fn is_vector_op(&self) -> bool {
+        matches!(self.opcode,
+            Opcode::ExtractElement | Opcode::InsertElement | Opcode::ShuffleVector
+        )
+    }
+
+    /// Check if this is an aggregate operation
+    pub fn is_aggregate_op(&self) -> bool {
+        matches!(self.opcode, Opcode::ExtractValue | Opcode::InsertValue)
     }
 }
 
@@ -198,6 +263,76 @@ pub enum FloatPredicate {
     ULT, // unordered or less than
     ULE, // unordered or less than or equal
     UNE, // unordered or not equal
+}
+
+/// Atomic ordering constraints
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicOrdering {
+    NotAtomic,
+    Unordered,
+    Monotonic,
+    Acquire,
+    Release,
+    AcquireRelease,
+    SequentiallyConsistent,
+}
+
+/// Atomic read-modify-write operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AtomicRMWBinOp {
+    Xchg,
+    Add,
+    Sub,
+    And,
+    Nand,
+    Or,
+    Xor,
+    Max,
+    Min,
+    UMax,
+    UMin,
+    FAdd,
+    FSub,
+}
+
+/// Fast math flags for floating point operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FastMathFlags {
+    pub allow_reassoc: bool,
+    pub no_nans: bool,
+    pub no_infs: bool,
+    pub no_signed_zeros: bool,
+    pub allow_reciprocal: bool,
+    pub allow_contract: bool,
+    pub approx_func: bool,
+}
+
+impl Default for FastMathFlags {
+    fn default() -> Self {
+        Self {
+            allow_reassoc: false,
+            no_nans: false,
+            no_infs: false,
+            no_signed_zeros: false,
+            allow_reciprocal: false,
+            allow_contract: false,
+            approx_func: false,
+        }
+    }
+}
+
+impl FastMathFlags {
+    pub fn fast() -> Self {
+        Self {
+            allow_reassoc: true,
+            no_nans: true,
+            no_infs: true,
+            no_signed_zeros: true,
+            allow_reciprocal: true,
+            allow_contract: true,
+            approx_func: true,
+        }
+    }
 }
 
 #[cfg(test)]
