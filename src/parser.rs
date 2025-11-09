@@ -1314,7 +1314,8 @@ impl Parser {
                    self.match_token(&Token::Readonly) ||
                    self.match_token(&Token::Writeonly) ||
                    self.match_token(&Token::Swifterror) ||
-                   self.match_token(&Token::Swiftself) {
+                   self.match_token(&Token::Swiftself) ||
+                   self.match_token(&Token::Swiftasync) {
                     continue;
                 }
 
