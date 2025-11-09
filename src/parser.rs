@@ -741,6 +741,11 @@ impl Parser {
                         // Next token is a label definition, not a value - stop here
                         return Ok(operands);
                     }
+                    // Skip parsing value if next token is followed by =, that's a new instruction assignment
+                    if self.peek_ahead(1) == Some(&Token::Equal) {
+                        // Next token is a new instruction, not a return value - stop here
+                        return Ok(operands);
+                    }
                     // If we see a value token (including constant expressions), parse it
                     if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
                                              Some(Token::Integer(_)) | Some(Token::Float64(_)) |
@@ -876,6 +881,9 @@ impl Parser {
                     }
                     self.match_token(&Token::RBracket);
                 }
+
+                // Skip function attributes that may appear after arguments (nounwind, readonly, etc.)
+                self.skip_function_attributes();
             }
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
             Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
