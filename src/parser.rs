@@ -731,11 +731,33 @@ impl Parser {
         match opcode {
             Opcode::Ret => {
                 // ret void or ret type value
-                if self.match_token(&Token::Void) {
-                    // void return
-                } else {
+                // Parse type first (handles both plain "void" and complex types like "void ()*")
+                if !self.is_at_end() && !self.check(&Token::RBrace) &&
+                   self.peek_ahead(1) != Some(&Token::Colon) {
                     let _ty = self.parse_type()?;
-                    let _val = self.parse_value()?;
+                    // After parsing type, check if there's a value
+                    // If we see a value token (including constant expressions), parse it
+                    if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
+                                             Some(Token::Integer(_)) | Some(Token::Float64(_)) |
+                                             Some(Token::Null) | Some(Token::Undef) | Some(Token::Poison) |
+                                             Some(Token::True) | Some(Token::False) | Some(Token::Zeroinitializer) |
+                                             Some(Token::LBrace) | Some(Token::LAngle) | Some(Token::LBracket) |
+                                             Some(Token::Identifier(_)) |
+                                             // Constant expression tokens
+                                             Some(Token::PtrToInt) | Some(Token::IntToPtr) | Some(Token::PtrToAddr) | Some(Token::AddrToPtr) |
+                                             Some(Token::BitCast) | Some(Token::AddrSpaceCast) |
+                                             Some(Token::Trunc) | Some(Token::ZExt) | Some(Token::SExt) |
+                                             Some(Token::FPTrunc) | Some(Token::FPExt) | Some(Token::FPToUI) | Some(Token::FPToSI) |
+                                             Some(Token::UIToFP) | Some(Token::SIToFP) |
+                                             Some(Token::GetElementPtr) | Some(Token::Sub) | Some(Token::Add) | Some(Token::Mul) |
+                                             Some(Token::FNeg) | Some(Token::UDiv) | Some(Token::SDiv) | Some(Token::URem) | Some(Token::SRem) |
+                                             Some(Token::Shl) | Some(Token::LShr) | Some(Token::AShr) |
+                                             Some(Token::And) | Some(Token::Or) | Some(Token::Xor) |
+                                             Some(Token::ICmp) | Some(Token::FCmp) | Some(Token::Select) |
+                                             Some(Token::ExtractValue) | Some(Token::ExtractElement) |
+                                             Some(Token::InsertElement) | Some(Token::ShuffleVector)) {
+                        let _val = self.parse_value()?;
+                    }
                 }
             }
             Opcode::Br => {
