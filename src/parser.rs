@@ -1456,11 +1456,40 @@ impl Parser {
                self.match_token(&Token::Zeroext) ||
                self.match_token(&Token::Signext) ||
                self.match_token(&Token::Noalias) ||
-               self.match_token(&Token::Byval) ||
-               self.match_token(&Token::Sret) ||
                self.match_token(&Token::Nocapture) ||
                self.match_token(&Token::Nest) {
                 continue;
+            }
+
+            // Handle attributes with optional type parameters: byval(type), sret(type), byref(type), inalloca(type)
+            if self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Inalloca) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    // Skip the type - just consume tokens until )
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Handle byref attribute (identifier-based with type parameter)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "byref" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        // Skip the type - just consume tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
             }
 
             // Handle identifier-based attributes (noundef, nonnull, etc.)
@@ -1495,7 +1524,7 @@ impl Parser {
     }
 
     fn skip_parameter_attributes(&mut self) {
-        // Skip attributes like readonly, nonnull, etc.
+        // Skip attributes like readonly, nonnull, byval(type), etc.
         let mut skip_count = 0;
         const MAX_ATTR_SKIP: usize = 50;
 
@@ -1504,6 +1533,41 @@ impl Parser {
                self.check(&Token::RParen) || self.check_type_token() {
                 break;
             }
+
+            // Handle attributes with type parameters: byval(type), sret(type), inalloca(type)
+            if self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Inalloca) {
+                // Check for optional type parameter
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    // Skip tokens until we find )
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                skip_count += 1;
+                continue;
+            }
+
+            // Handle byref (identifier-based attribute with type parameter)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "byref" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        // Skip tokens until we find )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    skip_count += 1;
+                    continue;
+                }
+            }
+
             self.advance();
             skip_count += 1;
         }
