@@ -855,21 +855,36 @@ impl Parser {
 
             let ty = self.parse_type()?;
 
-            // Skip parameter attributes (byval, sret, etc.)
-            while self.match_token(&Token::Byval) ||
-                  self.match_token(&Token::Sret) ||
-                  self.match_token(&Token::Inreg) ||
-                  self.match_token(&Token::Noalias) ||
-                  self.match_token(&Token::Nocapture) ||
-                  self.match_token(&Token::Nest) ||
-                  self.match_token(&Token::Zeroext) ||
-                  self.match_token(&Token::Signext) {
-                // Handle byval(type) syntax
-                if self.check(&Token::LParen) {
-                    self.advance();
-                    self.parse_type()?;  // Parse the type argument
-                    self.consume(&Token::RParen)?;
+            // Skip parameter attributes (byval, sret, noundef, allocalign, etc.)
+            loop {
+                if self.match_token(&Token::Byval) ||
+                   self.match_token(&Token::Sret) ||
+                   self.match_token(&Token::Inreg) ||
+                   self.match_token(&Token::Noalias) ||
+                   self.match_token(&Token::Nocapture) ||
+                   self.match_token(&Token::Nest) ||
+                   self.match_token(&Token::Zeroext) ||
+                   self.match_token(&Token::Signext) {
+                    // Handle byval(type) syntax
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        self.parse_type()?;  // Parse the type argument
+                        self.consume(&Token::RParen)?;
+                    }
+                    continue;
                 }
+
+                // Handle identifier-based attributes
+                if let Some(Token::Identifier(attr)) = self.peek() {
+                    if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
+                                              "allocalign" | "allocsize" | "returned") {
+                        self.advance();
+                        continue;
+                    }
+                }
+
+                // No more attributes
+                break;
             }
 
             let val = self.parse_value()?;
@@ -1037,6 +1052,35 @@ impl Parser {
         let token = self.peek().ok_or(ParseError::UnexpectedEOF)?;
 
         match token {
+            Token::Identifier(id) if id == "asm" => {
+                // Inline assembly: asm [volatile] [sideeffect] "asm code", "constraints"
+                // Note: The () after constraints is part of the call instruction, not the asm value
+                self.advance(); // consume 'asm'
+
+                // Skip optional keywords
+                while let Some(Token::Identifier(kw)) = self.peek() {
+                    if matches!(kw.as_str(), "volatile" | "sideeffect" | "alignstack" | "inteldialect") {
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Skip asm string
+                if let Some(Token::StringLit(_)) = self.peek() {
+                    self.advance();
+                }
+
+                // Skip comma and constraints string
+                if self.match_token(&Token::Comma) {
+                    if let Some(Token::StringLit(_)) = self.peek() {
+                        self.advance();
+                    }
+                }
+
+                // Return placeholder value (don't consume the call arguments here)
+                Ok(Value::undef(self.context.void_type()))
+            }
             Token::LocalIdent(name) => {
                 let name = name.clone();
                 self.advance();
@@ -1249,6 +1293,12 @@ impl Parser {
         let mut params = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
+            // Check for varargs (just ellipsis with no type)
+            if self.check(&Token::Ellipsis) {
+                self.advance();
+                break;
+            }
+
             let ty = self.parse_type()?;
 
             // Parse parameter attributes (readonly, etc.)
@@ -1354,18 +1404,51 @@ impl Parser {
 
     fn skip_attributes(&mut self) {
         // Skip numbered attribute groups (#0, #1, etc.) and attribute keywords
-        while self.check(&Token::Hash) || self.check_attr_group_id() ||
-              self.match_token(&Token::Inreg) ||
-              self.match_token(&Token::Zeroext) ||
-              self.match_token(&Token::Signext) ||
-              self.match_token(&Token::Noalias) ||
-              self.match_token(&Token::Byval) ||
-              self.match_token(&Token::Sret) ||
-              self.match_token(&Token::Nocapture) ||
-              self.match_token(&Token::Nest) {
+        loop {
             if self.check(&Token::Hash) || self.check_attr_group_id() {
                 self.advance();
+                continue;
             }
+
+            if self.match_token(&Token::Inreg) ||
+               self.match_token(&Token::Zeroext) ||
+               self.match_token(&Token::Signext) ||
+               self.match_token(&Token::Noalias) ||
+               self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Nocapture) ||
+               self.match_token(&Token::Nest) {
+                continue;
+            }
+
+            // Handle identifier-based attributes (noundef, nonnull, etc.)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
+                                          "readnone" | "returned" | "noreturn" | "nounwind" |
+                                          "allocalign" | "allocsize") {
+                    self.advance();
+                    // Some attributes have parameters in parentheses
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen).ok();
+                    }
+                    continue;
+                }
+            }
+
+            // Handle align followed by integer: align 16
+            if self.match_token(&Token::Align) {
+                if let Some(Token::Integer(_)) = self.peek() {
+                    self.advance();
+                }
+                continue;
+            }
+
+            // No more attributes
+            break;
         }
     }
 
