@@ -1347,6 +1347,23 @@ impl Parser {
                 // Return placeholder splat value
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
+            Token::Identifier(id) if id == "dso_local_equivalent" => {
+                // DSO local equivalent: dso_local_equivalent @func
+                self.advance(); // consume 'dso_local_equivalent'
+                let _val = self.parse_value()?; // Parse the wrapped value
+                // Return placeholder - treat as the wrapped value
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
+            Token::Identifier(id) if id == "blockaddress" => {
+                // Block address: blockaddress(@func, %block)
+                self.advance(); // consume 'blockaddress'
+                self.consume(&Token::LParen)?;
+                let _func = self.parse_value()?; // @func
+                self.consume(&Token::Comma)?;
+                let _block = self.parse_value()?; // %block
+                self.consume(&Token::RParen)?;
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
             Token::LocalIdent(name) => {
                 let name = name.clone();
                 self.advance();
@@ -1449,7 +1466,7 @@ impl Parser {
             Token::GetElementPtr | Token::Sub | Token::Add | Token::Mul |
             Token::UDiv | Token::SDiv | Token::URem | Token::SRem |
             Token::Shl | Token::LShr | Token::AShr | Token::And | Token::Or | Token::Xor |
-            Token::ICmp | Token::FCmp | Token::Select => {
+            Token::ICmp | Token::FCmp | Token::Select | Token::ExtractValue => {
                 // Parse as constant expression
                 self.parse_constant_expression()
             }
@@ -1498,6 +1515,7 @@ impl Parser {
             Token::ICmp => Opcode::ICmp,
             Token::FCmp => Opcode::FCmp,
             Token::Select => Opcode::Select,
+            Token::ExtractValue => Opcode::ExtractValue,
             _ => {
                 return Err(ParseError::InvalidSyntax {
                     message: format!("Unexpected token in constant expression: {:?}", token),
