@@ -665,6 +665,7 @@ impl Parser {
             Token::CatchSwitch => { self.advance(); Opcode::CatchSwitch }
             Token::CallBr => { self.advance(); Opcode::CallBr }
             Token::FNeg => { self.advance(); Opcode::FNeg }
+            Token::Freeze => { self.advance(); Opcode::Freeze }
             Token::Add => { self.advance(); Opcode::Add }
             Token::FAdd => { self.advance(); Opcode::FAdd }
             Token::Sub => { self.advance(); Opcode::Sub }
