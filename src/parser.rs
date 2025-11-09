@@ -731,11 +731,38 @@ impl Parser {
         match opcode {
             Opcode::Ret => {
                 // ret void or ret type value
-                if self.match_token(&Token::Void) {
-                    // void return
-                } else {
+                // Parse type first (handles both plain "void" and complex types like "void ()*")
+                if !self.is_at_end() && !self.check(&Token::RBrace) &&
+                   self.peek_ahead(1) != Some(&Token::Colon) {
                     let _ty = self.parse_type()?;
-                    let _val = self.parse_value()?;
+                    // After parsing type, check if there's a value
+                    // Skip parsing value if next token is a label (identifier followed by colon)
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        // Next token is a label definition, not a value - stop here
+                        return Ok(operands);
+                    }
+                    // If we see a value token (including constant expressions), parse it
+                    if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
+                                             Some(Token::Integer(_)) | Some(Token::Float64(_)) |
+                                             Some(Token::Null) | Some(Token::Undef) | Some(Token::Poison) |
+                                             Some(Token::True) | Some(Token::False) | Some(Token::Zeroinitializer) |
+                                             Some(Token::LBrace) | Some(Token::LAngle) | Some(Token::LBracket) |
+                                             Some(Token::Identifier(_)) |
+                                             // Constant expression tokens
+                                             Some(Token::PtrToInt) | Some(Token::IntToPtr) | Some(Token::PtrToAddr) | Some(Token::AddrToPtr) |
+                                             Some(Token::BitCast) | Some(Token::AddrSpaceCast) |
+                                             Some(Token::Trunc) | Some(Token::ZExt) | Some(Token::SExt) |
+                                             Some(Token::FPTrunc) | Some(Token::FPExt) | Some(Token::FPToUI) | Some(Token::FPToSI) |
+                                             Some(Token::UIToFP) | Some(Token::SIToFP) |
+                                             Some(Token::GetElementPtr) | Some(Token::Sub) | Some(Token::Add) | Some(Token::Mul) |
+                                             Some(Token::FNeg) | Some(Token::UDiv) | Some(Token::SDiv) | Some(Token::URem) | Some(Token::SRem) |
+                                             Some(Token::Shl) | Some(Token::LShr) | Some(Token::AShr) |
+                                             Some(Token::And) | Some(Token::Or) | Some(Token::Xor) |
+                                             Some(Token::ICmp) | Some(Token::FCmp) | Some(Token::Select) |
+                                             Some(Token::ExtractValue) | Some(Token::ExtractElement) |
+                                             Some(Token::InsertElement) | Some(Token::ShuffleVector)) {
+                        let _val = self.parse_value()?;
+                    }
                 }
             }
             Opcode::Br => {
@@ -827,13 +854,21 @@ impl Parser {
                             self.advance();
                         }
                         // Skip bundle arguments: (args...)
+                        // Need to handle nested parentheses for function pointer types
                         if self.check(&Token::LParen) {
-                            self.advance();
-                            // Skip all arguments
-                            while !self.check(&Token::RParen) && !self.is_at_end() {
-                                self.advance();
+                            self.advance(); // consume opening (
+                            let mut depth = 1;
+                            while depth > 0 && !self.is_at_end() {
+                                if self.check(&Token::LParen) {
+                                    depth += 1;
+                                    self.advance();
+                                } else if self.check(&Token::RParen) {
+                                    depth -= 1;
+                                    self.advance();
+                                } else {
+                                    self.advance();
+                                }
                             }
-                            self.match_token(&Token::RParen);
                         }
                         if !self.match_token(&Token::Comma) {
                             break;
@@ -854,9 +889,10 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::Alloca => {
-                // alloca [inalloca] type [, type NumElements] [, align N] [, addrspace(N)]
-                // Skip inalloca keyword (it's Token::Inalloca, not an identifier)
+                // alloca [inalloca] [swifterror] type [, type NumElements] [, align N] [, addrspace(N)]
+                // Skip optional inalloca and swifterror keywords
                 self.match_token(&Token::Inalloca);
+                self.match_token(&Token::Swifterror);
 
                 let _ty = self.parse_type()?;
 
@@ -903,29 +939,41 @@ impl Parser {
             }
             Opcode::Load => {
                 // load [atomic] [volatile] type, ptr %ptr [unordered|monotonic|acquire|...] [, align ...]
-                // Skip atomic and volatile modifiers
+                // Old syntax: load atomic i32* %ptr (no comma, typed pointer)
+                // New syntax: load atomic i32, ptr %ptr (comma-separated)
                 self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
                 let _ty = self.parse_type()?;
-                self.consume(&Token::Comma)?;
-                let _ptr_ty = self.parse_type()?;
-                let _ptr = self.parse_value()?;
+
+                // Check if using old syntax (no comma) or new syntax (comma)
+                if self.match_token(&Token::Comma) {
+                    // New syntax: comma separates type from pointer
+                    let _ptr_ty = self.parse_type()?;
+                    let _ptr = self.parse_value()?;
+                } else {
+                    // Old syntax: pointer value directly follows (type already includes *)
+                    let _ptr = self.parse_value()?;
+                }
 
                 // Skip memory ordering and other attributes
                 self.skip_load_store_attributes();
             }
             Opcode::Store => {
                 // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
-                // Skip atomic and volatile modifiers
+                // Old syntax: store i32 %val, i32* %ptr (typed pointer)
+                // New syntax: store i32 %val, ptr %ptr (opaque pointer)
                 self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
                 let _val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
                 self.consume(&Token::Comma)?;
+
+                // Parse pointer - could be "ptr" keyword (new) or typed pointer (old)
                 let _ptr_ty = self.parse_type()?;
                 let _ptr = self.parse_value()?;
+
                 // Skip attributes
                 self.skip_load_store_attributes();
             }
@@ -938,6 +986,12 @@ impl Parser {
                 let _ptr = self.parse_value()?;
                 // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
+                    // Check if this comma is followed by metadata (e.g., !dbg !23)
+                    if self.is_metadata_token() {
+                        // Put comma back and let instruction-level metadata handler deal with it
+                        self.current -= 1;
+                        break;
+                    }
                     self.match_token(&Token::Inrange); // Skip optional inrange
                     let _idx_ty = self.parse_type()?;
                     let _idx = self.parse_value()?;
@@ -1258,7 +1312,9 @@ impl Parser {
                    self.match_token(&Token::Immarg) ||
                    self.match_token(&Token::Nonnull) ||
                    self.match_token(&Token::Readonly) ||
-                   self.match_token(&Token::Writeonly) {
+                   self.match_token(&Token::Writeonly) ||
+                   self.match_token(&Token::Swifterror) ||
+                   self.match_token(&Token::Swiftself) {
                     continue;
                 }
 
@@ -1291,9 +1347,9 @@ impl Parser {
                     continue;
                 }
 
-                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...), preallocated(type)
+                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...), preallocated(type), range(type low, high)
                 if let Some(Token::Identifier(attr)) = self.peek() {
-                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass" | "preallocated") {
+                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass" | "preallocated" | "range") {
                         self.advance();
                         if self.check(&Token::LParen) {
                             self.advance();
@@ -2082,9 +2138,10 @@ impl Parser {
                 }
             }
 
-            // Check for old linkage types (3.2 era): linker_private, linker_private_weak, linker_private_weak_def_auto
+            // Check for old linkage types (3.2 era): linker_private, linker_private_weak, linker_private_weak_def_auto, linkonce_odr_auto_hide
             if let Some(Token::Identifier(id)) = self.peek() {
-                if id == "linker_private" || id == "linker_private_weak" || id == "linker_private_weak_def_auto" {
+                if id == "linker_private" || id == "linker_private_weak" ||
+                   id == "linker_private_weak_def_auto" || id == "linkonce_odr_auto_hide" {
                     self.advance();
                     continue;
                 }
@@ -2171,11 +2228,11 @@ impl Parser {
                 }
             }
 
-            // Handle identifier-based attributes (noundef, nonnull, nofpclass, etc.)
+            // Handle identifier-based attributes (noundef, nonnull, nofpclass, range, etc.)
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
                                           "readnone" | "returned" | "noreturn" | "nounwind" |
-                                          "allocalign" | "allocsize" | "initializes" | "nofpclass") {
+                                          "allocalign" | "allocsize" | "initializes" | "nofpclass" | "range") {
                     self.advance();
                     // Some attributes have parameters in parentheses (possibly nested like initializes((0, 4)))
                     if self.check(&Token::LParen) {
@@ -2201,6 +2258,18 @@ impl Parser {
             if self.match_token(&Token::Align) {
                 if let Some(Token::Integer(_)) = self.peek() {
                     self.advance();
+                }
+                continue;
+            }
+
+            // Handle string attributes: "name" or "name"="value"
+            if matches!(self.peek(), Some(Token::StringLit(_))) {
+                self.advance(); // consume string
+                // Check for optional ="value" part
+                if self.match_token(&Token::Equal) {
+                    if matches!(self.peek(), Some(Token::StringLit(_))) {
+                        self.advance(); // consume value
+                    }
                 }
                 continue;
             }
