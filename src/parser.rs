@@ -736,6 +736,11 @@ impl Parser {
                    self.peek_ahead(1) != Some(&Token::Colon) {
                     let _ty = self.parse_type()?;
                     // After parsing type, check if there's a value
+                    // Skip parsing value if next token is a label (identifier followed by colon)
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        // Next token is a label definition, not a value - stop here
+                        return Ok(operands);
+                    }
                     // If we see a value token (including constant expressions), parse it
                     if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
                                              Some(Token::Integer(_)) | Some(Token::Float64(_)) |
