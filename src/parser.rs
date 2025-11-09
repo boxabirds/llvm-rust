@@ -522,7 +522,11 @@ impl Parser {
                 }
             }
             Opcode::Load => {
-                // load type, ptr %ptr [, align ...]
+                // load [atomic] [volatile] type, ptr %ptr [, align ...]
+                // Skip atomic and volatile modifiers
+                self.match_token(&Token::Atomic);
+                self.match_token(&Token::Volatile);
+
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
@@ -531,7 +535,11 @@ impl Parser {
                 self.skip_load_store_attributes();
             }
             Opcode::Store => {
-                // store type %val, ptr %ptr [, align ...]
+                // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
+                // Skip atomic and volatile modifiers
+                self.match_token(&Token::Atomic);
+                self.match_token(&Token::Volatile);
+
                 let _val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
                 self.consume(&Token::Comma)?;
@@ -700,8 +708,40 @@ impl Parser {
             }
             Token::Ptr => {
                 self.advance();
-                // Modern LLVM uses opaque pointers (ptr)
-                Ok(self.context.ptr_type(self.context.int8_type()))
+                // Check if this is a function pointer type: ptr (...)
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume '('
+
+                    // Parse function parameter types
+                    let mut param_types = Vec::new();
+
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        param_types.push(self.parse_type()?);
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+
+                    self.consume(&Token::RParen)?;
+
+                    // Function pointers have void return type by default
+                    let return_type = self.context.void_type();
+                    let func_type = self.context.function_type(return_type, param_types, false);
+                    Ok(self.context.ptr_type(func_type))
+                } else {
+                    // Check if followed by addrspace modifier
+                    if self.check(&Token::Addrspace) {
+                        self.advance(); // consume 'addrspace'
+                        self.consume(&Token::LParen)?;
+                        // Parse address space number
+                        if let Some(Token::Integer(_n)) = self.peek() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen)?;
+                    }
+                    // Modern LLVM uses opaque pointers (ptr)
+                    Ok(self.context.ptr_type(self.context.int8_type()))
+                }
             }
             Token::Label => {
                 self.advance();
@@ -822,6 +862,36 @@ impl Parser {
                 self.advance();
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
+            Token::LAngle => {
+                // Vector constant: < type val1, type val2, ... >
+                self.advance(); // consume '<'
+                // Parse vector elements
+                while !self.check(&Token::RAngle) && !self.is_at_end() {
+                    // Parse element type and value
+                    let _elem_ty = self.parse_type()?;
+                    let _elem_val = self.parse_value()?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RAngle)?;
+                // Return placeholder vector constant
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
+            Token::LBrace => {
+                // Struct constant: { type val1, type val2, ... }
+                self.advance(); // consume '{'
+                while !self.check(&Token::RBrace) && !self.is_at_end() {
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RBrace)?;
+                // Return placeholder struct constant
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
             // Constant expressions - instructions that can appear in constant contexts
             Token::PtrToInt | Token::IntToPtr | Token::BitCast | Token::AddrSpaceCast |
             Token::Trunc | Token::ZExt | Token::SExt | Token::FPTrunc | Token::FPExt |
@@ -894,6 +964,7 @@ impl Parser {
         // For cast operations: castop (srctype value to desttype)
         // For binary ops: binop (type val1, type val2)
         // For GEP: getelementptr (type, ptr %ptr, indices...)
+        // For select: select (type cond, type val1, type val2)
 
         // Simplified parsing - just parse type and value, skip to closing paren
         // This allows the constant expression to be recognized without full semantic support
@@ -909,8 +980,31 @@ impl Parser {
             if self.match_token(&Token::To) {
                 let _dest_ty = self.parse_type()?;
             }
+        } else if matches!(opcode, Opcode::GetElementPtr) {
+            // GEP: parse all comma-separated indices (type value, type value, ...)
+            while self.match_token(&Token::Comma) {
+                let _idx_ty = self.parse_type()?;
+                let _idx_val = self.parse_value()?;
+            }
+        } else if matches!(opcode, Opcode::Select) {
+            // Select: select (type cond, type val1, type val2)
+            if self.match_token(&Token::Comma) {
+                let _ty2 = self.parse_type()?;
+                let _val2 = self.parse_value()?;
+                if self.match_token(&Token::Comma) {
+                    let _ty3 = self.parse_type()?;
+                    let _val3 = self.parse_value()?;
+                }
+            }
+        } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
+            // Comparison: icmp/fcmp (predicate type val1, type val2)
+            // The first "type" we parsed might actually be a predicate, skip
+            if self.match_token(&Token::Comma) {
+                let _ty2 = self.parse_type()?;
+                let _val2 = self.parse_value()?;
+            }
         } else {
-            // Binary operations - parse second operand
+            // Binary operations and others - parse second operand if comma present
             if self.match_token(&Token::Comma) {
                 let _ty2 = self.parse_type()?;
                 let _val2 = self.parse_value()?;
@@ -993,14 +1087,39 @@ impl Parser {
               self.match_token(&Token::Default) ||
               self.match_token(&Token::Dllimport) ||
               self.match_token(&Token::Dllexport) ||
-              self.match_token(&Token::Unnamed_addr) {
+              self.match_token(&Token::Unnamed_addr) ||
+              self.match_token(&Token::Dso_local) ||
+              self.match_token(&Token::Thread_local) ||
+              self.match_token(&Token::Local_unnamed_addr) {
             // Keep consuming
+        }
+
+        // Handle addrspace modifier: addrspace(N)
+        if self.match_token(&Token::Addrspace) {
+            if self.match_token(&Token::LParen) {
+                // Parse address space number
+                if let Some(Token::Integer(_)) = self.peek() {
+                    self.advance();
+                }
+                self.match_token(&Token::RParen);
+            }
         }
     }
 
     fn skip_attributes(&mut self) {
-        while self.check(&Token::Hash) || self.check_attr_group_id() {
-            self.advance();
+        // Skip numbered attribute groups (#0, #1, etc.) and attribute keywords
+        while self.check(&Token::Hash) || self.check_attr_group_id() ||
+              self.match_token(&Token::Inreg) ||
+              self.match_token(&Token::Zeroext) ||
+              self.match_token(&Token::Signext) ||
+              self.match_token(&Token::Noalias) ||
+              self.match_token(&Token::Byval) ||
+              self.match_token(&Token::Sret) ||
+              self.match_token(&Token::Nocapture) ||
+              self.match_token(&Token::Nest) {
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+            }
         }
     }
 
