@@ -1878,14 +1878,15 @@ impl Parser {
             // Integer arithmetic flags (keyword tokens)
             if self.match_token(&Token::Nuw) ||
                self.match_token(&Token::Nsw) ||
-               self.match_token(&Token::Exact) {
+               self.match_token(&Token::Exact) ||
+               self.match_token(&Token::Inbounds) {
                 continue;
             }
 
-            // Fast-math flags (identifiers)
+            // Fast-math flags and other identifier-based flags (identifiers)
             if let Some(Token::Identifier(id)) = self.peek() {
                 if matches!(id.as_str(), "fast" | "nnan" | "ninf" | "nsz" | "arcp" |
-                                         "contract" | "afn" | "reassoc") {
+                                         "contract" | "afn" | "reassoc" | "nneg" | "disjoint") {
                     self.advance();
                     continue;
                 }
