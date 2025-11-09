@@ -1606,15 +1606,23 @@ impl Parser {
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
                                           "readnone" | "returned" | "noreturn" | "nounwind" |
-                                          "allocalign" | "allocsize") {
+                                          "allocalign" | "allocsize" | "initializes") {
                     self.advance();
-                    // Some attributes have parameters in parentheses
+                    // Some attributes have parameters in parentheses (possibly nested like initializes((0, 4)))
                     if self.check(&Token::LParen) {
-                        self.advance();
-                        while !self.check(&Token::RParen) && !self.is_at_end() {
-                            self.advance();
+                        self.advance(); // consume first (
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                                self.advance();
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                                self.advance();
+                            } else {
+                                self.advance();
+                            }
                         }
-                        self.consume(&Token::RParen).ok();
                     }
                     continue;
                 }
