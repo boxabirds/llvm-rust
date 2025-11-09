@@ -854,13 +854,21 @@ impl Parser {
                             self.advance();
                         }
                         // Skip bundle arguments: (args...)
+                        // Need to handle nested parentheses for function pointer types
                         if self.check(&Token::LParen) {
-                            self.advance();
-                            // Skip all arguments
-                            while !self.check(&Token::RParen) && !self.is_at_end() {
-                                self.advance();
+                            self.advance(); // consume opening (
+                            let mut depth = 1;
+                            while depth > 0 && !self.is_at_end() {
+                                if self.check(&Token::LParen) {
+                                    depth += 1;
+                                    self.advance();
+                                } else if self.check(&Token::RParen) {
+                                    depth -= 1;
+                                    self.advance();
+                                } else {
+                                    self.advance();
+                                }
                             }
-                            self.match_token(&Token::RParen);
                         }
                         if !self.match_token(&Token::Comma) {
                             break;
@@ -2121,9 +2129,10 @@ impl Parser {
                 }
             }
 
-            // Check for old linkage types (3.2 era): linker_private, linker_private_weak, linker_private_weak_def_auto
+            // Check for old linkage types (3.2 era): linker_private, linker_private_weak, linker_private_weak_def_auto, linkonce_odr_auto_hide
             if let Some(Token::Identifier(id)) = self.peek() {
-                if id == "linker_private" || id == "linker_private_weak" || id == "linker_private_weak_def_auto" {
+                if id == "linker_private" || id == "linker_private_weak" ||
+                   id == "linker_private_weak_def_auto" || id == "linkonce_odr_auto_hide" {
                     self.advance();
                     continue;
                 }
