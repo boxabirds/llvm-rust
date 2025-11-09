@@ -448,7 +448,10 @@ impl Parser {
 
         // Parse instructions with iteration limit to prevent infinite loops
         let mut inst_count = 0;
+        let mut last_position = self.current;
+        let mut stuck_count = 0;
         const MAX_INSTRUCTIONS_PER_BLOCK: usize = 10000;
+        const MAX_STUCK_ITERATIONS: usize = 3;
 
         loop {
             if inst_count >= MAX_INSTRUCTIONS_PER_BLOCK {
@@ -457,6 +460,22 @@ impl Parser {
                     position: self.current,
                 });
             }
+
+            // Detect if we're stuck on the same token
+            if self.current == last_position {
+                stuck_count += 1;
+                if stuck_count >= MAX_STUCK_ITERATIONS {
+                    let stuck_token = self.peek().map(|t| format!("{:?}", t)).unwrap_or_else(|| "EOF".to_string());
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("Parser stuck at token position {} on token: {}", self.current, stuck_token),
+                        position: self.current,
+                    });
+                }
+            } else {
+                stuck_count = 0;
+                last_position = self.current;
+            }
+
             inst_count += 1;
 
             // Stop if we hit next label, closing brace, or EOF
@@ -478,12 +497,18 @@ impl Parser {
                     break;
                 }
             } else {
-                // If no instruction was parsed and this is the first iteration of an unlabeled block,
-                // return None to avoid creating empty blocks that cause infinite loops
+                // parse_instruction returned None - this can mean:
+                // 1. We skipped a directive (debug record, uselistorder, etc.) - continue parsing
+                // 2. We're at the end of the block - the checks above will catch this next iteration
+                // 3. First iteration of unlabeled block with nothing - return None to avoid infinite loop
                 if inst_count == 1 && name.is_none() && bb.instructions().is_empty() {
-                    return Ok(None);
+                    // Check if we're truly at end or just skipped something
+                    if self.check(&Token::RBrace) || self.is_at_end() ||
+                       self.peek_ahead(1) == Some(&Token::Colon) {
+                        return Ok(None);
+                    }
                 }
-                break;
+                // Otherwise continue - we probably just skipped a directive
             }
         }
 
@@ -518,19 +543,47 @@ impl Parser {
             }
         }
 
-        // Skip calling convention modifiers (tail, musttail, notail)
+        // Skip calling convention modifiers (tail, musttail, notail) and standalone function attributes
         if let Some(Token::Identifier(id)) = self.peek() {
             if id == "tail" || id == "musttail" || id == "notail" {
                 self.advance(); // skip the modifier
+                return Ok(None);
             }
         }
 
-        // Check for debug records: #dbg_declare, #dbg_value, etc.
+        // Skip standalone function attribute keywords that might appear in basic blocks
+        if self.check(&Token::Nobuiltin) || self.check(&Token::Builtin) ||
+           self.check(&Token::Cold) || self.check(&Token::Hot) ||
+           self.check(&Token::Noduplicate) || self.check(&Token::Noimplicitfloat) {
+            self.advance();
+            return Ok(None);
+        }
+
+        // Check for debug records: #dbg_declare, #dbg_value, etc. or dbg_declare (if # was consumed elsewhere)
         if self.check(&Token::Hash) {
             // Check if this is followed by an identifier (debug intrinsic)
             if matches!(self.peek_ahead(1), Some(Token::Identifier(_))) {
                 self.advance(); // consume #
                 self.advance(); // skip identifier (dbg_declare/dbg_value/etc)
+                // Skip the argument list if present
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    let mut depth = 1;
+                    while depth > 0 && !self.is_at_end() {
+                        if self.check(&Token::LParen) {
+                            depth += 1;
+                        } else if self.check(&Token::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                }
+                return Ok(None);
+            }
+        } else if let Some(Token::Identifier(id)) = self.peek() {
+            // Handle debug intrinsics where # was already consumed
+            if id.starts_with("dbg_") {
+                self.advance(); // skip identifier
                 // Skip the argument list if present
                 if self.check(&Token::LParen) {
                     self.advance(); // consume (
