@@ -520,12 +520,8 @@ impl Parser {
             }
             Opcode::Alloca => {
                 // alloca [inalloca] type [, type NumElements] [, align N] [, addrspace(N)]
-                // Skip inalloca keyword
-                if let Some(Token::Identifier(id)) = self.peek() {
-                    if id == "inalloca" {
-                        self.advance();
-                    }
-                }
+                // Skip inalloca keyword (it's Token::Inalloca, not an identifier)
+                self.match_token(&Token::Inalloca);
 
                 let _ty = self.parse_type()?;
 
@@ -541,12 +537,12 @@ impl Parser {
                             self.advance();
                         }
                         self.consume(&Token::RParen)?;
-                    } else if self.check(&Token::Exclaim) {
+                    } else if self.is_metadata_token() {
                         // Metadata attachment - skip all metadata and stop parsing
                         // Metadata can be space-separated: !foo !0 or comma-separated: !foo, !bar
                         self.skip_metadata();
-                        while self.check(&Token::Exclaim) ||
-                              (self.match_token(&Token::Comma) && self.check(&Token::Exclaim)) {
+                        while self.is_metadata_token() ||
+                              (self.match_token(&Token::Comma) && self.is_metadata_token()) {
                             self.skip_metadata();
                         }
                         break;
@@ -561,10 +557,10 @@ impl Parser {
                 }
 
                 // Check for metadata even without preceding comma
-                if self.check(&Token::Exclaim) {
+                if self.is_metadata_token() {
                     self.skip_metadata();
-                    while self.check(&Token::Exclaim) ||
-                          (self.match_token(&Token::Comma) && self.check(&Token::Exclaim)) {
+                    while self.is_metadata_token() ||
+                          (self.match_token(&Token::Comma) && self.is_metadata_token()) {
                         self.skip_metadata();
                     }
                 }
@@ -764,8 +760,28 @@ impl Parser {
     }
 
     fn skip_metadata(&mut self) {
-        // Skip metadata reference: !{...}, !0, !DIExpression(), etc.
-        if self.match_token(&Token::Exclaim) {
+        // Skip metadata reference: !{...}, !0, !DIExpression(), !foo, etc.
+        // The lexer combines !foo into Token::MetadataIdent("foo"), so we need to handle both cases
+
+        // Case 1: Token::MetadataIdent - lexer already combined ! with identifier/number
+        if let Some(Token::MetadataIdent(_)) = self.peek() {
+            self.advance();
+            // Check if followed by parentheses like !DIExpression(...)
+            if self.check(&Token::LParen) {
+                self.advance();
+                let mut depth = 1;
+                while depth > 0 && !self.is_at_end() {
+                    if self.check(&Token::LParen) {
+                        depth += 1;
+                    } else if self.check(&Token::RParen) {
+                        depth -= 1;
+                    }
+                    self.advance();
+                }
+            }
+        }
+        // Case 2: Token::Exclaim followed by something else (like !{...})
+        else if self.match_token(&Token::Exclaim) {
             if self.check(&Token::LBrace) {
                 // !{...}
                 self.advance();
@@ -778,8 +794,8 @@ impl Parser {
                     }
                     self.advance();
                 }
-            } else if let Some(Token::Identifier(_)) | Some(Token::MetadataIdent(_)) = self.peek() {
-                // !DIExpression() or similar metadata identifier
+            } else if let Some(Token::Identifier(_)) = self.peek() {
+                // !DIExpression() - when lexer didn't combine them
                 self.advance();
                 if self.check(&Token::LParen) {
                     self.advance();
@@ -794,7 +810,7 @@ impl Parser {
                     }
                 }
             } else if let Some(Token::Integer(_)) = self.peek() {
-                // !0, !1, etc.
+                // !0, !1, etc. - when lexer didn't combine them
                 self.advance();
             }
         }
@@ -1541,6 +1557,15 @@ impl Parser {
             return false;
         }
         std::mem::discriminant(self.peek().unwrap()) == std::mem::discriminant(token)
+    }
+
+    fn is_metadata_token(&self) -> bool {
+        // Check if current token is a metadata token
+        // Either Token::Exclaim or Token::MetadataIdent
+        if self.is_at_end() {
+            return false;
+        }
+        matches!(self.peek(), Some(Token::Exclaim) | Some(Token::MetadataIdent(_)))
     }
 
     fn consume(&mut self, token: &Token) -> ParseResult<()> {
