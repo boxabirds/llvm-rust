@@ -1,6 +1,9 @@
 use llvm_rust::{Context, parse};
 use std::fs;
 use std::path::Path;
+use std::time::{Duration, Instant};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 #[test]
 fn test_parse_llvm_assembler_tests() {
@@ -44,6 +47,9 @@ fn test_parse_llvm_assembler_tests() {
     // Take only first 100 for Level 1
     test_files.truncate(100);
 
+    // Add per-file timeout to prevent hangs
+    const FILE_TIMEOUT_SECS: u64 = 5;
+
     for entry in test_files.iter() {
         let path = entry.path();
         let filename = path.file_name().unwrap().to_str().unwrap();
@@ -58,16 +64,38 @@ fn test_parse_llvm_assembler_tests() {
             }
         };
 
+        // Parse with timeout detection
+        // Note: Rust doesn't have easy timeout for single-threaded code,
+        // but our parser now has iteration limits to prevent infinite loops
+        let start = Instant::now();
         let ctx = Context::new();
+
         match parse(&content, ctx) {
             Ok(_module) => {
+                let elapsed = start.elapsed();
                 passed += 1;
-                println!("✓ {}", filename);
+                println!("✓ {} ({:.2}s)", filename, elapsed.as_secs_f64());
+
+                // Warn if parsing took a long time
+                if elapsed.as_secs() >= FILE_TIMEOUT_SECS {
+                    eprintln!("  WARNING: {} took {:.2}s (may indicate performance issue)",
+                             filename, elapsed.as_secs_f64());
+                }
             }
             Err(e) => {
+                let elapsed = start.elapsed();
                 failed += 1;
-                failures.push((filename.to_string(), format!("{:?}", e)));
-                println!("✗ {}: {:?}", filename, e);
+                let error_msg = format!("{:?}", e);
+
+                // Check if this was due to our iteration limit safeguard
+                if error_msg.contains("exceeded maximum iterations") {
+                    eprintln!("✗ {} TIMEOUT/INFINITE LOOP PREVENTED ({:.2}s): {}",
+                             filename, elapsed.as_secs_f64(), error_msg);
+                    failures.push((filename.to_string(), format!("TIMEOUT: {}", error_msg)));
+                } else {
+                    println!("✗ {}: {:?}", filename, e);
+                    failures.push((filename.to_string(), error_msg));
+                }
             }
         }
     }

@@ -56,8 +56,12 @@ impl Parser {
 
         let module = Module::new("parsed_module".to_string(), self.context.clone());
 
-        // Parse module contents
-        while !self.is_at_end() {
+        // Parse module contents with safety limit to prevent infinite loops
+        let mut iterations = 0;
+        const MAX_MODULE_ITERATIONS: usize = 100000;
+
+        while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
+            iterations += 1;
             // Skip metadata and attributes at module level
             if self.check(&Token::Exclaim) || self.check(&Token::Attributes) {
                 self.skip_until_newline_or_semicolon();
@@ -109,6 +113,13 @@ impl Parser {
             if !self.is_at_end() {
                 self.advance();
             }
+        }
+
+        if iterations >= MAX_MODULE_ITERATIONS {
+            return Err(ParseError::InvalidSyntax {
+                message: format!("Module parsing exceeded maximum iterations ({}), possible infinite loop", MAX_MODULE_ITERATIONS),
+                position: self.current,
+            });
         }
 
         Ok(module)
@@ -225,15 +236,27 @@ impl Parser {
         }).collect();
         function.set_arguments(args);
 
-        // Parse body if present
+        // Parse body if present with safety limit to prevent infinite loops
         if self.match_token(&Token::LBrace) {
-            while !self.check(&Token::RBrace) && !self.is_at_end() {
+            let mut bb_count = 0;
+            const MAX_BASIC_BLOCKS: usize = 10000;
+
+            while !self.check(&Token::RBrace) && !self.is_at_end() && bb_count < MAX_BASIC_BLOCKS {
+                bb_count += 1;
                 if let Some(bb) = self.parse_basic_block()? {
                     function.add_basic_block(bb);
                 } else {
                     break;
                 }
             }
+
+            if bb_count >= MAX_BASIC_BLOCKS {
+                return Err(ParseError::InvalidSyntax {
+                    message: format!("Function exceeded maximum basic block count ({}), possible infinite loop", MAX_BASIC_BLOCKS),
+                    position: self.current,
+                });
+            }
+
             self.consume(&Token::RBrace)?;
         }
 
@@ -262,8 +285,19 @@ impl Parser {
 
         let bb = BasicBlock::new(name);
 
-        // Parse instructions
+        // Parse instructions with iteration limit to prevent infinite loops
+        let mut inst_count = 0;
+        const MAX_INSTRUCTIONS_PER_BLOCK: usize = 10000;
+
         loop {
+            if inst_count >= MAX_INSTRUCTIONS_PER_BLOCK {
+                return Err(ParseError::InvalidSyntax {
+                    message: format!("Basic block exceeded maximum instruction count ({}), possible infinite loop", MAX_INSTRUCTIONS_PER_BLOCK),
+                    position: self.current,
+                });
+            }
+            inst_count += 1;
+
             // Stop if we hit next label, closing brace, or EOF
             if self.check(&Token::RBrace) || self.is_at_end() {
                 break;
@@ -530,7 +564,37 @@ impl Parser {
             }
             _ => {
                 // For other instructions, skip to end of line or next instruction
-                // This is a simplified approach
+                // Skip until we find something that looks like the next instruction/statement
+                let mut skip_count = 0;
+                const MAX_SKIP_TOKENS: usize = 100;
+
+                while !self.is_at_end() && skip_count < MAX_SKIP_TOKENS {
+                    // Stop if we hit what looks like a new statement
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        // Next instruction assignment
+                        break;
+                    }
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Colon) {
+                        // Label
+                        break;
+                    }
+                    if self.peek().map(|t| matches!(t,
+                        Token::Ret | Token::Br | Token::Switch | Token::Call |
+                        Token::Store | Token::Load | Token::Add | Token::Sub |
+                        Token::Mul | Token::Alloca | Token::GetElementPtr |
+                        Token::ICmp | Token::FCmp | Token::Phi
+                    )).unwrap_or(false) {
+                        // Next instruction opcode
+                        break;
+                    }
+                    if self.check(&Token::RBrace) {
+                        // End of function
+                        break;
+                    }
+
+                    self.advance();
+                    skip_count += 1;
+                }
             }
         }
 
@@ -815,12 +879,16 @@ impl Parser {
 
     fn skip_parameter_attributes(&mut self) {
         // Skip attributes like readonly, nonnull, etc.
-        while !self.is_at_end() {
+        let mut skip_count = 0;
+        const MAX_ATTR_SKIP: usize = 50;
+
+        while !self.is_at_end() && skip_count < MAX_ATTR_SKIP {
             if self.check_local_ident() || self.check(&Token::Comma) ||
                self.check(&Token::RParen) || self.check_type_token() {
                 break;
             }
             self.advance();
+            skip_count += 1;
         }
     }
 
@@ -860,13 +928,17 @@ impl Parser {
 
     fn skip_until_newline_or_semicolon(&mut self) {
         // Skip metadata and other directives we don't parse yet
-        while !self.is_at_end() {
+        let mut skip_count = 0;
+        const MAX_SKIP: usize = 500;
+
+        while !self.is_at_end() && skip_count < MAX_SKIP {
             let token = self.peek().unwrap();
             if matches!(token, Token::Define | Token::Declare | Token::Global | Token::Target | Token::Source_filename)
                 || self.check_global_ident() {
                 break;
             }
             self.advance();
+            skip_count += 1;
         }
     }
 
