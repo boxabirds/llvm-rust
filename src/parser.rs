@@ -1704,9 +1704,9 @@ impl Parser {
                 continue;
             }
 
-            // Handle byref (identifier-based attribute with type parameter)
+            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type)
             if let Some(Token::Identifier(attr)) = self.peek() {
-                if attr == "byref" {
+                if matches!(attr.as_str(), "byref" | "elementtype") {
                     self.advance();
                     if self.check(&Token::LParen) {
                         self.advance(); // consume (
