@@ -1085,23 +1085,41 @@ impl Parser {
     // Helper methods
 
     fn skip_linkage_and_visibility(&mut self) {
-        while self.match_token(&Token::Private) ||
-              self.match_token(&Token::Internal) ||
-              self.match_token(&Token::External) ||
-              self.match_token(&Token::Weak) ||
-              self.match_token(&Token::Linkonce) ||
-              self.match_token(&Token::Common) ||
-              self.match_token(&Token::Appending) ||
-              self.match_token(&Token::Hidden) ||
-              self.match_token(&Token::Protected) ||
-              self.match_token(&Token::Default) ||
-              self.match_token(&Token::Dllimport) ||
-              self.match_token(&Token::Dllexport) ||
-              self.match_token(&Token::Unnamed_addr) ||
-              self.match_token(&Token::Dso_local) ||
-              self.match_token(&Token::Thread_local) ||
-              self.match_token(&Token::Local_unnamed_addr) {
-            // Keep consuming
+        loop {
+            if self.match_token(&Token::Private) ||
+               self.match_token(&Token::Internal) ||
+               self.match_token(&Token::External) ||
+               self.match_token(&Token::Weak) ||
+               self.match_token(&Token::Linkonce) ||
+               self.match_token(&Token::Common) ||
+               self.match_token(&Token::Appending) ||
+               self.match_token(&Token::Hidden) ||
+               self.match_token(&Token::Protected) ||
+               self.match_token(&Token::Default) ||
+               self.match_token(&Token::Dllimport) ||
+               self.match_token(&Token::Dllexport) ||
+               self.match_token(&Token::Unnamed_addr) ||
+               self.match_token(&Token::Dso_local) ||
+               self.match_token(&Token::Thread_local) ||
+               self.match_token(&Token::Local_unnamed_addr) ||
+               // GPU calling conventions
+               self.match_token(&Token::Amdgpu_kernel) ||
+               self.match_token(&Token::Amdgpu_cs_chain) ||
+               self.match_token(&Token::Amdgpu_ps) {
+                // Keep consuming
+                continue;
+            }
+
+            // Check for identifier-based calling conventions (e.g., amdgpu_cs_chain_preserve)
+            if let Some(Token::Identifier(id)) = self.peek() {
+                if id.starts_with("amdgpu_") || id.starts_with("spir_") ||
+                   id.starts_with("aarch64_") || id == "cc" || id.starts_with("cc") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            break;
         }
 
         // Handle addrspace modifier: addrspace(N)
