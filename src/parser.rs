@@ -902,21 +902,45 @@ impl Parser {
 
             // Skip parameter attributes (byval, sret, noundef, allocalign, etc.)
             loop {
-                if self.match_token(&Token::Byval) ||
-                   self.match_token(&Token::Sret) ||
-                   self.match_token(&Token::Inreg) ||
+                // Attributes without type parameters
+                if self.match_token(&Token::Inreg) ||
                    self.match_token(&Token::Noalias) ||
                    self.match_token(&Token::Nocapture) ||
                    self.match_token(&Token::Nest) ||
                    self.match_token(&Token::Zeroext) ||
                    self.match_token(&Token::Signext) {
-                    // Handle byval(type) syntax
+                    continue;
+                }
+
+                // Attributes with optional type parameters: byval(type), sret(type), inalloca(type)
+                if self.match_token(&Token::Byval) ||
+                   self.match_token(&Token::Sret) ||
+                   self.match_token(&Token::Inalloca) {
+                    // Handle optional (type) syntax
                     if self.check(&Token::LParen) {
                         self.advance();
-                        self.parse_type()?;  // Parse the type argument
-                        self.consume(&Token::RParen)?;
+                        // Skip tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
                     }
                     continue;
+                }
+
+                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type)
+                if let Some(Token::Identifier(attr)) = self.peek() {
+                    if matches!(attr.as_str(), "byref" | "elementtype") {
+                        self.advance();
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.match_token(&Token::RParen);
+                        }
+                        continue;
+                    }
                 }
 
                 // Handle identifier-based attributes
