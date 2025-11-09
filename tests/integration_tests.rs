@@ -203,7 +203,7 @@ fn test_builder_position_at_end() {
 fn test_builder_build_ret_void() {
     let ctx = Context::new();
     let builder = Builder::new(ctx);
-    let bb = BasicBlock::new(Some("entry".to_string()));
+    let _bb = BasicBlock::new(Some("entry".to_string()));
     builder.build_ret_void();
     // Instruction is created but we need insertion point to add it
 }

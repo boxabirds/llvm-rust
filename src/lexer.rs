@@ -4,6 +4,7 @@
 
 use std::fmt;
 
+#[allow(non_camel_case_types)]
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
     // Keywords
@@ -44,6 +45,7 @@ pub enum Token {
     Nsw,
     Exact,
     Inbounds,
+    Inrange,
     Volatile,
     Atomic,
     Unordered,
@@ -155,6 +157,7 @@ pub enum Token {
     CatchSwitch,
     CallBr,
     FNeg,
+    Freeze,
     Add,
     FAdd,
     Sub,
@@ -230,6 +233,7 @@ pub enum Token {
     One,
     Ord,
     Uno,
+    Une,
     Ueq,
 
     // Types
@@ -779,6 +783,7 @@ impl Lexer {
             "nsw" => Token::Nsw,
             "exact" => Token::Exact,
             "inbounds" => Token::Inbounds,
+            "inrange" => Token::Inrange,
             "volatile" => Token::Volatile,
             "atomic" => Token::Atomic,
             "unordered" => Token::Unordered,
@@ -815,6 +820,7 @@ impl Lexer {
             "catchswitch" => Token::CatchSwitch,
             "callbr" => Token::CallBr,
             "fneg" => Token::FNeg,
+            "freeze" => Token::Freeze,
             "add" => Token::Add,
             "fadd" => Token::FAdd,
             "sub" => Token::Sub,
@@ -890,6 +896,7 @@ impl Lexer {
             "one" => Token::One,
             "ord" => Token::Ord,
             "uno" => Token::Uno,
+            "une" => Token::Une,
             "ueq" => Token::Ueq,
 
             // Types

@@ -1,9 +1,7 @@
 use llvm_rust::{Context, parse};
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
-use std::sync::{Arc, Mutex};
-use std::thread;
+use std::time::Instant;
 
 #[test]
 fn test_parse_llvm_assembler_tests() {

@@ -554,7 +554,10 @@ impl Parser {
         // Skip standalone function attribute keywords that might appear in basic blocks
         if self.check(&Token::Nobuiltin) || self.check(&Token::Builtin) ||
            self.check(&Token::Cold) || self.check(&Token::Hot) ||
-           self.check(&Token::Noduplicate) || self.check(&Token::Noimplicitfloat) {
+           self.check(&Token::Noduplicate) || self.check(&Token::Noimplicitfloat) ||
+           self.check(&Token::Noinline) || self.check(&Token::Strictfp) ||
+           self.check(&Token::Minsize) || self.check(&Token::Alwaysinline) ||
+           self.check(&Token::Optsize) || self.check(&Token::Optnone) {
             self.advance();
             return Ok(None);
         }
@@ -662,6 +665,7 @@ impl Parser {
             Token::CatchSwitch => { self.advance(); Opcode::CatchSwitch }
             Token::CallBr => { self.advance(); Opcode::CallBr }
             Token::FNeg => { self.advance(); Opcode::FNeg }
+            Token::Freeze => { self.advance(); Opcode::Freeze }
             Token::Add => { self.advance(); Opcode::Add }
             Token::FAdd => { self.advance(); Opcode::FAdd }
             Token::Sub => { self.advance(); Opcode::Sub }
@@ -721,7 +725,7 @@ impl Parser {
     }
 
     fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<Vec<Value>> {
-        let mut operands = Vec::new();
+        let operands = Vec::new();
 
         // Parse based on instruction type
         match opcode {
@@ -808,13 +812,7 @@ impl Parser {
                     self.consume(&Token::RParen)?;
                 }
 
-                // Skip dso_local_equivalent marker: call void dso_local_equivalent @func()
-                if let Some(Token::Identifier(id)) = self.peek() {
-                    if id == "dso_local_equivalent" {
-                        self.advance();
-                    }
-                }
-
+                // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
                 let _func = self.parse_value()?;
                 self.consume(&Token::LParen)?;
                 let _args = self.parse_call_arguments()?;
@@ -938,8 +936,9 @@ impl Parser {
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
                 let _ptr = self.parse_value()?;
-                // Parse indices
+                // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
+                    self.match_token(&Token::Inrange); // Skip optional inrange
                     let _idx_ty = self.parse_type()?;
                     let _idx = self.parse_value()?;
                 }
@@ -1131,7 +1130,8 @@ impl Parser {
            self.match_token(&Token::Oge) || self.match_token(&Token::Olt) ||
            self.match_token(&Token::Ole) || self.match_token(&Token::One) ||
            self.match_token(&Token::Ord) || self.match_token(&Token::Uno) ||
-           self.match_token(&Token::Ueq) || self.match_token(&Token::True) ||
+           self.match_token(&Token::Une) || self.match_token(&Token::Ueq) ||
+           self.match_token(&Token::True) ||
            self.match_token(&Token::False) {
             Ok(())
         } else {
@@ -1878,8 +1878,9 @@ impl Parser {
             self.consume(&Token::Comma)?;
             let _ptr_ty = self.parse_type()?;
             let _ptr_val = self.parse_value()?;
-            // Parse remaining indices
+            // Parse remaining indices (each can have optional inrange qualifier)
             while self.match_token(&Token::Comma) {
+                self.match_token(&Token::Inrange); // Skip optional inrange
                 let _idx_ty = self.parse_type()?;
                 let _idx_val = self.parse_value()?;
             }
@@ -2389,23 +2390,23 @@ impl Parser {
                 continue;
             }
 
+            // Handle inrange flag with optional parameters: inrange or inrange(-8, 16)
+            if self.match_token(&Token::Inrange) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance(); // skip all tokens inside
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                continue;
+            }
+
             // Fast-math flags and other identifier-based flags (identifiers)
             if let Some(Token::Identifier(id)) = self.peek() {
                 if matches!(id.as_str(), "fast" | "nnan" | "ninf" | "nsz" | "arcp" |
                                          "contract" | "afn" | "reassoc" | "nneg" | "disjoint" | "samesign" | "nusw") {
                     self.advance();
-                    continue;
-                }
-                // Handle flags with parameters: inrange(-8, 16)
-                if matches!(id.as_str(), "inrange") {
-                    self.advance();
-                    if self.check(&Token::LParen) {
-                        self.advance(); // consume (
-                        while !self.check(&Token::RParen) && !self.is_at_end() {
-                            self.advance(); // skip all tokens inside
-                        }
-                        self.match_token(&Token::RParen); // consume )
-                    }
                     continue;
                 }
             }

@@ -6,9 +6,7 @@
 
 use std::sync::Arc;
 use std::fmt;
-use std::collections::HashMap;
 use crate::value::Value;
-use crate::types::Type;
 
 /// Metadata node
 #[derive(Clone)]
@@ -16,6 +14,7 @@ pub struct Metadata {
     data: Arc<MetadataData>,
 }
 
+#[allow(dead_code)]
 enum MetadataData {
     /// String metadata
     String(String),
