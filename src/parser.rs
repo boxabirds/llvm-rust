@@ -1105,9 +1105,9 @@ impl Parser {
                     continue;
                 }
 
-                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...)
+                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...), preallocated(type)
                 if let Some(Token::Identifier(attr)) = self.peek() {
-                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass") {
+                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass" | "preallocated") {
                         self.advance();
                         if self.check(&Token::LParen) {
                             self.advance();
@@ -1176,6 +1176,11 @@ impl Parser {
                 } else {
                     Ok(self.context.float_type())
                 }
+            }
+            Token::X86_mmx | Token::X86_amx => {
+                // x86 matrix/vector types
+                self.advance();
+                Ok(self.context.void_type()) // Placeholder for special x86 types
             }
             Token::Ptr => {
                 self.advance();
@@ -1818,7 +1823,7 @@ impl Parser {
                    id.starts_with("avr_") || id.starts_with("ptx_") ||
                    id.starts_with("msp430_") || id.starts_with("preserve_") ||
                    id == "cc" || id.starts_with("cc") ||
-                   id == "ccc" || id == "fastcc" || id == "coldcc" ||
+                   id == "ccc" || id == "fastcc" || id == "coldcc" || id == "tailcc" ||
                    id == "webkit_jscc" || id == "anyregcc" ||
                    id == "cxx_fast_tlscc" || id == "swiftcc" || id == "swifttailcc" ||
                    id == "cfguard_checkcc" || id == "ghccc" || id == "hhvmcc" || id == "hhvm_ccc" ||
@@ -1875,7 +1880,10 @@ impl Parser {
                self.match_token(&Token::Nest) ||
                self.match_token(&Token::Nonnull) ||
                self.match_token(&Token::Readonly) ||
-               self.match_token(&Token::Writeonly) {
+               self.match_token(&Token::Writeonly) ||
+               self.match_token(&Token::Swifterror) ||
+               self.match_token(&Token::Swiftself) ||
+               self.match_token(&Token::Immarg) {
                 continue;
             }
 
