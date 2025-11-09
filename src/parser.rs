@@ -1661,10 +1661,11 @@ impl Parser {
                 continue;
             }
 
-            // Check for identifier-based calling conventions (e.g., amdgpu_cs_chain_preserve)
+            // Check for identifier-based calling conventions (e.g., amdgpu_cs_chain_preserve, x86_intrcc, riscv_vls_cc)
             if let Some(Token::Identifier(id)) = self.peek() {
                 if id.starts_with("amdgpu_") || id.starts_with("spir_") ||
-                   id.starts_with("aarch64_") || id == "cc" || id.starts_with("cc") {
+                   id.starts_with("aarch64_") || id.starts_with("x86_") ||
+                   id.starts_with("riscv_") || id == "cc" || id.starts_with("cc") {
                     self.advance();
                     continue;
                 }
