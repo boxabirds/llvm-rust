@@ -555,7 +555,7 @@ impl Parser {
                 }
             }
             Opcode::Load => {
-                // load [atomic] [volatile] type, ptr %ptr [, align ...]
+                // load [atomic] [volatile] type, ptr %ptr [unordered|monotonic|acquire|...] [, align ...]
                 // Skip atomic and volatile modifiers
                 self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
@@ -564,7 +564,8 @@ impl Parser {
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
                 let _ptr = self.parse_value()?;
-                // Skip attributes
+
+                // Skip memory ordering and other attributes
                 self.skip_load_store_attributes();
             }
             Opcode::Store => {
@@ -735,10 +736,80 @@ impl Parser {
         }
     }
 
+    fn skip_metadata(&mut self) {
+        // Skip metadata reference: !{...}, !0, !DIExpression(), etc.
+        if self.match_token(&Token::Exclaim) {
+            if self.check(&Token::LBrace) {
+                // !{...}
+                self.advance();
+                let mut depth = 1;
+                while depth > 0 && !self.is_at_end() {
+                    if self.check(&Token::LBrace) {
+                        depth += 1;
+                    } else if self.check(&Token::RBrace) {
+                        depth -= 1;
+                    }
+                    self.advance();
+                }
+            } else if let Some(Token::Identifier(_)) | Some(Token::MetadataIdent(_)) = self.peek() {
+                // !DIExpression() or similar metadata identifier
+                self.advance();
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    let mut depth = 1;
+                    while depth > 0 && !self.is_at_end() {
+                        if self.check(&Token::LParen) {
+                            depth += 1;
+                        } else if self.check(&Token::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                }
+            } else if let Some(Token::Integer(_)) = self.peek() {
+                // !0, !1, etc.
+                self.advance();
+            }
+        }
+    }
+
     fn parse_call_arguments(&mut self) -> ParseResult<Vec<(Type, Value)>> {
         let mut args = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
+            // Handle metadata arguments specially: metadata i32 0 or metadata !{}
+            if self.match_token(&Token::Metadata) {
+                // Check for various metadata forms
+                if let Some(Token::MetadataIdent(_)) = self.peek() {
+                    // metadata !DIExpression() or !0
+                    self.advance(); // consume the metadata ident
+                    // If followed by parens, skip them
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                            }
+                            self.advance();
+                        }
+                    }
+                } else if self.check(&Token::Exclaim) {
+                    // metadata !{} - literal metadata
+                    self.skip_metadata();
+                } else {
+                    // metadata i32 0 - parse type and value
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
+                }
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+                continue;
+            }
+
             let ty = self.parse_type()?;
 
             // Skip parameter attributes (byval, sret, etc.)
@@ -872,8 +943,22 @@ impl Parser {
                 Ok(crate::types::Type::struct_type(&self.context, field_types, None))
             }
             Token::LAngle => {
-                // Vector type: < size x type >
+                // Vector type: < size x type > or scalable: < vscale x size x type >
                 self.advance();
+
+                // Check for vscale (scalable vector)
+                let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "vscale" {
+                        self.advance();
+                        self.consume(&Token::X)?; // consume 'x' after vscale
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
                 let size = if let Some(Token::Integer(n)) = self.peek() {
                     let size = *n as u64;
                     self.advance();
@@ -887,6 +972,7 @@ impl Parser {
                 self.consume(&Token::X)?; // 'x'
                 let elem_ty = self.parse_type()?;
                 self.consume(&Token::RAngle)?;
+                // For now, treat scalable vectors like regular vectors
                 Ok(self.context.vector_type(elem_ty, size as usize))
             }
             Token::LocalIdent(_) => {
@@ -1271,7 +1357,33 @@ impl Parser {
     }
 
     fn skip_load_store_attributes(&mut self) {
-        while self.match_token(&Token::Comma) {
+        // Also handle attributes that appear without comma (syncscope, orderings)
+        loop {
+            // Check for syncscope("...")
+            if let Some(Token::Identifier(id)) = self.peek() {
+                if id == "syncscope" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen).ok();
+                    }
+                    continue;
+                }
+                // Check for memory ordering: unordered, monotonic, acquire, release, acq_rel, seq_cst
+                if matches!(id.as_str(), "unordered" | "monotonic" | "acquire" | "release" | "acq_rel" | "seq_cst") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            // Check for comma-separated attributes
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+
             if self.match_token(&Token::Align) {
                 if let Some(Token::Integer(_)) = self.peek() {
                     self.advance();
