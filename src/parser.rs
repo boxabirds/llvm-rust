@@ -1177,6 +1177,16 @@ impl Parser {
                 // Return placeholder value (don't consume the call arguments here)
                 Ok(Value::undef(self.context.void_type()))
             }
+            Token::Identifier(id) if id == "splat" => {
+                // Vector splat: splat (type value)
+                self.advance(); // consume 'splat'
+                self.consume(&Token::LParen)?;
+                let _ty = self.parse_type()?;
+                let _val = self.parse_value()?;
+                self.consume(&Token::RParen)?;
+                // Return placeholder splat value
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
             Token::LocalIdent(name) => {
                 let name = name.clone();
                 self.advance();
