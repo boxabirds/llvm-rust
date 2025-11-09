@@ -355,6 +355,17 @@ impl Lexer {
                     Ok(Token::Exclaim)
                 }
             }
+            '^' => {
+                // Summary/module metadata reference (e.g., ^0, ^1)
+                self.advance();
+                if self.current_char().is_ascii_digit() {
+                    // Read numeric metadata reference
+                    self.read_metadata_ident()
+                } else {
+                    // Just return caret as a token (for future use)
+                    Ok(Token::Exclaim) // Treat as metadata marker for now
+                }
+            }
             '#' => {
                 self.advance();
                 if self.current_char().is_ascii_digit() {
@@ -660,7 +671,8 @@ impl Lexer {
 
         while !self.is_at_end() {
             let ch = self.current_char();
-            if ch.is_ascii_alphanumeric() || ch == '_' {
+            // Allow dots and hyphens in identifiers (e.g., labels like "then.7", "no_exit.2")
+            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
                 word.push(ch);
                 self.advance();
             } else {
