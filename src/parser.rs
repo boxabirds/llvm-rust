@@ -857,6 +857,9 @@ impl Parser {
             } else if let Some(Token::Integer(_)) = self.peek() {
                 // !0, !1, etc. - when lexer didn't combine them
                 self.advance();
+            } else if let Some(Token::StringLit(_)) = self.peek() {
+                // !"string" - metadata string literal
+                self.advance();
             }
         }
     }
