@@ -86,6 +86,8 @@ pub enum Opcode {
     FPExt,
     PtrToInt,
     IntToPtr,
+    PtrToAddr,
+    AddrToPtr,
     BitCast,
     AddrSpaceCast,
 

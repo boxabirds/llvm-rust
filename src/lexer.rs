@@ -196,6 +196,8 @@ pub enum Token {
     FPExt,
     PtrToInt,
     IntToPtr,
+    PtrToAddr,
+    AddrToPtr,
     BitCast,
     AddrSpaceCast,
     ICmp,
@@ -350,7 +352,7 @@ impl Lexer {
             '|' => { self.advance(); Ok(Token::Pipe) }
             '!' => {
                 self.advance();
-                if self.current_char().is_ascii_alphanumeric() || self.current_char() == '_' {
+                if self.current_char().is_ascii_alphanumeric() || self.current_char() == '_' || self.current_char() == '\\' {
                     self.read_metadata_ident()
                 } else {
                     Ok(Token::Exclaim)
@@ -397,11 +399,19 @@ impl Lexer {
             'c' if self.peek_char() == Some('"') => self.read_c_string(),
             '-' | '0'..='9' => self.read_number_literal(),
             'a'..='z' | 'A'..='Z' | '_' => self.read_keyword_or_ident(),
-            '.' if self.peek_char() == Some('.') && self.peek_ahead(2) == Some('.') => {
-                self.advance();
-                self.advance();
-                self.advance();
-                Ok(Token::Ellipsis)
+            '.' => {
+                // Check for ellipsis first
+                if self.peek_char() == Some('.') && self.peek_ahead(2) == Some('.') {
+                    self.advance();
+                    self.advance();
+                    self.advance();
+                    Ok(Token::Ellipsis)
+                } else if self.peek_char().map_or(false, |c| c.is_alphanumeric() || c == '_') {
+                    // Dot followed by alphanumeric (e.g., .L.entry label)
+                    self.read_keyword_or_ident()
+                } else {
+                    Err(format!("Unexpected character '{}' at line {}, column {}", ch, self.line, self.column))
+                }
             }
             _ => Err(format!("Unexpected character '{}' at line {}, column {}", ch, self.line, self.column))
         }
@@ -506,7 +516,20 @@ impl Lexer {
 
         while !self.is_at_end() {
             let ch = self.current_char();
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
+            if ch == '\\' {
+                // Handle backslash escape sequences (octal codes like \34)
+                self.advance(); // skip backslash
+                name.push('\\');
+                // Read up to 2 octal digits or any following characters
+                for _ in 0..2 {
+                    if !self.is_at_end() && self.current_char().is_ascii_digit() {
+                        name.push(self.current_char());
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            } else if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
                 name.push(ch);
                 self.advance();
             } else {
@@ -833,6 +856,8 @@ impl Lexer {
             "fpext" => Token::FPExt,
             "ptrtoint" => Token::PtrToInt,
             "inttoptr" => Token::IntToPtr,
+            "ptrtoaddr" => Token::PtrToAddr,
+            "addrtoptr" => Token::AddrToPtr,
             "bitcast" => Token::BitCast,
             "addrspacecast" => Token::AddrSpaceCast,
             "icmp" => Token::ICmp,
@@ -986,7 +1011,7 @@ impl Lexer {
                     }
                 }
                 '/' => {
-                    // Check for C-style comment /* ... */
+                    // Check for C-style comment /* ... */ or C++ style // ...
                     if self.peek_char() == Some('*') {
                         self.advance(); // consume '/'
                         self.advance(); // consume '*'
@@ -1001,6 +1026,11 @@ impl Lexer {
                                 self.line += 1;
                                 self.column = 1;
                             }
+                            self.advance();
+                        }
+                    } else if self.peek_char() == Some('/') {
+                        // C++ style comment: // ... until end of line
+                        while !self.is_at_end() && self.current_char() != '\n' {
                             self.advance();
                         }
                     } else {
