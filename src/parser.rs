@@ -193,9 +193,14 @@ impl Parser {
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
-        // declare [cc] [ret attrs] type @name([params])
+        // declare [cc] [ret attrs] [!metadata] type @name([params])
         self.skip_linkage_and_visibility(); // For calling conventions
         self.skip_attributes();
+
+        // Skip metadata attachments before return type (e.g., declare !dbg !12 i32 @foo())
+        while self.is_metadata_token() {
+            self.skip_metadata();
+        }
 
         let return_type = self.parse_type()?;
         let name = self.expect_global_ident()?;
@@ -212,9 +217,14 @@ impl Parser {
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
-        // define [linkage] [ret attrs] type @name([params]) [fn attrs] { body }
+        // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
         self.skip_linkage_and_visibility();
         self.skip_attributes();
+
+        // Skip metadata attachments before return type
+        while self.is_metadata_token() {
+            self.skip_metadata();
+        }
 
         let return_type = self.parse_type()?;
         let name = self.expect_global_ident()?;
@@ -272,11 +282,14 @@ impl Parser {
                 let label_name = match token {
                     Token::LocalIdent(n) => Some(n),
                     Token::Identifier(n) => Some(n), // Bare identifiers like BB1, then, etc.
+                    Token::Integer(n) => Some(n.to_string()), // Numeric labels like 1:, 2:
                     // Common keywords that can be used as labels
                     Token::Entry => Some("entry".to_string()),
                     Token::Cleanup => Some("cleanup".to_string()),
                     Token::Catch => Some("catch".to_string()),
                     Token::Filter => Some("filter".to_string()),
+                    Token::True => Some("true".to_string()),
+                    Token::False => Some("false".to_string()),
                     // Any other token followed by colon is not a valid label
                     _ => None,
                 };
@@ -374,6 +387,25 @@ impl Parser {
 
         // Parse operands (simplified for now)
         let operands = self.parse_instruction_operands(opcode)?;
+
+        // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
+        self.skip_instruction_level_attributes();
+
+        // Skip metadata attachments after instructions (,!dbg !0, !prof !1, etc.)
+        while self.match_token(&Token::Comma) {
+            if self.is_metadata_token() {
+                // Skip metadata name like !dbg
+                self.skip_metadata();
+                // Skip metadata value like !0
+                if self.is_metadata_token() {
+                    self.skip_metadata();
+                }
+            } else {
+                // Not metadata, put comma back and stop
+                self.current -= 1;
+                break;
+            }
+        }
 
         Ok(Some(Instruction::new(opcode, operands, None)))
     }
@@ -480,7 +512,9 @@ impl Parser {
                 }
             }
             Opcode::Call => {
-                // call [attrs] type [(param_types...)] @func(args...)
+                // call [cc] [attrs] type [(param_types...)] @func(args...)
+                // Skip calling convention first
+                self.skip_linkage_and_visibility();
                 // Skip return attributes (inreg, zeroext, etc.)
                 self.skip_attributes();
 
@@ -506,6 +540,30 @@ impl Parser {
                 self.consume(&Token::LParen)?;
                 let _args = self.parse_call_arguments()?;
                 self.consume(&Token::RParen)?;
+
+                // Handle operand bundles: ["bundle"(args...)]
+                if self.check(&Token::LBracket) {
+                    self.advance(); // consume [
+                    while !self.check(&Token::RBracket) && !self.is_at_end() {
+                        // Skip bundle name (string literal)
+                        if let Some(Token::StringLit(_)) = self.peek() {
+                            self.advance();
+                        }
+                        // Skip bundle arguments: (args...)
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            // Skip all arguments
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.match_token(&Token::RParen);
+                        }
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.match_token(&Token::RBracket);
+                }
             }
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
             Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
@@ -812,6 +870,9 @@ impl Parser {
             } else if let Some(Token::Integer(_)) = self.peek() {
                 // !0, !1, etc. - when lexer didn't combine them
                 self.advance();
+            } else if let Some(Token::StringLit(_)) = self.peek() {
+                // !"string" - metadata string literal
+                self.advance();
             }
         }
     }
@@ -857,19 +918,52 @@ impl Parser {
 
             // Skip parameter attributes (byval, sret, noundef, allocalign, etc.)
             loop {
-                if self.match_token(&Token::Byval) ||
-                   self.match_token(&Token::Sret) ||
-                   self.match_token(&Token::Inreg) ||
+                // Attributes without type parameters
+                if self.match_token(&Token::Inreg) ||
                    self.match_token(&Token::Noalias) ||
                    self.match_token(&Token::Nocapture) ||
                    self.match_token(&Token::Nest) ||
                    self.match_token(&Token::Zeroext) ||
-                   self.match_token(&Token::Signext) {
-                    // Handle byval(type) syntax
+                   self.match_token(&Token::Signext) ||
+                   self.match_token(&Token::Immarg) {
+                    continue;
+                }
+
+                // Attributes with optional type parameters: byval(type), sret(type), inalloca(type)
+                if self.match_token(&Token::Byval) ||
+                   self.match_token(&Token::Sret) ||
+                   self.match_token(&Token::Inalloca) {
+                    // Handle optional (type) syntax
                     if self.check(&Token::LParen) {
                         self.advance();
-                        self.parse_type()?;  // Parse the type argument
-                        self.consume(&Token::RParen)?;
+                        // Skip tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+
+                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type)
+                if let Some(Token::Identifier(attr)) = self.peek() {
+                    if matches!(attr.as_str(), "byref" | "elementtype") {
+                        self.advance();
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.match_token(&Token::RParen);
+                        }
+                        continue;
+                    }
+                }
+
+                // Handle align N
+                if self.match_token(&Token::Align) {
+                    if let Some(Token::Integer(_)) = self.peek() {
+                        self.advance();
                     }
                     continue;
                 }
@@ -901,7 +995,7 @@ impl Parser {
     fn parse_type(&mut self) -> ParseResult<Type> {
         let token = self.peek().cloned().ok_or(ParseError::UnexpectedEOF)?;
 
-        match token {
+        let base_type = match token {
             Token::Void => {
                 self.advance();
                 Ok(self.context.void_type())
@@ -964,9 +1058,25 @@ impl Parser {
                 self.advance();
                 Ok(self.context.label_type())
             }
+            Token::Token => {
+                self.advance();
+                // Token type for statepoints/gc - use metadata type as placeholder
+                Ok(self.context.metadata_type())
+            }
             Token::Metadata => {
                 self.advance();
                 Ok(self.context.metadata_type())
+            }
+            Token::Target => {
+                // target("typename") - target-specific types
+                self.advance(); // consume 'target'
+                self.consume(&Token::LParen)?;
+                if let Some(Token::StringLit(_)) = self.peek() {
+                    self.advance(); // consume type name string
+                }
+                self.consume(&Token::RParen)?;
+                // Return opaque type placeholder
+                Ok(self.context.int8_type())
             }
             Token::LBracket => {
                 // Array type: [ size x type ]
@@ -1045,7 +1155,26 @@ impl Parser {
                     position: self.current,
                 })
             }
+        }?;
+
+        // Check for old-style typed pointer syntax: type addrspace(n)* or type*
+        // Skip optional addrspace modifier
+        if self.check(&Token::Addrspace) {
+            self.advance(); // consume 'addrspace'
+            self.consume(&Token::LParen)?;
+            if let Some(Token::Integer(_)) = self.peek() {
+                self.advance();
+            }
+            self.consume(&Token::RParen)?;
         }
+
+        // Check for * to make it a pointer
+        if self.check(&Token::Star) {
+            self.advance(); // consume '*'
+            return Ok(self.context.ptr_type(base_type));
+        }
+
+        Ok(base_type)
     }
 
     fn parse_value(&mut self) -> ParseResult<Value> {
@@ -1081,6 +1210,16 @@ impl Parser {
                 // Return placeholder value (don't consume the call arguments here)
                 Ok(Value::undef(self.context.void_type()))
             }
+            Token::Identifier(id) if id == "splat" => {
+                // Vector splat: splat (type value)
+                self.advance(); // consume 'splat'
+                self.consume(&Token::LParen)?;
+                let _ty = self.parse_type()?;
+                let _val = self.parse_value()?;
+                self.consume(&Token::RParen)?;
+                // Return placeholder splat value
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
             Token::LocalIdent(name) => {
                 let name = name.clone();
                 self.advance();
@@ -1115,6 +1254,11 @@ impl Parser {
                 self.advance();
                 Ok(Value::const_null(self.context.ptr_type(self.context.int8_type())))
             }
+            Token::None => {
+                self.advance();
+                // 'none' is used with token type in GC intrinsics
+                Ok(Value::undef(self.context.metadata_type()))
+            }
             Token::Undef => {
                 self.advance();
                 Ok(Value::undef(self.context.void_type()))
@@ -1141,6 +1285,20 @@ impl Parser {
                 }
                 self.consume(&Token::RAngle)?;
                 // Return placeholder vector constant
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
+            Token::LBracket => {
+                // Array constant: [type val1, type val2, ...]
+                self.advance(); // consume '['
+                while !self.check(&Token::RBracket) && !self.is_at_end() {
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RBracket)?;
+                // Return placeholder array constant
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
             Token::LBrace => {
@@ -1359,6 +1517,10 @@ impl Parser {
                self.match_token(&Token::External) ||
                self.match_token(&Token::Weak) ||
                self.match_token(&Token::Linkonce) ||
+               self.match_token(&Token::Linkonce_odr) ||
+               self.match_token(&Token::Weak_odr) ||
+               self.match_token(&Token::Available_externally) ||
+               self.match_token(&Token::Extern_weak) ||
                self.match_token(&Token::Common) ||
                self.match_token(&Token::Appending) ||
                self.match_token(&Token::Hidden) ||
@@ -1368,6 +1530,7 @@ impl Parser {
                self.match_token(&Token::Dllexport) ||
                self.match_token(&Token::Unnamed_addr) ||
                self.match_token(&Token::Dso_local) ||
+               self.match_token(&Token::Dso_preemptable) ||
                self.match_token(&Token::Thread_local) ||
                self.match_token(&Token::Local_unnamed_addr) ||
                // GPU calling conventions
@@ -1414,26 +1577,63 @@ impl Parser {
                self.match_token(&Token::Zeroext) ||
                self.match_token(&Token::Signext) ||
                self.match_token(&Token::Noalias) ||
-               self.match_token(&Token::Byval) ||
-               self.match_token(&Token::Sret) ||
                self.match_token(&Token::Nocapture) ||
                self.match_token(&Token::Nest) {
                 continue;
+            }
+
+            // Handle attributes with optional type parameters: byval(type), sret(type), byref(type), inalloca(type)
+            if self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Inalloca) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    // Skip the type - just consume tokens until )
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Handle byref attribute (identifier-based with type parameter)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "byref" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        // Skip the type - just consume tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
             }
 
             // Handle identifier-based attributes (noundef, nonnull, etc.)
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
                                           "readnone" | "returned" | "noreturn" | "nounwind" |
-                                          "allocalign" | "allocsize") {
+                                          "allocalign" | "allocsize" | "initializes") {
                     self.advance();
-                    // Some attributes have parameters in parentheses
+                    // Some attributes have parameters in parentheses (possibly nested like initializes((0, 4)))
                     if self.check(&Token::LParen) {
-                        self.advance();
-                        while !self.check(&Token::RParen) && !self.is_at_end() {
-                            self.advance();
+                        self.advance(); // consume first (
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                                self.advance();
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                                self.advance();
+                            } else {
+                                self.advance();
+                            }
                         }
-                        self.consume(&Token::RParen).ok();
                     }
                     continue;
                 }
@@ -1453,7 +1653,7 @@ impl Parser {
     }
 
     fn skip_parameter_attributes(&mut self) {
-        // Skip attributes like readonly, nonnull, etc.
+        // Skip attributes like readonly, nonnull, byval(type), etc.
         let mut skip_count = 0;
         const MAX_ATTR_SKIP: usize = 50;
 
@@ -1462,6 +1662,41 @@ impl Parser {
                self.check(&Token::RParen) || self.check_type_token() {
                 break;
             }
+
+            // Handle attributes with type parameters: byval(type), sret(type), inalloca(type)
+            if self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Inalloca) {
+                // Check for optional type parameter
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    // Skip tokens until we find )
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                skip_count += 1;
+                continue;
+            }
+
+            // Handle byref (identifier-based attribute with type parameter)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "byref" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        // Skip tokens until we find )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    skip_count += 1;
+                    continue;
+                }
+            }
+
             self.advance();
             skip_count += 1;
         }
@@ -1497,6 +1732,30 @@ impl Parser {
             }
 
             // No more flags
+            break;
+        }
+    }
+
+    fn skip_instruction_level_attributes(&mut self) {
+        // Skip attributes that appear after instruction operands
+        loop {
+            // Keyword token attributes
+            if self.match_token(&Token::Nounwind) ||
+               self.match_token(&Token::Noreturn) {
+                continue;
+            }
+
+            // Identifier-based attributes
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "readonly" | "writeonly" | "readnone" |
+                                           "nocapture" | "noinline" | "alwaysinline" |
+                                           "cold" | "hot" | "convergent" | "speculatable") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            // No more attributes
             break;
         }
     }

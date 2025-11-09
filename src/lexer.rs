@@ -33,6 +33,7 @@ pub enum Token {
     Type,
     Opaque,
     Null,
+    None,
     True,
     False,
     Zeroinitializer,
@@ -387,6 +388,11 @@ impl Lexer {
                 self.advance();
                 self.read_global_ident()
             }
+            '$' => {
+                // Comdat group name: $name
+                self.advance();
+                self.read_global_ident() // Treat like global ident
+            }
             '"' => self.read_string_literal(),
             'c' if self.peek_char() == Some('"') => self.read_c_string(),
             '-' | '0'..='9' => self.read_number_literal(),
@@ -739,6 +745,7 @@ impl Lexer {
             "type" => Token::Type,
             "opaque" => Token::Opaque,
             "null" => Token::Null,
+            "none" => Token::None,
             "true" => Token::True,
             "false" => Token::False,
             "zeroinitializer" => Token::Zeroinitializer,
