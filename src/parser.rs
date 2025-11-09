@@ -193,9 +193,14 @@ impl Parser {
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
-        // declare [cc] [ret attrs] type @name([params])
+        // declare [cc] [ret attrs] [!metadata] type @name([params])
         self.skip_linkage_and_visibility(); // For calling conventions
         self.skip_attributes();
+
+        // Skip metadata attachments before return type (e.g., declare !dbg !12 i32 @foo())
+        while self.is_metadata_token() {
+            self.skip_metadata();
+        }
 
         let return_type = self.parse_type()?;
         let name = self.expect_global_ident()?;
@@ -212,9 +217,14 @@ impl Parser {
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
-        // define [linkage] [ret attrs] type @name([params]) [fn attrs] { body }
+        // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
         self.skip_linkage_and_visibility();
         self.skip_attributes();
+
+        // Skip metadata attachments before return type
+        while self.is_metadata_token() {
+            self.skip_metadata();
+        }
 
         let return_type = self.parse_type()?;
         let name = self.expect_global_ident()?;
