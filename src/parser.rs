@@ -444,7 +444,7 @@ impl Parser {
             return Ok(None);
         }
 
-        let bb = BasicBlock::new(name);
+        let bb = BasicBlock::new(name.clone());
 
         // Parse instructions with iteration limit to prevent infinite loops
         let mut inst_count = 0;
@@ -478,6 +478,11 @@ impl Parser {
                     break;
                 }
             } else {
+                // If no instruction was parsed and this is the first iteration of an unlabeled block,
+                // return None to avoid creating empty blocks that cause infinite loops
+                if inst_count == 1 && name.is_none() && bb.instructions().is_empty() {
+                    return Ok(None);
+                }
                 break;
             }
         }
@@ -517,6 +522,29 @@ impl Parser {
         if let Some(Token::Identifier(id)) = self.peek() {
             if id == "tail" || id == "musttail" || id == "notail" {
                 self.advance(); // skip the modifier
+            }
+        }
+
+        // Check for debug records: #dbg_declare, #dbg_value, etc.
+        if self.check(&Token::Hash) {
+            // Check if this is followed by an identifier (debug intrinsic)
+            if matches!(self.peek_ahead(1), Some(Token::Identifier(_))) {
+                self.advance(); // consume #
+                self.advance(); // skip identifier (dbg_declare/dbg_value/etc)
+                // Skip the argument list if present
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    let mut depth = 1;
+                    while depth > 0 && !self.is_at_end() {
+                        if self.check(&Token::LParen) {
+                            depth += 1;
+                        } else if self.check(&Token::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                }
+                return Ok(None);
             }
         }
 
@@ -873,7 +901,8 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::PHI => {
-                // phi type [ val1, %bb1 ], [ val2, %bb2 ], ...
+                // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
+                self.skip_instruction_flags();
                 let _ty = self.parse_type()?;
                 while !self.is_at_end() {
                     if !self.match_token(&Token::LBracket) {
@@ -900,7 +929,8 @@ impl Parser {
                 let _dest_ty = self.parse_type()?;
             }
             Opcode::Select => {
-                // select i1 %cond, type %val1, type %val2
+                // select [fast-math-flags] i1 %cond, type %val1, type %val2
+                self.skip_instruction_flags();
                 let _cond_ty = self.parse_type()?;
                 let _cond = self.parse_value()?;
                 self.consume(&Token::Comma)?;
@@ -952,9 +982,23 @@ impl Parser {
                 // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering> [, align N] [, !metadata !0]
                 self.match_token(&Token::Volatile);
 
-                // Parse operation (add, sub, xchg, etc.)
-                // These can be opcodes or identifiers
-                self.advance(); // Skip the operation token (whatever it is)
+                // Parse operation (xchg, add, sub, and, or, xor, max, min, umax, umin, etc.)
+                // These can be opcodes (Add, Sub, etc.) or identifiers (xchg, max, min, etc.)
+                if let Some(token) = self.peek() {
+                    match token {
+                        // Match known atomic RMW operation tokens/keywords
+                        Token::Add | Token::Sub | Token::And | Token::Or | Token::Xor |
+                        Token::Identifier(_) => {
+                            self.advance(); // Skip the operation
+                        }
+                        _ => {
+                            // Unknown operation, try to skip anyway
+                            self.advance();
+                        }
+                    }
+                } else {
+                    return Err(ParseError::UnexpectedEOF);
+                }
 
                 // Parse pointer type and value
                 let _ptr_ty = self.parse_type()?;
@@ -1375,37 +1419,58 @@ impl Parser {
                 Ok(crate::types::Type::struct_type(&self.context, field_types, None))
             }
             Token::LAngle => {
-                // Vector type: < size x type > or scalable: < vscale x size x type >
+                // Could be:
+                // 1. Vector type: < size x type > or scalable: < vscale x size x type >
+                // 2. Packed struct: <{ type1, type2, ... }>
                 self.advance();
 
-                // Check for vscale (scalable vector)
-                let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
-                    if id == "vscale" {
-                        self.advance();
-                        self.consume(&Token::X)?; // consume 'x' after vscale
-                        true
+                // Check if this is a packed struct <{...}>
+                if self.match_token(&Token::LBrace) {
+                    // Packed struct
+                    let mut field_types = Vec::new();
+                    // Handle empty packed struct <{}>
+                    if !self.check(&Token::RBrace) {
+                        loop {
+                            field_types.push(self.parse_type()?);
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.consume(&Token::RBrace)?;
+                    self.consume(&Token::RAngle)?;
+                    Ok(crate::types::Type::struct_type_packed(&self.context, field_types, None, true))
+                } else {
+                    // Vector type
+                    // Check for vscale (scalable vector)
+                    let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
+                        if id == "vscale" {
+                            self.advance();
+                            self.consume(&Token::X)?; // consume 'x' after vscale
+                            true
+                        } else {
+                            false
+                        }
                     } else {
                         false
-                    }
-                } else {
-                    false
-                };
+                    };
 
-                let size = if let Some(Token::Integer(n)) = self.peek() {
-                    let size = *n as u64;
-                    self.advance();
-                    size
-                } else {
-                    return Err(ParseError::InvalidSyntax {
-                        message: "Expected vector size".to_string(),
-                        position: self.current,
-                    });
-                };
-                self.consume(&Token::X)?; // 'x'
-                let elem_ty = self.parse_type()?;
-                self.consume(&Token::RAngle)?;
-                // For now, treat scalable vectors like regular vectors
-                Ok(self.context.vector_type(elem_ty, size as usize))
+                    let size = if let Some(Token::Integer(n)) = self.peek() {
+                        let size = *n as u64;
+                        self.advance();
+                        size
+                    } else {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "Expected vector size".to_string(),
+                            position: self.current,
+                        });
+                    };
+                    self.consume(&Token::X)?; // 'x'
+                    let elem_ty = self.parse_type()?;
+                    self.consume(&Token::RAngle)?;
+                    // For now, treat scalable vectors like regular vectors
+                    Ok(self.context.vector_type(elem_ty, size as usize))
+                }
             }
             Token::LocalIdent(_) => {
                 // Type reference like %TypeName
@@ -1598,20 +1663,42 @@ impl Parser {
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
             Token::LAngle => {
-                // Vector constant: < type val1, type val2, ... >
+                // Could be:
+                // 1. Vector constant: < type val1, type val2, ... >
+                // 2. Packed struct constant: <{ type val1, type val2, ... }>
                 self.advance(); // consume '<'
-                // Parse vector elements
-                while !self.check(&Token::RAngle) && !self.is_at_end() {
-                    // Parse element type and value
-                    let _elem_ty = self.parse_type()?;
-                    let _elem_val = self.parse_value()?;
-                    if !self.match_token(&Token::Comma) {
-                        break;
+
+                // Check for packed struct constant
+                if self.match_token(&Token::LBrace) {
+                    // Packed struct constant: <{ type val, type val, ... }>
+                    // Handle empty packed struct constant <{}>
+                    if !self.check(&Token::RBrace) {
+                        loop {
+                            let _ty = self.parse_type()?;
+                            let _val = self.parse_value()?;
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
                     }
+                    self.consume(&Token::RBrace)?;
+                    self.consume(&Token::RAngle)?;
+                    // Return placeholder packed struct constant
+                    Ok(Value::zero_initializer(self.context.void_type()))
+                } else {
+                    // Vector constant
+                    while !self.check(&Token::RAngle) && !self.is_at_end() {
+                        // Parse element type and value
+                        let _elem_ty = self.parse_type()?;
+                        let _elem_val = self.parse_value()?;
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume(&Token::RAngle)?;
+                    // Return placeholder vector constant
+                    Ok(Value::zero_initializer(self.context.void_type()))
                 }
-                self.consume(&Token::RAngle)?;
-                // Return placeholder vector constant
-                Ok(Value::zero_initializer(self.context.void_type()))
             }
             Token::LBracket => {
                 // Array constant: [type val1, type val2, ...]
