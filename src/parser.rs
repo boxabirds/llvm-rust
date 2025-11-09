@@ -785,7 +785,8 @@ impl Parser {
             Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt |
             Opcode::FPToUI | Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
             Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast | Opcode::AddrSpaceCast => {
-                // cast type1 %val to type2
+                // cast [flags] type1 %val to type2
+                self.skip_instruction_flags(); // Skip fast-math flags for FP casts
                 let _src_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
                 self.consume(&Token::To)?;
