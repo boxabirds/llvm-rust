@@ -1,0 +1,41 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/llvm-core",
+    # Future crates:
+    # "crates/llvm-ir-builder",
+    # "crates/llvm-ir-parser",
+    # "crates/llvm-analysis",
+    # "crates/llvm-opt",
+    # "crates/llvm-codegen",
+    # "crates/llvm-tools",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/boxabirds/llvm-rust"
+authors = ["LLVM-Rust Contributors"]
+
+[workspace.dependencies]
+# Common dependencies across workspace
+anyhow = "1.0"
+thiserror = "1.0"
+smallvec = "1.11"
+rustc-hash = "1.1"
+indexmap = "2.0"
+bumpalo = "3.14"
+parking_lot = "0.12"
+
+# For testing
+criterion = "0.5"
+proptest = "1.4"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+opt-level = 3
+
+[profile.bench]
+inherits = "release"
