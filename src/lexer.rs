@@ -252,6 +252,7 @@ pub enum Token {
     GlobalIdent(String), // @name or @0
     MetadataIdent(String), // !name or !0
     AttrGroupId(u32),    // #0, #1, etc.
+    Identifier(String),  // Bare identifiers (for labels like BB1, then, etc.)
     Integer(i128),
     Float64(f64),
     StringLit(String),
@@ -916,8 +917,8 @@ impl Lexer {
             "name" => Token::Name,
 
             _ => {
-                // Unknown word, return as identifier (this shouldn't happen with proper keywords)
-                return Err(format!("Unknown keyword or identifier: {}", word));
+                // Unknown keyword - return as bare identifier (used for labels like BB1, then, etc.)
+                Token::Identifier(word)
             }
         };
 

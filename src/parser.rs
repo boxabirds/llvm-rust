@@ -264,12 +264,30 @@ impl Parser {
     }
 
     fn parse_basic_block(&mut self) -> ParseResult<Option<BasicBlock>> {
-        // Check for label
-        let name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
+        // Check for label - can be LocalIdent or keyword token followed by colon
+        let name = if let Some(token) = self.peek().cloned() {
             if self.peek_ahead(1) == Some(&Token::Colon) {
-                self.advance(); // consume ident
-                self.advance(); // consume colon
-                Some(n)
+                // Extract label name from various token types
+                let label_name = match token {
+                    Token::LocalIdent(n) => Some(n),
+                    Token::Identifier(n) => Some(n), // Bare identifiers like BB1, then, etc.
+                    // Common keywords that can be used as labels
+                    Token::Entry => Some("entry".to_string()),
+                    Token::Cleanup => Some("cleanup".to_string()),
+                    Token::Catch => Some("catch".to_string()),
+                    Token::Filter => Some("filter".to_string()),
+                    // Any other token followed by colon is not a valid label
+                    _ => None,
+                };
+
+                if let Some(name) = label_name {
+                    self.advance(); // consume label token
+                    self.advance(); // consume colon
+                    Some(name)
+                } else {
+                    // Not a recognized label token
+                    None
+                }
             } else {
                 // Entry block without label
                 None
