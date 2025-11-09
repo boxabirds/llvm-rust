@@ -1,0 +1,20 @@
+[package]
+name = "llvm-rust"
+version = "0.1.0"
+edition = "2021"
+authors = ["LLVM-Rust Contributors"]
+license = "Apache-2.0"
+description = "A Rust implementation of LLVM core components"
+repository = "https://github.com/boxabirds/llvm-rust"
+
+[dependencies]
+
+[dev-dependencies]
+
+[[example]]
+name = "simple_function"
+path = "examples/simple_function.rs"
+
+[lib]
+name = "llvm_rust"
+path = "src/lib.rs"
