@@ -527,6 +527,30 @@ impl Parser {
                 self.consume(&Token::LParen)?;
                 let _args = self.parse_call_arguments()?;
                 self.consume(&Token::RParen)?;
+
+                // Handle operand bundles: ["bundle"(args...)]
+                if self.check(&Token::LBracket) {
+                    self.advance(); // consume [
+                    while !self.check(&Token::RBracket) && !self.is_at_end() {
+                        // Skip bundle name (string literal)
+                        if let Some(Token::StringLit(_)) = self.peek() {
+                            self.advance();
+                        }
+                        // Skip bundle arguments: (args...)
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            // Skip all arguments
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.match_token(&Token::RParen);
+                        }
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.match_token(&Token::RBracket);
+                }
             }
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
             Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
