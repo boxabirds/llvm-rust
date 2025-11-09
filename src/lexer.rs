@@ -614,8 +614,8 @@ impl Lexer {
             num.push('x');
             self.advance();
 
-            // Check for special float prefixes: 0xR (bfloat), 0xK (f80), 0xM (fp128), 0xL (ppc_fp128)
-            let special_float = matches!(self.current_char(), 'R' | 'K' | 'M' | 'L');
+            // Check for special float prefixes: 0xH (half/f16), 0xR (bfloat), 0xK (f80), 0xM (fp128), 0xL (ppc_fp128)
+            let special_float = matches!(self.current_char(), 'H' | 'R' | 'K' | 'M' | 'L');
             if special_float {
                 num.push(self.current_char());
                 self.advance();
