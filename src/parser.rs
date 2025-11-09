@@ -87,12 +87,42 @@ impl Parser {
                 continue;
             }
 
-            // Parse global variables
+            // Skip comdat definitions: $name = comdat any/exactmatch/largest/...
             if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
-                && (self.peek_ahead(2) == Some(&Token::Global) || self.peek_ahead(2) == Some(&Token::Constant)) {
-                let global = self.parse_global_variable()?;
-                module.add_global(global);
+                && self.peek_ahead(2) == Some(&Token::Comdat) {
+                self.advance(); // skip $name
+                self.advance(); // skip =
+                self.advance(); // skip comdat
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance(); // skip comdat type (any, exactmatch, etc.)
+                }
                 continue;
+            }
+
+            // Parse global variables: @name = [linkage] [externally_initialized] global/constant
+            if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal) {
+                // Look ahead to find if this is a global variable (has 'global' or 'constant' keyword)
+                let mut is_global_var = false;
+                for offset in 2..10 {  // Check up to 10 tokens ahead for global/constant
+                    if let Some(tok) = self.peek_ahead(offset) {
+                        if matches!(tok, Token::Global | Token::Constant) {
+                            is_global_var = true;
+                            break;
+                        }
+                        // Stop if we hit a token that definitely means it's not a global var
+                        if matches!(tok, Token::Alias | Token::Ifunc | Token::Define | Token::Declare | Token::Comdat) {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+
+                if is_global_var {
+                    let global = self.parse_global_variable()?;
+                    module.add_global(global);
+                    continue;
+                }
             }
 
             // Skip alias and ifunc declarations: @name = [linkage] alias/ifunc ...
@@ -202,12 +232,19 @@ impl Parser {
     }
 
     fn parse_global_variable(&mut self) -> ParseResult<GlobalVariable> {
-        // @name = [linkage] [visibility] global/constant type [initializer]
+        // @name = [linkage] [visibility] [externally_initialized] global/constant type [initializer]
         let name = self.expect_global_ident()?;
         self.consume(&Token::Equal)?;
 
         // Skip linkage and visibility keywords
         self.skip_linkage_and_visibility();
+
+        // Skip externally_initialized if present
+        if let Some(Token::Identifier(id)) = self.peek() {
+            if id == "externally_initialized" {
+                self.advance();
+            }
+        }
 
         let is_constant = if self.match_token(&Token::Constant) {
             true
@@ -449,6 +486,33 @@ impl Parser {
     }
 
     fn parse_instruction(&mut self) -> ParseResult<Option<Instruction>> {
+        // Skip uselistorder directives: uselistorder type value, { order... }
+        if let Some(Token::Identifier(id)) = self.peek() {
+            if id == "uselistorder" || id == "uselistorder_bb" {
+                self.advance(); // skip uselistorder
+                // Skip the rest of the directive until we hit a closing brace
+                let mut brace_depth = 0;
+                while !self.is_at_end() {
+                    if self.check(&Token::LBrace) {
+                        brace_depth += 1;
+                        self.advance();
+                    } else if self.check(&Token::RBrace) {
+                        if brace_depth == 0 {
+                            break; // End of function
+                        }
+                        brace_depth -= 1;
+                        self.advance();
+                        if brace_depth == 0 {
+                            break; // End of uselistorder
+                        }
+                    } else {
+                        self.advance();
+                    }
+                }
+                return Ok(None);
+            }
+        }
+
         // Skip calling convention modifiers (tail, musttail, notail)
         if let Some(Token::Identifier(id)) = self.peek() {
             if id == "tail" || id == "musttail" || id == "notail" {
@@ -846,7 +910,7 @@ impl Parser {
                 let _val2 = self.parse_value()?;
             }
             Opcode::AtomicCmpXchg => {
-                // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering>
+                // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering> [, align N] [, !metadata !0]
                 self.match_token(&Token::Weak);
                 self.match_token(&Token::Volatile);
 
@@ -870,9 +934,21 @@ impl Parser {
                 // Parse two memory orderings (as keyword tokens, not identifiers)
                 self.skip_memory_ordering();
                 self.skip_memory_ordering();
+
+                // Handle optional align parameter using same logic as load/store
+                if self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else {
+                        // Not align, put comma back so metadata handling can process it
+                        self.current -= 1;
+                    }
+                }
             }
             Opcode::AtomicRMW => {
-                // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering>
+                // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering> [, align N] [, !metadata !0]
                 self.match_token(&Token::Volatile);
 
                 // Parse operation (add, sub, xchg, etc.)
@@ -893,6 +969,18 @@ impl Parser {
 
                 // Parse ordering (as keyword token, not identifier)
                 self.skip_memory_ordering();
+
+                // Handle optional align parameter using same logic as load/store
+                if self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else {
+                        // Not align, put comma back so metadata handling can process it
+                        self.current -= 1;
+                    }
+                }
             }
             _ => {
                 // For other instructions, skip to end of line or next instruction
@@ -1805,13 +1893,24 @@ impl Parser {
                self.match_token(&Token::Unnamed_addr) ||
                self.match_token(&Token::Dso_local) ||
                self.match_token(&Token::Dso_preemptable) ||
-               self.match_token(&Token::Thread_local) ||
                self.match_token(&Token::Local_unnamed_addr) ||
                // GPU calling conventions
                self.match_token(&Token::Amdgpu_kernel) ||
                self.match_token(&Token::Amdgpu_cs_chain) ||
                self.match_token(&Token::Amdgpu_ps) {
                 // Keep consuming
+                continue;
+            }
+
+            // Thread_local with optional parameters: thread_local(localdynamic)
+            if self.match_token(&Token::Thread_local) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
                 continue;
             }
 
