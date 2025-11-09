@@ -701,12 +701,13 @@ impl Parser {
             }
             Opcode::Call => {
                 // call [fast-math-flags] [cc] [attrs] type [(param_types...)] @func(args...)
-                // Skip calling convention first
-                self.skip_linkage_and_visibility();
-                // Skip return attributes (inreg, zeroext, etc.)
-                self.skip_attributes();
-                // Skip fast-math flags before return type
+                // Parse in the correct order:
+                // 1. Fast-math flags (nnan, ninf, etc.)
                 self.skip_instruction_flags();
+                // 2. Calling convention (fastcc, coldcc, etc.)
+                self.skip_linkage_and_visibility();
+                // 3. Return attributes (inreg, zeroext, etc.)
+                self.skip_attributes();
 
                 let _ret_ty = self.parse_type()?;
 
