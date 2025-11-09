@@ -328,8 +328,11 @@ impl Parser {
                     self.advance(); // consume colon
                     Some(name)
                 } else {
-                    // Not a recognized label token
-                    None
+                    // Not a recognized label token but followed by colon
+                    // This shouldn't happen, but skip both tokens to avoid infinite loop
+                    self.advance(); // skip unknown token
+                    self.advance(); // skip colon
+                    Some(format!("unknown_label_{}", self.current))
                 }
             } else {
                 // Entry block without label
@@ -541,26 +544,33 @@ impl Parser {
             }
             Opcode::CallBr => {
                 // callbr type asm sideeffect "...", "..."() to label %normal [label %indirect1, ...]
-                // Skip all tokens until we reach "to" keyword (Token::To)
-                while !self.check(&Token::To) && !self.is_at_end() {
-                    self.advance();
-                }
-                // Now parse: to label %normal [label %indirect1, ...]
-                if self.match_token(&Token::To) {
-                    self.match_token(&Token::Label);
-                    let _normal = self.parse_value()?; // normal destination
+                // Skip all tokens until we find a label (next basic block) or end of statement
+                let mut skip_count = 0;
+                const MAX_SKIP: usize = 200;
 
-                    // Parse indirect destinations: [label %indirect1, label %indirect2, ...]
-                    if self.match_token(&Token::LBracket) {
-                        while !self.check(&Token::RBracket) && !self.is_at_end() {
-                            self.match_token(&Token::Label);
-                            let _indirect = self.parse_value()?;
-                            if !self.match_token(&Token::Comma) {
-                                break;
-                            }
-                        }
-                        self.match_token(&Token::RBracket);
+                while !self.is_at_end() && skip_count < MAX_SKIP {
+                    // Check if we've reached a label (next basic block)
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        break;
                     }
+                    // Check if we've reached next instruction
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        break;
+                    }
+                    // Check for common instruction opcodes
+                    if self.peek().map(|t| matches!(t,
+                        Token::Ret | Token::Br | Token::Switch | Token::Call |
+                        Token::Store | Token::Load | Token::Alloca
+                    )).unwrap_or(false) {
+                        break;
+                    }
+                    // Check for end of function
+                    if self.check(&Token::RBrace) {
+                        break;
+                    }
+
+                    self.advance();
+                    skip_count += 1;
                 }
             }
             Opcode::Call => {
