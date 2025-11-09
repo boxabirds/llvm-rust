@@ -980,9 +980,32 @@ impl Lexer {
                     self.column = 1;
                 }
                 ';' => {
-                    // Skip comment until end of line
+                    // Skip line comment until end of line
                     while !self.is_at_end() && self.current_char() != '\n' {
                         self.advance();
+                    }
+                }
+                '/' => {
+                    // Check for C-style comment /* ... */
+                    if self.peek_char() == Some('*') {
+                        self.advance(); // consume '/'
+                        self.advance(); // consume '*'
+                        // Skip until we find */
+                        while !self.is_at_end() {
+                            if self.current_char() == '*' && self.peek_char() == Some('/') {
+                                self.advance(); // consume '*'
+                                self.advance(); // consume '/'
+                                break;
+                            }
+                            if self.current_char() == '\n' {
+                                self.line += 1;
+                                self.column = 1;
+                            }
+                            self.advance();
+                        }
+                    } else {
+                        // Not a comment, stop skipping
+                        break;
                     }
                 }
                 _ => break,
