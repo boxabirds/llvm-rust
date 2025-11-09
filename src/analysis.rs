@@ -4,7 +4,6 @@
 
 use std::collections::{HashMap, HashSet};
 use crate::function::Function;
-use crate::basic_block::BasicBlock;
 use crate::cfg::{CFG, Loop};
 use crate::passes::{Pass, AnalysisPass, PassResult};
 

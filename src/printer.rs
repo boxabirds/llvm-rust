@@ -7,7 +7,6 @@ use crate::module::Module;
 use crate::function::Function;
 use crate::basic_block::BasicBlock;
 use crate::instruction::Instruction;
-use crate::value::Value;
 
 /// IR printer
 pub struct IRPrinter {

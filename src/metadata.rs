@@ -6,9 +6,7 @@
 
 use std::sync::Arc;
 use std::fmt;
-use std::collections::HashMap;
 use crate::value::Value;
-use crate::types::Type;
 
 /// Metadata node
 #[derive(Clone)]

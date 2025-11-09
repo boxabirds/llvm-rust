@@ -3,12 +3,11 @@
 //! This module provides IR verification capabilities to ensure the correctness
 //! of LLVM IR. It checks for type consistency, SSA form, and other invariants.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use crate::module::Module;
 use crate::function::Function;
 use crate::basic_block::BasicBlock;
 use crate::instruction::{Instruction, Opcode};
-use crate::value::Value;
 
 /// Verification errors
 #[derive(Debug, Clone)]
