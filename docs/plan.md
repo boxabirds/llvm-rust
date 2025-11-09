@@ -21,13 +21,13 @@ This document provides **exhaustive, step-by-step tracking** for implementing a 
 | 1 | Tokenization & Basic Parsing | test/Assembler (basic) | 12 | 15 | 80% | ✅ Strong |
 | 2 | Type System | test/Assembler (types) | 14 | 15 | 93% | ✅ Strong |
 | 3 | All Instructions | test/Assembler (full) | 18 | 18 | 100% | ✅ Complete |
-| 4 | Verification | test/Verifier | 2 | 12 | 17% | ⚠️ Framework Only |
+| 4 | Verification | test/Verifier | 6 | 12 | 50% | 🔄 Core Complete |
 | 5 | Simple Optimizations | test/Transforms/InstCombine | 1 | 10 | 10% | ⚠️ Stubs Only |
 | 6 | Control Flow & SSA | test/Transforms/Mem2Reg | 2 | 11 | 18% | ⚠️ Framework Only |
 | 7 | x86-64 Codegen | test/CodeGen/X86 | 0 | 15 | 0% | ❌ Not Started |
 | 8 | Executable Output | test/tools/llvm-link | 0 | 10 | 0% | ❌ Not Started |
 | 9 | Standard Library | test/ExecutionEngine | 0 | 8 | 0% | ❌ Not Started |
-| **TOTAL** | | | **49** | **114** | **43%** | 🔄 **Foundation Complete** |
+| **TOTAL** | | | **53** | **114** | **46%** | 🔄 **Core Library Complete** |
 
 **Reality Check:** This is an IR manipulation library at ~36% completion toward becoming a full compiler. It can parse and build IR but cannot optimize, verify thoroughly, or generate executable code.
 
@@ -274,7 +274,7 @@ This document provides **exhaustive, step-by-step tracking** for implementing a 
 **Goal:** Implement IR verifier to detect invalid LLVM IR
 **Test Directory:** `llvm/test/Verifier`
 **Target Success Rate:** Catch 95%+ of invalid IR
-**Current Status:** 17% (2/12 steps complete)
+**Current Status:** 50% (6/12 steps complete) - Core verification implemented
 
 ### Step-by-Step Tracking
 
