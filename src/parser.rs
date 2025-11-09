@@ -479,7 +479,10 @@ impl Parser {
                 }
             }
             Opcode::Call => {
-                // call type @func(args...)
+                // call [attrs] type @func(args...)
+                // Skip return attributes (inreg, zeroext, etc.)
+                self.skip_attributes();
+
                 let _ret_ty = self.parse_type()?;
                 let _func = self.parse_value()?;
                 self.consume(&Token::LParen)?;
@@ -963,51 +966,58 @@ impl Parser {
 
         // For cast operations: castop (srctype value to desttype)
         // For binary ops: binop (type val1, type val2)
-        // For GEP: getelementptr (type, ptr %ptr, indices...)
+        // For GEP: getelementptr (basetype, ptrtype ptrvalue, indices...)
         // For select: select (type cond, type val1, type val2)
 
-        // Simplified parsing - just parse type and value, skip to closing paren
-        // This allows the constant expression to be recognized without full semantic support
-        let _src_ty = self.parse_type()?;
-        let _src_val = self.parse_value()?;
-
-        // Handle 'to' keyword for casts
-        if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast |
-                           Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
-                           Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
-                           Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
-                           Opcode::AddrSpaceCast) {
-            if self.match_token(&Token::To) {
-                let _dest_ty = self.parse_type()?;
-            }
-        } else if matches!(opcode, Opcode::GetElementPtr) {
-            // GEP: parse all comma-separated indices (type value, type value, ...)
+        if matches!(opcode, Opcode::GetElementPtr) {
+            // GEP is special: getelementptr (basetype, ptrtype ptrvalue, indextype indexvalue, ...)
+            let _base_ty = self.parse_type()?;
+            self.consume(&Token::Comma)?;
+            let _ptr_ty = self.parse_type()?;
+            let _ptr_val = self.parse_value()?;
+            // Parse remaining indices
             while self.match_token(&Token::Comma) {
                 let _idx_ty = self.parse_type()?;
                 let _idx_val = self.parse_value()?;
             }
-        } else if matches!(opcode, Opcode::Select) {
-            // Select: select (type cond, type val1, type val2)
-            if self.match_token(&Token::Comma) {
-                let _ty2 = self.parse_type()?;
-                let _val2 = self.parse_value()?;
-                if self.match_token(&Token::Comma) {
-                    let _ty3 = self.parse_type()?;
-                    let _val3 = self.parse_value()?;
-                }
-            }
-        } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
-            // Comparison: icmp/fcmp (predicate type val1, type val2)
-            // The first "type" we parsed might actually be a predicate, skip
-            if self.match_token(&Token::Comma) {
-                let _ty2 = self.parse_type()?;
-                let _val2 = self.parse_value()?;
-            }
         } else {
-            // Binary operations and others - parse second operand if comma present
-            if self.match_token(&Token::Comma) {
-                let _ty2 = self.parse_type()?;
-                let _val2 = self.parse_value()?;
+            // Simplified parsing - just parse type and value, skip to closing paren
+            // This allows the constant expression to be recognized without full semantic support
+            let _src_ty = self.parse_type()?;
+            let _src_val = self.parse_value()?;
+
+            // Handle 'to' keyword for casts
+            if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast |
+                               Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
+                               Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
+                               Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
+                               Opcode::AddrSpaceCast) {
+                if self.match_token(&Token::To) {
+                    let _dest_ty = self.parse_type()?;
+                }
+            } else if matches!(opcode, Opcode::Select) {
+                // Select: select (type cond, type val1, type val2)
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                    if self.match_token(&Token::Comma) {
+                        let _ty3 = self.parse_type()?;
+                        let _val3 = self.parse_value()?;
+                    }
+                }
+            } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
+                // Comparison: icmp/fcmp (predicate type val1, type val2)
+                // The first "type" we parsed might actually be a predicate, skip
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                }
+            } else {
+                // Binary operations and others - parse second operand if comma present
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                }
             }
         }
 
