@@ -910,7 +910,7 @@ impl Parser {
                 let _val2 = self.parse_value()?;
             }
             Opcode::AtomicCmpXchg => {
-                // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering>
+                // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering> [, align N] [, !metadata !0]
                 self.match_token(&Token::Weak);
                 self.match_token(&Token::Volatile);
 
@@ -934,9 +934,21 @@ impl Parser {
                 // Parse two memory orderings (as keyword tokens, not identifiers)
                 self.skip_memory_ordering();
                 self.skip_memory_ordering();
+
+                // Handle optional align parameter using same logic as load/store
+                if self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else {
+                        // Not align, put comma back so metadata handling can process it
+                        self.current -= 1;
+                    }
+                }
             }
             Opcode::AtomicRMW => {
-                // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering>
+                // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering> [, align N] [, !metadata !0]
                 self.match_token(&Token::Volatile);
 
                 // Parse operation (add, sub, xchg, etc.)
@@ -957,6 +969,18 @@ impl Parser {
 
                 // Parse ordering (as keyword token, not identifier)
                 self.skip_memory_ordering();
+
+                // Handle optional align parameter using same logic as load/store
+                if self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else {
+                        // Not align, put comma back so metadata handling can process it
+                        self.current -= 1;
+                    }
+                }
             }
             _ => {
                 // For other instructions, skip to end of line or next instruction
