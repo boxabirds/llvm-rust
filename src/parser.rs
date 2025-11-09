@@ -193,7 +193,8 @@ impl Parser {
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
-        // declare [ret attrs] type @name([params])
+        // declare [cc] [ret attrs] type @name([params])
+        self.skip_linkage_and_visibility(); // For calling conventions
         self.skip_attributes();
 
         let return_type = self.parse_type()?;
@@ -636,6 +637,43 @@ impl Parser {
                 self.consume(&Token::Comma)?;
                 let _ty2 = self.parse_type()?;
                 let _val2 = self.parse_value()?;
+            }
+            Opcode::AtomicRMW => {
+                // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering>
+                self.match_token(&Token::Volatile);
+
+                // Parse operation (add, sub, xchg, etc.)
+                // These can be opcodes or identifiers
+                self.advance(); // Skip the operation token (whatever it is)
+
+                // Parse pointer type and value
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+
+                // Parse value type and value
+                let _val_ty = self.parse_type()?;
+                let _val = self.parse_value()?;
+
+                // Skip syncscope if present
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "syncscope" {
+                        self.advance();
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            // Skip scope string
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.consume(&Token::RParen)?;
+                        }
+                    }
+                }
+
+                // Parse ordering (monotonic, acquire, release, etc.)
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance();
+                }
             }
             _ => {
                 // For other instructions, skip to end of line or next instruction
