@@ -1171,11 +1171,21 @@ impl Parser {
                 Ok(self.context.metadata_type())
             }
             Token::Target => {
-                // target("typename") - target-specific types
+                // target("typename", params...) - target-specific types with optional type/integer params
                 self.advance(); // consume 'target'
                 self.consume(&Token::LParen)?;
                 if let Some(Token::StringLit(_)) = self.peek() {
                     self.advance(); // consume type name string
+                }
+                // Handle optional comma-separated parameters (types or integers)
+                while self.match_token(&Token::Comma) {
+                    // Parameter can be a type or an integer
+                    if let Some(Token::Integer(_)) = self.peek() {
+                        self.advance(); // consume integer parameter
+                    } else {
+                        // Try to parse as type
+                        let _ = self.parse_type();
+                    }
                 }
                 self.consume(&Token::RParen)?;
                 // Return opaque type placeholder
