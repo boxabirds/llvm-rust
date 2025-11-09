@@ -946,6 +946,14 @@ impl Parser {
                     }
                 }
 
+                // Handle align N
+                if self.match_token(&Token::Align) {
+                    if let Some(Token::Integer(_)) = self.peek() {
+                        self.advance();
+                    }
+                    continue;
+                }
+
                 // Handle identifier-based attributes
                 if let Some(Token::Identifier(attr)) = self.peek() {
                     if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
