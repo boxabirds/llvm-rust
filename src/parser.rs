@@ -1508,6 +1508,9 @@ impl Parser {
 
         self.advance(); // consume opcode token
 
+        // Skip instruction flags (nuw, nsw, exact, fast-math flags)
+        self.skip_instruction_flags();
+
         // Parse the operands inside parentheses
         self.consume(&Token::LParen)?;
 
@@ -1816,9 +1819,9 @@ impl Parser {
                 continue;
             }
 
-            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), preallocated(type), range(type val, val), nofpclass(...)
+            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), preallocated(type), range(type val, val), nofpclass(...), captures(...)
             if let Some(Token::Identifier(attr)) = self.peek() {
-                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated" | "range" | "nofpclass") {
+                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated" | "range" | "nofpclass" | "captures") {
                     self.advance();
                     if self.check(&Token::LParen) {
                         self.advance(); // consume (
