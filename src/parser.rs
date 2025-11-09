@@ -1075,6 +1075,10 @@ impl Parser {
                 self.advance();
                 Ok(Value::undef(self.context.void_type()))
             }
+            Token::Poison => {
+                self.advance();
+                Ok(Value::undef(self.context.void_type())) // Treat poison like undef for now
+            }
             Token::Zeroinitializer => {
                 self.advance();
                 Ok(Value::zero_initializer(self.context.void_type()))
@@ -1392,10 +1396,25 @@ impl Parser {
     }
 
     fn skip_instruction_flags(&mut self) {
-        while self.match_token(&Token::Nuw) ||
-              self.match_token(&Token::Nsw) ||
-              self.match_token(&Token::Exact) {
-            // Continue
+        loop {
+            // Integer arithmetic flags (keyword tokens)
+            if self.match_token(&Token::Nuw) ||
+               self.match_token(&Token::Nsw) ||
+               self.match_token(&Token::Exact) {
+                continue;
+            }
+
+            // Fast-math flags (identifiers)
+            if let Some(Token::Identifier(id)) = self.peek() {
+                if matches!(id.as_str(), "fast" | "nnan" | "ninf" | "nsz" | "arcp" |
+                                         "contract" | "afn" | "reassoc") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            // No more flags
+            break;
         }
     }
 
