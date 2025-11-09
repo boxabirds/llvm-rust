@@ -399,11 +399,19 @@ impl Lexer {
             'c' if self.peek_char() == Some('"') => self.read_c_string(),
             '-' | '0'..='9' => self.read_number_literal(),
             'a'..='z' | 'A'..='Z' | '_' => self.read_keyword_or_ident(),
-            '.' if self.peek_char() == Some('.') && self.peek_ahead(2) == Some('.') => {
-                self.advance();
-                self.advance();
-                self.advance();
-                Ok(Token::Ellipsis)
+            '.' => {
+                // Check for ellipsis first
+                if self.peek_char() == Some('.') && self.peek_ahead(2) == Some('.') {
+                    self.advance();
+                    self.advance();
+                    self.advance();
+                    Ok(Token::Ellipsis)
+                } else if self.peek_char().map_or(false, |c| c.is_alphanumeric() || c == '_') {
+                    // Dot followed by alphanumeric (e.g., .L.entry label)
+                    self.read_keyword_or_ident()
+                } else {
+                    Err(format!("Unexpected character '{}' at line {}, column {}", ch, self.line, self.column))
+                }
             }
             _ => Err(format!("Unexpected character '{}' at line {}, column {}", ch, self.line, self.column))
         }

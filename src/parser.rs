@@ -95,6 +95,34 @@ impl Parser {
                 continue;
             }
 
+            // Skip alias and ifunc declarations: @name = [linkage] alias/ifunc ...
+            if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal) {
+                // Check if it's an alias or ifunc by looking ahead
+                let mut idx = 2;
+                // Skip linkage/visibility keywords
+                while let Some(tok) = self.peek_ahead(idx) {
+                    if matches!(tok, Token::Identifier(_)) {
+                        idx += 1;
+                        continue;
+                    }
+                    if matches!(tok, Token::Alias | Token::Ifunc) {
+                        // Skip the entire declaration
+                        self.advance(); // skip @name
+                        self.advance(); // skip =
+                        // Skip to end of line/declaration
+                        while !self.is_at_end() && !self.check(&Token::Define) && !self.check(&Token::Declare) &&
+                              !self.peek_global_ident().is_some() {
+                            self.advance();
+                        }
+                        break;
+                    }
+                    break;
+                }
+                if idx > 2 && self.current < self.tokens.len() {
+                    continue;
+                }
+            }
+
             // Parse function declarations
             if self.match_token(&Token::Declare) {
                 let function = self.parse_function_declaration()?;
@@ -634,6 +662,13 @@ impl Parser {
                     self.consume(&Token::RParen)?;
                 }
 
+                // Skip dso_local_equivalent marker: call void dso_local_equivalent @func()
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "dso_local_equivalent" {
+                        self.advance();
+                    }
+                }
+
                 let _func = self.parse_value()?;
                 self.consume(&Token::LParen)?;
                 let _args = self.parse_call_arguments()?;
@@ -1033,7 +1068,23 @@ impl Parser {
                    self.match_token(&Token::Nest) ||
                    self.match_token(&Token::Zeroext) ||
                    self.match_token(&Token::Signext) ||
-                   self.match_token(&Token::Immarg) {
+                   self.match_token(&Token::Immarg) ||
+                   self.match_token(&Token::Nonnull) ||
+                   self.match_token(&Token::Readonly) ||
+                   self.match_token(&Token::Writeonly) {
+                    continue;
+                }
+
+                // Attributes with parameters: dereferenceable(N), dereferenceable_or_null(N)
+                if self.match_token(&Token::Dereferenceable) ||
+                   self.match_token(&Token::Dereferenceable_or_null) {
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
                     continue;
                 }
 
@@ -1316,13 +1367,14 @@ impl Parser {
             self.consume(&Token::RParen)?;
         }
 
-        // Check for * to make it a pointer
-        if self.check(&Token::Star) {
+        // Check for * to make it a pointer (handle multiple stars for i8**, i8***, etc.)
+        let mut result_type = base_type;
+        while self.check(&Token::Star) {
             self.advance(); // consume '*'
-            return Ok(self.context.ptr_type(base_type));
+            result_type = self.context.ptr_type(result_type);
         }
 
-        Ok(base_type)
+        Ok(result_type)
     }
 
     fn parse_value(&mut self) -> ParseResult<Value> {
@@ -1488,7 +1540,8 @@ impl Parser {
             Token::GetElementPtr | Token::Sub | Token::Add | Token::Mul |
             Token::UDiv | Token::SDiv | Token::URem | Token::SRem |
             Token::Shl | Token::LShr | Token::AShr | Token::And | Token::Or | Token::Xor |
-            Token::ICmp | Token::FCmp | Token::Select | Token::ExtractValue => {
+            Token::ICmp | Token::FCmp | Token::Select | Token::ExtractValue |
+            Token::ExtractElement | Token::InsertElement | Token::ShuffleVector => {
                 // Parse as constant expression
                 self.parse_constant_expression()
             }
@@ -1540,6 +1593,9 @@ impl Parser {
             Token::FCmp => Opcode::FCmp,
             Token::Select => Opcode::Select,
             Token::ExtractValue => Opcode::ExtractValue,
+            Token::ExtractElement => Opcode::ExtractElement,
+            Token::InsertElement => Opcode::InsertElement,
+            Token::ShuffleVector => Opcode::ShuffleVector,
             _ => {
                 return Err(ParseError::InvalidSyntax {
                     message: format!("Unexpected token in constant expression: {:?}", token),
@@ -1717,7 +1773,15 @@ impl Parser {
             if let Some(Token::Identifier(id)) = self.peek() {
                 if id.starts_with("amdgpu_") || id.starts_with("spir_") ||
                    id.starts_with("aarch64_") || id.starts_with("x86_") ||
-                   id.starts_with("riscv_") || id == "cc" || id.starts_with("cc") {
+                   id.starts_with("riscv_") || id.starts_with("arm_") ||
+                   id.starts_with("avr_") || id.starts_with("ptx_") ||
+                   id == "cc" || id.starts_with("cc") ||
+                   id == "ccc" || id == "fastcc" || id == "coldcc" ||
+                   id == "webkit_jscc" || id == "anyregcc" ||
+                   id == "preserve_mostcc" || id == "preserve_allcc" ||
+                   id == "cxx_fast_tlscc" || id == "swiftcc" || id == "swifttailcc" ||
+                   id == "cfguard_checkcc" || id == "ghccc" || id == "hhvmcc" || id == "hhvm_ccc" ||
+                   id == "intel_ocl_bicc" || id == "win64cc" {
                     self.advance();
                     // Some calling conventions have parameters: riscv_vls_cc(N)
                     if self.check(&Token::LParen) {
@@ -1727,6 +1791,14 @@ impl Parser {
                         }
                         self.match_token(&Token::RParen); // consume )
                     }
+                    continue;
+                }
+            }
+
+            // Check for old linkage types (3.2 era): linker_private, linker_private_weak, linker_private_weak_def_auto
+            if let Some(Token::Identifier(id)) = self.peek() {
+                if id == "linker_private" || id == "linker_private_weak" || id == "linker_private_weak_def_auto" {
+                    self.advance();
                     continue;
                 }
             }
