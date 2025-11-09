@@ -344,6 +344,13 @@ impl Parser {
     }
 
     fn parse_instruction(&mut self) -> ParseResult<Option<Instruction>> {
+        // Skip calling convention modifiers (tail, musttail, notail)
+        if let Some(Token::Identifier(id)) = self.peek() {
+            if id == "tail" || id == "musttail" || id == "notail" {
+                self.advance(); // skip the modifier
+            }
+        }
+
         // Check for result assignment: %name = ...
         let _result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
             if self.peek_ahead(1) == Some(&Token::Equal) {
@@ -491,16 +498,26 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::Alloca => {
-                // alloca type [, align ...]
+                // alloca type [, type NumElements] [, align ...]
                 let _ty = self.parse_type()?;
+
+                // Handle optional array size: ", type numElements"
+                if self.match_token(&Token::Comma) {
+                    // Check if next is a type (for array size) or align keyword
+                    if !self.check(&Token::Align) && !self.check(&Token::Inbounds) {
+                        // Parse array size type and value
+                        let _size_ty = self.parse_type()?;
+                        let _size_val = self.parse_value()?;
+
+                        // Try to consume another comma for alignment
+                        self.match_token(&Token::Comma);
+                    }
+                }
+
                 // Skip alignment and other attributes
-                while self.match_token(&Token::Comma) {
-                    if self.match_token(&Token::Align) {
-                        if let Some(Token::Integer(_)) = self.peek() {
-                            self.advance();
-                        }
-                    } else {
-                        break;
+                if self.match_token(&Token::Align) {
+                    if let Some(Token::Integer(_)) = self.peek() {
+                        self.advance();
                     }
                 }
             }
@@ -805,6 +822,17 @@ impl Parser {
                 self.advance();
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
+            // Constant expressions - instructions that can appear in constant contexts
+            Token::PtrToInt | Token::IntToPtr | Token::BitCast | Token::AddrSpaceCast |
+            Token::Trunc | Token::ZExt | Token::SExt | Token::FPTrunc | Token::FPExt |
+            Token::FPToUI | Token::FPToSI | Token::UIToFP | Token::SIToFP |
+            Token::GetElementPtr | Token::Sub | Token::Add | Token::Mul |
+            Token::UDiv | Token::SDiv | Token::URem | Token::SRem |
+            Token::Shl | Token::LShr | Token::AShr | Token::And | Token::Or | Token::Xor |
+            Token::ICmp | Token::FCmp | Token::Select => {
+                // Parse as constant expression
+                self.parse_constant_expression()
+            }
             _ => {
                 Err(ParseError::InvalidSyntax {
                     message: format!("Expected value, found {:?}", token),
@@ -812,6 +840,87 @@ impl Parser {
                 })
             }
         }
+    }
+
+    fn parse_constant_expression(&mut self) -> ParseResult<Value> {
+        // Parse constant expressions like: ptrtoint (ptr @global to i32)
+        let token = self.peek().ok_or(ParseError::UnexpectedEOF)?;
+
+        // Determine the opcode
+        let opcode = match token {
+            Token::PtrToInt => Opcode::PtrToInt,
+            Token::IntToPtr => Opcode::IntToPtr,
+            Token::BitCast => Opcode::BitCast,
+            Token::AddrSpaceCast => Opcode::AddrSpaceCast,
+            Token::Trunc => Opcode::Trunc,
+            Token::ZExt => Opcode::ZExt,
+            Token::SExt => Opcode::SExt,
+            Token::FPTrunc => Opcode::FPTrunc,
+            Token::FPExt => Opcode::FPExt,
+            Token::FPToUI => Opcode::FPToUI,
+            Token::FPToSI => Opcode::FPToSI,
+            Token::UIToFP => Opcode::UIToFP,
+            Token::SIToFP => Opcode::SIToFP,
+            Token::GetElementPtr => Opcode::GetElementPtr,
+            Token::Sub => Opcode::Sub,
+            Token::Add => Opcode::Add,
+            Token::Mul => Opcode::Mul,
+            Token::UDiv => Opcode::UDiv,
+            Token::SDiv => Opcode::SDiv,
+            Token::URem => Opcode::URem,
+            Token::SRem => Opcode::SRem,
+            Token::Shl => Opcode::Shl,
+            Token::LShr => Opcode::LShr,
+            Token::AShr => Opcode::AShr,
+            Token::And => Opcode::And,
+            Token::Or => Opcode::Or,
+            Token::Xor => Opcode::Xor,
+            Token::ICmp => Opcode::ICmp,
+            Token::FCmp => Opcode::FCmp,
+            Token::Select => Opcode::Select,
+            _ => {
+                return Err(ParseError::InvalidSyntax {
+                    message: format!("Unexpected token in constant expression: {:?}", token),
+                    position: self.current,
+                });
+            }
+        };
+
+        self.advance(); // consume opcode token
+
+        // Parse the operands inside parentheses
+        self.consume(&Token::LParen)?;
+
+        // For cast operations: castop (srctype value to desttype)
+        // For binary ops: binop (type val1, type val2)
+        // For GEP: getelementptr (type, ptr %ptr, indices...)
+
+        // Simplified parsing - just parse type and value, skip to closing paren
+        // This allows the constant expression to be recognized without full semantic support
+        let _src_ty = self.parse_type()?;
+        let _src_val = self.parse_value()?;
+
+        // Handle 'to' keyword for casts
+        if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast |
+                           Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
+                           Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
+                           Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
+                           Opcode::AddrSpaceCast) {
+            if self.match_token(&Token::To) {
+                let _dest_ty = self.parse_type()?;
+            }
+        } else {
+            // Binary operations - parse second operand
+            if self.match_token(&Token::Comma) {
+                let _ty2 = self.parse_type()?;
+                let _val2 = self.parse_value()?;
+            }
+        }
+
+        self.consume(&Token::RParen)?;
+
+        // Return a placeholder constant expression value
+        Ok(Value::instruction(self.context.void_type(), opcode, Some("constexpr".to_string())))
     }
 
     fn parse_parameters(&mut self) -> ParseResult<Vec<(Type, String)>> {
