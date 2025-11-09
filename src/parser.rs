@@ -109,6 +109,24 @@ impl Parser {
                 continue;
             }
 
+            // Parse attribute group definitions: attributes #0 = { ... }
+            if self.match_token(&Token::Attributes) {
+                // Skip attribute group ID (#0, #1, etc.)
+                if self.check_attr_group_id() {
+                    self.advance();
+                }
+                // Skip '='
+                self.match_token(&Token::Equal);
+                // Skip attribute list in braces
+                if self.match_token(&Token::LBrace) {
+                    while !self.check(&Token::RBrace) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RBrace);
+                }
+                continue;
+            }
+
             // Skip unknown tokens
             if !self.is_at_end() {
                 self.advance();
@@ -1784,6 +1802,12 @@ impl Parser {
     fn skip_instruction_level_attributes(&mut self) {
         // Skip attributes that appear after instruction operands
         loop {
+            // Attribute group IDs: #0, #1, etc.
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+                continue;
+            }
+
             // Keyword token attributes
             if self.match_token(&Token::Nounwind) ||
                self.match_token(&Token::Noreturn) {
