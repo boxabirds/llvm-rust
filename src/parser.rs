@@ -1695,6 +1695,27 @@ impl Parser {
                     skip_count += 1;
                     continue;
                 }
+                // Handle initializes with nested parentheses: initializes((0, 4))
+                if attr == "initializes" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume first (
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                                self.advance();
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                                self.advance();
+                            } else {
+                                self.advance();
+                            }
+                        }
+                    }
+                    skip_count += 1;
+                    continue;
+                }
             }
 
             self.advance();
