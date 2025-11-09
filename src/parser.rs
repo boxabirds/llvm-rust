@@ -308,6 +308,17 @@ impl Parser {
                     Token::Filter => Some("filter".to_string()),
                     Token::True => Some("true".to_string()),
                     Token::False => Some("false".to_string()),
+                    // Instruction keywords that can be used as labels
+                    Token::Call => Some("call".to_string()),
+                    Token::Ret => Some("ret".to_string()),
+                    Token::Br => Some("br".to_string()),
+                    Token::Switch => Some("switch".to_string()),
+                    Token::Add => Some("add".to_string()),
+                    Token::Sub => Some("sub".to_string()),
+                    Token::Mul => Some("mul".to_string()),
+                    Token::Load => Some("load".to_string()),
+                    Token::Store => Some("store".to_string()),
+                    Token::Alloca => Some("alloca".to_string()),
                     // Any other token followed by colon is not a valid label
                     _ => None,
                 };
@@ -353,17 +364,10 @@ impl Parser {
                 break;
             }
 
-            // Check if next token is a label (token followed by colon)
+            // Check if next token is a label (any token followed by colon)
+            // In LLVM IR, any identifier-like token can be a label, including keywords
             if self.peek_ahead(1) == Some(&Token::Colon) {
-                // Could be LocalIdent, Identifier, Integer, or keyword used as label
-                if let Some(token) = self.peek() {
-                    if matches!(token,
-                        Token::LocalIdent(_) | Token::Identifier(_) | Token::Integer(_) |
-                        Token::Entry | Token::Cleanup | Token::Catch | Token::Filter |
-                        Token::True | Token::False) {
-                        break;
-                    }
-                }
+                break;
             }
 
             // Parse instruction
@@ -533,6 +537,30 @@ impl Parser {
                     self.consume(&Token::Comma)?;
                     self.consume(&Token::Label)?;
                     let _false_dest = self.expect_local_ident()?;
+                }
+            }
+            Opcode::CallBr => {
+                // callbr type asm sideeffect "...", "..."() to label %normal [label %indirect1, ...]
+                // Skip all tokens until we reach "to" keyword (Token::To)
+                while !self.check(&Token::To) && !self.is_at_end() {
+                    self.advance();
+                }
+                // Now parse: to label %normal [label %indirect1, ...]
+                if self.match_token(&Token::To) {
+                    self.match_token(&Token::Label);
+                    let _normal = self.parse_value()?; // normal destination
+
+                    // Parse indirect destinations: [label %indirect1, label %indirect2, ...]
+                    if self.match_token(&Token::LBracket) {
+                        while !self.check(&Token::RBracket) && !self.is_at_end() {
+                            self.match_token(&Token::Label);
+                            let _indirect = self.parse_value()?;
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
+                        self.match_token(&Token::RBracket);
+                    }
                 }
             }
             Opcode::Call => {
@@ -793,8 +821,9 @@ impl Parser {
                         // Next instruction assignment
                         break;
                     }
-                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Colon) {
-                        // Label
+                    // Check for any token followed by colon (labels)
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        // Label (can be LocalIdent, Identifier, Integer, or keyword)
                         break;
                     }
                     if self.peek().map(|t| matches!(t,
@@ -1728,9 +1757,9 @@ impl Parser {
                 continue;
             }
 
-            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type)
+            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), preallocated(type)
             if let Some(Token::Identifier(attr)) = self.peek() {
-                if matches!(attr.as_str(), "byref" | "elementtype") {
+                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated") {
                     self.advance();
                     if self.check(&Token::LParen) {
                         self.advance(); // consume (
