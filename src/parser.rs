@@ -639,6 +639,47 @@ impl Parser {
                 let _ty2 = self.parse_type()?;
                 let _val2 = self.parse_value()?;
             }
+            Opcode::AtomicCmpXchg => {
+                // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering>
+                self.match_token(&Token::Weak);
+                self.match_token(&Token::Volatile);
+
+                // Parse pointer type and value
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+
+                // Parse compare type and value
+                let _cmp_ty = self.parse_type()?;
+                let _cmp = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+
+                // Parse new type and value
+                let _new_ty = self.parse_type()?;
+                let _new = self.parse_value()?;
+
+                // Skip syncscope if present
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "syncscope" {
+                        self.advance();
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.consume(&Token::RParen)?;
+                        }
+                    }
+                }
+
+                // Parse two memory orderings
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance(); // First ordering
+                }
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance(); // Second ordering
+                }
+            }
             Opcode::AtomicRMW => {
                 // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering>
                 self.match_token(&Token::Volatile);
