@@ -985,9 +985,25 @@ impl Parser {
                 self.advance();
                 Ok(self.context.label_type())
             }
+            Token::Token => {
+                self.advance();
+                // Token type for statepoints/gc - use metadata type as placeholder
+                Ok(self.context.metadata_type())
+            }
             Token::Metadata => {
                 self.advance();
                 Ok(self.context.metadata_type())
+            }
+            Token::Target => {
+                // target("typename") - target-specific types
+                self.advance(); // consume 'target'
+                self.consume(&Token::LParen)?;
+                if let Some(Token::StringLit(_)) = self.peek() {
+                    self.advance(); // consume type name string
+                }
+                self.consume(&Token::RParen)?;
+                // Return opaque type placeholder
+                Ok(self.context.int8_type())
             }
             Token::LBracket => {
                 // Array type: [ size x type ]
@@ -1380,6 +1396,10 @@ impl Parser {
                self.match_token(&Token::External) ||
                self.match_token(&Token::Weak) ||
                self.match_token(&Token::Linkonce) ||
+               self.match_token(&Token::Linkonce_odr) ||
+               self.match_token(&Token::Weak_odr) ||
+               self.match_token(&Token::Available_externally) ||
+               self.match_token(&Token::Extern_weak) ||
                self.match_token(&Token::Common) ||
                self.match_token(&Token::Appending) ||
                self.match_token(&Token::Hidden) ||
@@ -1389,6 +1409,7 @@ impl Parser {
                self.match_token(&Token::Dllexport) ||
                self.match_token(&Token::Unnamed_addr) ||
                self.match_token(&Token::Dso_local) ||
+               self.match_token(&Token::Dso_preemptable) ||
                self.match_token(&Token::Thread_local) ||
                self.match_token(&Token::Local_unnamed_addr) ||
                // GPU calling conventions
