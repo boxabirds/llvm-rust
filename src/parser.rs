@@ -109,6 +109,24 @@ impl Parser {
                 continue;
             }
 
+            // Parse attribute group definitions: attributes #0 = { ... }
+            if self.match_token(&Token::Attributes) {
+                // Skip attribute group ID (#0, #1, etc.)
+                if self.check_attr_group_id() {
+                    self.advance();
+                }
+                // Skip '='
+                self.match_token(&Token::Equal);
+                // Skip attribute list in braces
+                if self.match_token(&Token::LBrace) {
+                    while !self.check(&Token::RBrace) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RBrace);
+                }
+                continue;
+            }
+
             // Skip unknown tokens
             if !self.is_at_end() {
                 self.advance();
@@ -290,6 +308,17 @@ impl Parser {
                     Token::Filter => Some("filter".to_string()),
                     Token::True => Some("true".to_string()),
                     Token::False => Some("false".to_string()),
+                    // Instruction keywords that can be used as labels
+                    Token::Call => Some("call".to_string()),
+                    Token::Ret => Some("ret".to_string()),
+                    Token::Br => Some("br".to_string()),
+                    Token::Switch => Some("switch".to_string()),
+                    Token::Add => Some("add".to_string()),
+                    Token::Sub => Some("sub".to_string()),
+                    Token::Mul => Some("mul".to_string()),
+                    Token::Load => Some("load".to_string()),
+                    Token::Store => Some("store".to_string()),
+                    Token::Alloca => Some("alloca".to_string()),
                     // Any other token followed by colon is not a valid label
                     _ => None,
                 };
@@ -299,8 +328,11 @@ impl Parser {
                     self.advance(); // consume colon
                     Some(name)
                 } else {
-                    // Not a recognized label token
-                    None
+                    // Not a recognized label token but followed by colon
+                    // This shouldn't happen, but skip both tokens to avoid infinite loop
+                    self.advance(); // skip unknown token
+                    self.advance(); // skip colon
+                    Some(format!("unknown_label_{}", self.current))
                 }
             } else {
                 // Entry block without label
@@ -335,11 +367,10 @@ impl Parser {
                 break;
             }
 
-            // Check if next token is a label (local ident followed by colon)
-            if let Some(Token::LocalIdent(_)) = self.peek() {
-                if self.peek_ahead(1) == Some(&Token::Colon) {
-                    break;
-                }
+            // Check if next token is a label (any token followed by colon)
+            // In LLVM IR, any identifier-like token can be a label, including keywords
+            if self.peek_ahead(1) == Some(&Token::Colon) {
+                break;
             }
 
             // Parse instruction
@@ -509,6 +540,37 @@ impl Parser {
                     self.consume(&Token::Comma)?;
                     self.consume(&Token::Label)?;
                     let _false_dest = self.expect_local_ident()?;
+                }
+            }
+            Opcode::CallBr => {
+                // callbr type asm sideeffect "...", "..."() to label %normal [label %indirect1, ...]
+                // Skip all tokens until we find a label (next basic block) or end of statement
+                let mut skip_count = 0;
+                const MAX_SKIP: usize = 200;
+
+                while !self.is_at_end() && skip_count < MAX_SKIP {
+                    // Check if we've reached a label (next basic block)
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        break;
+                    }
+                    // Check if we've reached next instruction
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        break;
+                    }
+                    // Check for common instruction opcodes
+                    if self.peek().map(|t| matches!(t,
+                        Token::Ret | Token::Br | Token::Switch | Token::Call |
+                        Token::Store | Token::Load | Token::Alloca
+                    )).unwrap_or(false) {
+                        break;
+                    }
+                    // Check for end of function
+                    if self.check(&Token::RBrace) {
+                        break;
+                    }
+
+                    self.advance();
+                    skip_count += 1;
                 }
             }
             Opcode::Call => {
@@ -769,8 +831,9 @@ impl Parser {
                         // Next instruction assignment
                         break;
                     }
-                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Colon) {
-                        // Label
+                    // Check for any token followed by colon (labels)
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        // Label (can be LocalIdent, Identifier, Integer, or keyword)
                         break;
                     }
                     if self.peek().map(|t| matches!(t,
@@ -1156,6 +1219,30 @@ impl Parser {
                 })
             }
         }?;
+
+        // Check for function type syntax: type(params...)
+        if self.check(&Token::LParen) {
+            self.advance(); // consume '('
+
+            let mut param_types = Vec::new();
+            while !self.check(&Token::RParen) && !self.is_at_end() {
+                // Check for varargs
+                if self.check(&Token::Ellipsis) {
+                    self.advance();
+                    break;
+                }
+                let param_ty = self.parse_type()?;
+                param_types.push(param_ty);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
+            self.consume(&Token::RParen)?;
+
+            // base_type is the return type, create function type
+            let func_type = self.context.function_type(base_type, param_types, false);
+            return Ok(func_type);
+        }
 
         // Check for old-style typed pointer syntax: type addrspace(n)* or type*
         // Skip optional addrspace modifier
@@ -1680,9 +1767,9 @@ impl Parser {
                 continue;
             }
 
-            // Handle byref (identifier-based attribute with type parameter)
+            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), preallocated(type)
             if let Some(Token::Identifier(attr)) = self.peek() {
-                if attr == "byref" {
+                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated") {
                     self.advance();
                     if self.check(&Token::LParen) {
                         self.advance(); // consume (
@@ -1691,6 +1778,27 @@ impl Parser {
                             self.advance();
                         }
                         self.match_token(&Token::RParen); // consume )
+                    }
+                    skip_count += 1;
+                    continue;
+                }
+                // Handle initializes with nested parentheses: initializes((0, 4))
+                if attr == "initializes" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume first (
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                                self.advance();
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                                self.advance();
+                            } else {
+                                self.advance();
+                            }
+                        }
                     }
                     skip_count += 1;
                     continue;
@@ -1739,6 +1847,12 @@ impl Parser {
     fn skip_instruction_level_attributes(&mut self) {
         // Skip attributes that appear after instruction operands
         loop {
+            // Attribute group IDs: #0, #1, etc.
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+                continue;
+            }
+
             // Keyword token attributes
             if self.match_token(&Token::Nounwind) ||
                self.match_token(&Token::Noreturn) {

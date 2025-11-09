@@ -614,8 +614,8 @@ impl Lexer {
             num.push('x');
             self.advance();
 
-            // Check for special float prefixes: 0xR (bfloat), 0xK (f80), 0xM (fp128), 0xL (ppc_fp128)
-            let special_float = matches!(self.current_char(), 'R' | 'K' | 'M' | 'L');
+            // Check for special float prefixes: 0xH (half/f16), 0xR (bfloat), 0xK (f80), 0xM (fp128), 0xL (ppc_fp128)
+            let special_float = matches!(self.current_char(), 'H' | 'R' | 'K' | 'M' | 'L');
             if special_float {
                 num.push(self.current_char());
                 self.advance();
@@ -980,9 +980,32 @@ impl Lexer {
                     self.column = 1;
                 }
                 ';' => {
-                    // Skip comment until end of line
+                    // Skip line comment until end of line
                     while !self.is_at_end() && self.current_char() != '\n' {
                         self.advance();
+                    }
+                }
+                '/' => {
+                    // Check for C-style comment /* ... */
+                    if self.peek_char() == Some('*') {
+                        self.advance(); // consume '/'
+                        self.advance(); // consume '*'
+                        // Skip until we find */
+                        while !self.is_at_end() {
+                            if self.current_char() == '*' && self.peek_char() == Some('/') {
+                                self.advance(); // consume '*'
+                                self.advance(); // consume '/'
+                                break;
+                            }
+                            if self.current_char() == '\n' {
+                                self.line += 1;
+                                self.column = 1;
+                            }
+                            self.advance();
+                        }
+                    } else {
+                        // Not a comment, stop skipping
+                        break;
                     }
                 }
                 _ => break,
