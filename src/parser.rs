@@ -542,7 +542,13 @@ impl Parser {
                         }
                         self.consume(&Token::RParen)?;
                     } else if self.check(&Token::Exclaim) {
-                        // Metadata attachment - stop parsing
+                        // Metadata attachment - skip all metadata and stop parsing
+                        // Metadata can be space-separated: !foo !0 or comma-separated: !foo, !bar
+                        self.skip_metadata();
+                        while self.check(&Token::Exclaim) ||
+                              (self.match_token(&Token::Comma) && self.check(&Token::Exclaim)) {
+                            self.skip_metadata();
+                        }
                         break;
                     } else if !self.check_type_token() {
                         // Skip unknown attributes
@@ -551,6 +557,15 @@ impl Parser {
                         // This is array size: type value
                         let _size_ty = self.parse_type()?;
                         let _size_val = self.parse_value()?;
+                    }
+                }
+
+                // Check for metadata even without preceding comma
+                if self.check(&Token::Exclaim) {
+                    self.skip_metadata();
+                    while self.check(&Token::Exclaim) ||
+                          (self.match_token(&Token::Comma) && self.check(&Token::Exclaim)) {
+                        self.skip_metadata();
                     }
                 }
             }
@@ -659,26 +674,11 @@ impl Parser {
                 let _new = self.parse_value()?;
 
                 // Skip syncscope if present
-                if let Some(Token::Identifier(id)) = self.peek() {
-                    if id == "syncscope" {
-                        self.advance();
-                        if self.check(&Token::LParen) {
-                            self.advance();
-                            while !self.check(&Token::RParen) && !self.is_at_end() {
-                                self.advance();
-                            }
-                            self.consume(&Token::RParen)?;
-                        }
-                    }
-                }
+                self.skip_syncscope();
 
-                // Parse two memory orderings
-                if let Some(Token::Identifier(_)) = self.peek() {
-                    self.advance(); // First ordering
-                }
-                if let Some(Token::Identifier(_)) = self.peek() {
-                    self.advance(); // Second ordering
-                }
+                // Parse two memory orderings (as keyword tokens, not identifiers)
+                self.skip_memory_ordering();
+                self.skip_memory_ordering();
             }
             Opcode::AtomicRMW => {
                 // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering>
@@ -698,24 +698,10 @@ impl Parser {
                 let _val = self.parse_value()?;
 
                 // Skip syncscope if present
-                if let Some(Token::Identifier(id)) = self.peek() {
-                    if id == "syncscope" {
-                        self.advance();
-                        if self.check(&Token::LParen) {
-                            self.advance();
-                            // Skip scope string
-                            while !self.check(&Token::RParen) && !self.is_at_end() {
-                                self.advance();
-                            }
-                            self.consume(&Token::RParen)?;
-                        }
-                    }
-                }
+                self.skip_syncscope();
 
-                // Parse ordering (monotonic, acquire, release, etc.)
-                if let Some(Token::Identifier(_)) = self.peek() {
-                    self.advance();
-                }
+                // Parse ordering (as keyword token, not identifier)
+                self.skip_memory_ordering();
             }
             _ => {
                 // For other instructions, skip to end of line or next instruction
@@ -1397,27 +1383,42 @@ impl Parser {
         }
     }
 
+    fn skip_syncscope(&mut self) {
+        // syncscope is a keyword token, not an identifier
+        if self.match_token(&Token::Syncscope) {
+            if self.check(&Token::LParen) {
+                self.advance();
+                while !self.check(&Token::RParen) && !self.is_at_end() {
+                    self.advance();
+                }
+                self.consume(&Token::RParen).ok();
+            }
+        }
+    }
+
+    fn skip_memory_ordering(&mut self) -> bool {
+        // Memory orderings are keyword tokens, not identifiers
+        self.match_token(&Token::Unordered)
+            || self.match_token(&Token::Monotonic)
+            || self.match_token(&Token::Acquire)
+            || self.match_token(&Token::Release)
+            || self.match_token(&Token::Acq_rel)
+            || self.match_token(&Token::Seq_cst)
+    }
+
     fn skip_load_store_attributes(&mut self) {
         // Also handle attributes that appear without comma (syncscope, orderings)
         loop {
-            // Check for syncscope("...")
-            if let Some(Token::Identifier(id)) = self.peek() {
-                if id == "syncscope" {
-                    self.advance();
-                    if self.check(&Token::LParen) {
-                        self.advance();
-                        while !self.check(&Token::RParen) && !self.is_at_end() {
-                            self.advance();
-                        }
-                        self.consume(&Token::RParen).ok();
-                    }
-                    continue;
-                }
-                // Check for memory ordering: unordered, monotonic, acquire, release, acq_rel, seq_cst
-                if matches!(id.as_str(), "unordered" | "monotonic" | "acquire" | "release" | "acq_rel" | "seq_cst") {
-                    self.advance();
-                    continue;
-                }
+            // Check for syncscope("...") - using keyword token
+            let before_pos = self.current;
+            self.skip_syncscope();
+            if self.current != before_pos {
+                continue; // We consumed syncscope, continue loop
+            }
+
+            // Check for memory ordering keyword tokens
+            if self.skip_memory_ordering() {
+                continue;
             }
 
             // Check for comma-separated attributes
