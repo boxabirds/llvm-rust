@@ -606,11 +606,13 @@ impl Parser {
                 }
             }
             Opcode::Call => {
-                // call [cc] [attrs] type [(param_types...)] @func(args...)
+                // call [fast-math-flags] [cc] [attrs] type [(param_types...)] @func(args...)
                 // Skip calling convention first
                 self.skip_linkage_and_visibility();
                 // Skip return attributes (inreg, zeroext, etc.)
                 self.skip_attributes();
+                // Skip fast-math flags before return type
+                self.skip_instruction_flags();
 
                 let _ret_ty = self.parse_type()?;
 
@@ -977,6 +979,11 @@ impl Parser {
         let mut args = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
+            // Handle varargs ellipsis: call @f(ptr %x, ...)
+            if self.match_token(&Token::Ellipsis) {
+                break; // End of arguments
+            }
+
             // Handle metadata arguments specially: metadata i32 0 or metadata !{}
             if self.match_token(&Token::Metadata) {
                 // Check for various metadata forms

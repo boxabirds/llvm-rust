@@ -350,7 +350,7 @@ impl Lexer {
             '|' => { self.advance(); Ok(Token::Pipe) }
             '!' => {
                 self.advance();
-                if self.current_char().is_ascii_alphanumeric() || self.current_char() == '_' {
+                if self.current_char().is_ascii_alphanumeric() || self.current_char() == '_' || self.current_char() == '\\' {
                     self.read_metadata_ident()
                 } else {
                     Ok(Token::Exclaim)
@@ -506,7 +506,20 @@ impl Lexer {
 
         while !self.is_at_end() {
             let ch = self.current_char();
-            if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
+            if ch == '\\' {
+                // Handle backslash escape sequences (octal codes like \34)
+                self.advance(); // skip backslash
+                name.push('\\');
+                // Read up to 2 octal digits or any following characters
+                for _ in 0..2 {
+                    if !self.is_at_end() && self.current_char().is_ascii_digit() {
+                        name.push(self.current_char());
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+            } else if ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' || ch == '-' {
                 name.push(ch);
                 self.advance();
             } else {
