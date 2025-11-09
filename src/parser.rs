@@ -914,7 +914,8 @@ impl Parser {
                    self.match_token(&Token::Nocapture) ||
                    self.match_token(&Token::Nest) ||
                    self.match_token(&Token::Zeroext) ||
-                   self.match_token(&Token::Signext) {
+                   self.match_token(&Token::Signext) ||
+                   self.match_token(&Token::Immarg) {
                     continue;
                 }
 
