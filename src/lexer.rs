@@ -1011,7 +1011,7 @@ impl Lexer {
                     }
                 }
                 '/' => {
-                    // Check for C-style comment /* ... */
+                    // Check for C-style comment /* ... */ or C++ style // ...
                     if self.peek_char() == Some('*') {
                         self.advance(); // consume '/'
                         self.advance(); // consume '*'
@@ -1026,6 +1026,11 @@ impl Lexer {
                                 self.line += 1;
                                 self.column = 1;
                             }
+                            self.advance();
+                        }
+                    } else if self.peek_char() == Some('/') {
+                        // C++ style comment: // ... until end of line
+                        while !self.is_at_end() && self.current_char() != '\n' {
                             self.advance();
                         }
                     } else {

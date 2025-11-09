@@ -945,7 +945,8 @@ impl Parser {
            self.match_token(&Token::Oge) || self.match_token(&Token::Olt) ||
            self.match_token(&Token::Ole) || self.match_token(&Token::One) ||
            self.match_token(&Token::Ord) || self.match_token(&Token::Uno) ||
-           self.match_token(&Token::Ueq) {
+           self.match_token(&Token::Ueq) || self.match_token(&Token::True) ||
+           self.match_token(&Token::False) {
             Ok(())
         } else {
             Err(ParseError::InvalidSyntax {
@@ -1352,7 +1353,14 @@ impl Parser {
             self.consume(&Token::RParen)?;
 
             // base_type is the return type, create function type
-            let func_type = self.context.function_type(base_type, param_types, false);
+            let mut func_type = self.context.function_type(base_type, param_types, false);
+
+            // Check for stars to make function pointer: void ()* or void ()**
+            while self.check(&Token::Star) {
+                self.advance();
+                func_type = self.context.ptr_type(func_type);
+            }
+
             return Ok(func_type);
         }
 
@@ -1659,6 +1667,26 @@ impl Parser {
                 if self.match_token(&Token::Comma) {
                     let _ty2 = self.parse_type()?;
                     let _val2 = self.parse_value()?;
+                }
+            } else if matches!(opcode, Opcode::ShuffleVector) {
+                // ShuffleVector has 3 operands: shufflevector (type vec1, type vec2, type mask)
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                    if self.match_token(&Token::Comma) {
+                        let _ty3 = self.parse_type()?;
+                        let _val3 = self.parse_value()?;
+                    }
+                }
+            } else if matches!(opcode, Opcode::InsertElement) {
+                // InsertElement has 3 operands: insertelement (type vec, type val, type idx)
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                    if self.match_token(&Token::Comma) {
+                        let _ty3 = self.parse_type()?;
+                        let _val3 = self.parse_value()?;
+                    }
                 }
             } else {
                 // Binary operations and others - parse second operand if comma present
