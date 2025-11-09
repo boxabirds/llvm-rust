@@ -889,9 +889,10 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::Alloca => {
-                // alloca [inalloca] type [, type NumElements] [, align N] [, addrspace(N)]
-                // Skip inalloca keyword (it's Token::Inalloca, not an identifier)
+                // alloca [inalloca] [swifterror] type [, type NumElements] [, align N] [, addrspace(N)]
+                // Skip optional inalloca and swifterror keywords
                 self.match_token(&Token::Inalloca);
+                self.match_token(&Token::Swifterror);
 
                 let _ty = self.parse_type()?;
 
@@ -1305,7 +1306,9 @@ impl Parser {
                    self.match_token(&Token::Immarg) ||
                    self.match_token(&Token::Nonnull) ||
                    self.match_token(&Token::Readonly) ||
-                   self.match_token(&Token::Writeonly) {
+                   self.match_token(&Token::Writeonly) ||
+                   self.match_token(&Token::Swifterror) ||
+                   self.match_token(&Token::Swiftself) {
                     continue;
                 }
 
@@ -1338,9 +1341,9 @@ impl Parser {
                     continue;
                 }
 
-                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...), preallocated(type)
+                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...), preallocated(type), range(type low, high)
                 if let Some(Token::Identifier(attr)) = self.peek() {
-                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass" | "preallocated") {
+                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass" | "preallocated" | "range") {
                         self.advance();
                         if self.check(&Token::LParen) {
                             self.advance();
@@ -2219,11 +2222,11 @@ impl Parser {
                 }
             }
 
-            // Handle identifier-based attributes (noundef, nonnull, nofpclass, etc.)
+            // Handle identifier-based attributes (noundef, nonnull, nofpclass, range, etc.)
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
                                           "readnone" | "returned" | "noreturn" | "nounwind" |
-                                          "allocalign" | "allocsize" | "initializes" | "nofpclass") {
+                                          "allocalign" | "allocsize" | "initializes" | "nofpclass" | "range") {
                     self.advance();
                     // Some attributes have parameters in parentheses (possibly nested like initializes((0, 4)))
                     if self.check(&Token::LParen) {
@@ -2249,6 +2252,18 @@ impl Parser {
             if self.match_token(&Token::Align) {
                 if let Some(Token::Integer(_)) = self.peek() {
                     self.advance();
+                }
+                continue;
+            }
+
+            // Handle string attributes: "name" or "name"="value"
+            if matches!(self.peek(), Some(Token::StringLit(_))) {
+                self.advance(); // consume string
+                // Check for optional ="value" part
+                if self.match_token(&Token::Equal) {
+                    if matches!(self.peek(), Some(Token::StringLit(_))) {
+                        self.advance(); // consume value
+                    }
                 }
                 continue;
             }
