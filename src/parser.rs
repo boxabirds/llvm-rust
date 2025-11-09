@@ -277,6 +277,8 @@ impl Parser {
                     Token::Cleanup => Some("cleanup".to_string()),
                     Token::Catch => Some("catch".to_string()),
                     Token::Filter => Some("filter".to_string()),
+                    Token::True => Some("true".to_string()),
+                    Token::False => Some("false".to_string()),
                     // Any other token followed by colon is not a valid label
                     _ => None,
                 };
@@ -374,6 +376,25 @@ impl Parser {
 
         // Parse operands (simplified for now)
         let operands = self.parse_instruction_operands(opcode)?;
+
+        // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
+        self.skip_instruction_level_attributes();
+
+        // Skip metadata attachments after instructions (,!dbg !0, !prof !1, etc.)
+        while self.match_token(&Token::Comma) {
+            if self.is_metadata_token() {
+                // Skip metadata name like !dbg
+                self.skip_metadata();
+                // Skip metadata value like !0
+                if self.is_metadata_token() {
+                    self.skip_metadata();
+                }
+            } else {
+                // Not metadata, put comma back and stop
+                self.current -= 1;
+                break;
+            }
+        }
 
         Ok(Some(Instruction::new(opcode, operands, None)))
     }
@@ -1497,6 +1518,30 @@ impl Parser {
             }
 
             // No more flags
+            break;
+        }
+    }
+
+    fn skip_instruction_level_attributes(&mut self) {
+        // Skip attributes that appear after instruction operands
+        loop {
+            // Keyword token attributes
+            if self.match_token(&Token::Nounwind) ||
+               self.match_token(&Token::Noreturn) {
+                continue;
+            }
+
+            // Identifier-based attributes
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "readonly" | "writeonly" | "readnone" |
+                                           "nocapture" | "noinline" | "alwaysinline" |
+                                           "cold" | "hot" | "convergent" | "speculatable") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            // No more attributes
             break;
         }
     }
