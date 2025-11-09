@@ -984,7 +984,7 @@ impl Parser {
     fn parse_type(&mut self) -> ParseResult<Type> {
         let token = self.peek().cloned().ok_or(ParseError::UnexpectedEOF)?;
 
-        match token {
+        let base_type = match token {
             Token::Void => {
                 self.advance();
                 Ok(self.context.void_type())
@@ -1144,7 +1144,26 @@ impl Parser {
                     position: self.current,
                 })
             }
+        }?;
+
+        // Check for old-style typed pointer syntax: type addrspace(n)* or type*
+        // Skip optional addrspace modifier
+        if self.check(&Token::Addrspace) {
+            self.advance(); // consume 'addrspace'
+            self.consume(&Token::LParen)?;
+            if let Some(Token::Integer(_)) = self.peek() {
+                self.advance();
+            }
+            self.consume(&Token::RParen)?;
         }
+
+        // Check for * to make it a pointer
+        if self.check(&Token::Star) {
+            self.advance(); // consume '*'
+            return Ok(self.context.ptr_type(base_type));
+        }
+
+        Ok(base_type)
     }
 
     fn parse_value(&mut self) -> ParseResult<Value> {
@@ -1223,6 +1242,11 @@ impl Parser {
             Token::Null => {
                 self.advance();
                 Ok(Value::const_null(self.context.ptr_type(self.context.int8_type())))
+            }
+            Token::None => {
+                self.advance();
+                // 'none' is used with token type in GC intrinsics
+                Ok(Value::undef(self.context.metadata_type()))
             }
             Token::Undef => {
                 self.advance();
