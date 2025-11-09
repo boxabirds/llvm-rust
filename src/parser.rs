@@ -272,6 +272,7 @@ impl Parser {
                 let label_name = match token {
                     Token::LocalIdent(n) => Some(n),
                     Token::Identifier(n) => Some(n), // Bare identifiers like BB1, then, etc.
+                    Token::Integer(n) => Some(n.to_string()), // Numeric labels like 1:, 2:
                     // Common keywords that can be used as labels
                     Token::Entry => Some("entry".to_string()),
                     Token::Cleanup => Some("cleanup".to_string()),
