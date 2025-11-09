@@ -501,7 +501,9 @@ impl Parser {
                 }
             }
             Opcode::Call => {
-                // call [attrs] type [(param_types...)] @func(args...)
+                // call [cc] [attrs] type [(param_types...)] @func(args...)
+                // Skip calling convention first
+                self.skip_linkage_and_visibility();
                 // Skip return attributes (inreg, zeroext, etc.)
                 self.skip_attributes();
 
