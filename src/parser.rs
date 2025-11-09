@@ -530,6 +530,8 @@ impl Parser {
             Token::FPExt => { self.advance(); Opcode::FPExt }
             Token::PtrToInt => { self.advance(); Opcode::PtrToInt }
             Token::IntToPtr => { self.advance(); Opcode::IntToPtr }
+            Token::PtrToAddr => { self.advance(); Opcode::PtrToAddr }
+            Token::AddrToPtr => { self.advance(); Opcode::AddrToPtr }
             Token::BitCast => { self.advance(); Opcode::BitCast }
             Token::AddrSpaceCast => { self.advance(); Opcode::AddrSpaceCast }
             Token::ICmp => { self.advance(); Opcode::ICmp }
@@ -788,7 +790,8 @@ impl Parser {
             }
             Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt |
             Opcode::FPToUI | Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
-            Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast | Opcode::AddrSpaceCast => {
+            Opcode::PtrToInt | Opcode::IntToPtr | Opcode::PtrToAddr | Opcode::AddrToPtr |
+            Opcode::BitCast | Opcode::AddrSpaceCast => {
                 // cast [flags] type1 %val to type2
                 self.skip_instruction_flags(); // Skip fast-math flags for FP casts
                 let _src_ty = self.parse_type()?;
@@ -1264,6 +1267,12 @@ impl Parser {
                 // For now, treat as opaque type
                 Ok(self.context.void_type())
             }
+            Token::Ellipsis => {
+                // Ellipsis for varargs - should be caught before parse_type() is called
+                // This is a defensive case that shouldn't normally be reached
+                self.advance();
+                Ok(self.context.void_type())
+            }
             _ => {
                 Err(ParseError::UnknownType {
                     type_name: format!("{:?}", token),
@@ -1472,7 +1481,8 @@ impl Parser {
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
             // Constant expressions - instructions that can appear in constant contexts
-            Token::PtrToInt | Token::IntToPtr | Token::BitCast | Token::AddrSpaceCast |
+            Token::PtrToInt | Token::IntToPtr | Token::PtrToAddr | Token::AddrToPtr |
+            Token::BitCast | Token::AddrSpaceCast |
             Token::Trunc | Token::ZExt | Token::SExt | Token::FPTrunc | Token::FPExt |
             Token::FPToUI | Token::FPToSI | Token::UIToFP | Token::SIToFP |
             Token::GetElementPtr | Token::Sub | Token::Add | Token::Mul |
@@ -1499,6 +1509,8 @@ impl Parser {
         let opcode = match token {
             Token::PtrToInt => Opcode::PtrToInt,
             Token::IntToPtr => Opcode::IntToPtr,
+            Token::PtrToAddr => Opcode::PtrToAddr,
+            Token::AddrToPtr => Opcode::AddrToPtr,
             Token::BitCast => Opcode::BitCast,
             Token::AddrSpaceCast => Opcode::AddrSpaceCast,
             Token::Trunc => Opcode::Trunc,
@@ -1567,8 +1579,8 @@ impl Parser {
             let _src_val = self.parse_value()?;
 
             // Handle 'to' keyword for casts
-            if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast |
-                               Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
+            if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::PtrToAddr | Opcode::AddrToPtr |
+                               Opcode::BitCast | Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
                                Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
                                Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
                                Opcode::AddrSpaceCast) {
