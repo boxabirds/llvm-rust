@@ -687,7 +687,8 @@ impl Parser {
                         }
                     } else if self.match_token(&Token::Addrspace) {
                         self.consume(&Token::LParen)?;
-                        if let Some(Token::Integer(_)) = self.peek() {
+                        // Address space can be integer or symbolic string ("A", "G", "P")
+                        if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
                             self.advance();
                         }
                         self.consume(&Token::RParen)?;
@@ -1720,11 +1721,11 @@ impl Parser {
             break;
         }
 
-        // Handle addrspace modifier: addrspace(N)
+        // Handle addrspace modifier: addrspace(N) or addrspace("A")
         if self.match_token(&Token::Addrspace) {
             if self.match_token(&Token::LParen) {
-                // Parse address space number
-                if let Some(Token::Integer(_)) = self.peek() {
+                // Parse address space number or symbolic string
+                if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
                     self.advance();
                 }
                 self.match_token(&Token::RParen);
