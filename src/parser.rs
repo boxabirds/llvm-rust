@@ -1801,9 +1801,9 @@ impl Parser {
                 continue;
             }
 
-            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), preallocated(type)
+            // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), preallocated(type), range(type val, val), nofpclass(...)
             if let Some(Token::Identifier(attr)) = self.peek() {
-                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated") {
+                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated" | "range" | "nofpclass") {
                     self.advance();
                     if self.check(&Token::LParen) {
                         self.advance(); // consume (
