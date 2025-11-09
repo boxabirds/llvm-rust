@@ -986,6 +986,12 @@ impl Parser {
                 let _ptr = self.parse_value()?;
                 // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
+                    // Check if this comma is followed by metadata (e.g., !dbg !23)
+                    if self.is_metadata_token() {
+                        // Put comma back and let instruction-level metadata handler deal with it
+                        self.current -= 1;
+                        break;
+                    }
                     self.match_token(&Token::Inrange); // Skip optional inrange
                     let _idx_ty = self.parse_type()?;
                     let _idx = self.parse_value()?;
