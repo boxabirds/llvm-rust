@@ -749,8 +749,8 @@ impl Parser {
                 self.skip_load_store_attributes();
             }
             Opcode::GetElementPtr => {
-                // getelementptr [inbounds] type, ptr %ptr, indices...
-                self.match_token(&Token::Inbounds);
+                // getelementptr [inbounds] [nuw] [nusw] type, ptr %ptr, indices...
+                self.skip_instruction_flags(); // Skip inbounds, nuw, nusw, etc.
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
@@ -762,7 +762,8 @@ impl Parser {
                 }
             }
             Opcode::ICmp | Opcode::FCmp => {
-                // icmp/fcmp predicate type op1, op2
+                // icmp/fcmp [samesign] predicate type op1, op2
+                self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
                 let _ty = self.parse_type()?;
                 let _op1 = self.parse_value()?;
@@ -1915,8 +1916,20 @@ impl Parser {
             // Fast-math flags and other identifier-based flags (identifiers)
             if let Some(Token::Identifier(id)) = self.peek() {
                 if matches!(id.as_str(), "fast" | "nnan" | "ninf" | "nsz" | "arcp" |
-                                         "contract" | "afn" | "reassoc" | "nneg" | "disjoint") {
+                                         "contract" | "afn" | "reassoc" | "nneg" | "disjoint" | "samesign" | "nusw") {
                     self.advance();
+                    continue;
+                }
+                // Handle flags with parameters: inrange(-8, 16)
+                if matches!(id.as_str(), "inrange") {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance(); // skip all tokens inside
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
                     continue;
                 }
             }
