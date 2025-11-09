@@ -353,10 +353,16 @@ impl Parser {
                 break;
             }
 
-            // Check if next token is a label (local ident followed by colon)
-            if let Some(Token::LocalIdent(_)) = self.peek() {
-                if self.peek_ahead(1) == Some(&Token::Colon) {
-                    break;
+            // Check if next token is a label (token followed by colon)
+            if self.peek_ahead(1) == Some(&Token::Colon) {
+                // Could be LocalIdent, Identifier, Integer, or keyword used as label
+                if let Some(token) = self.peek() {
+                    if matches!(token,
+                        Token::LocalIdent(_) | Token::Identifier(_) | Token::Integer(_) |
+                        Token::Entry | Token::Cleanup | Token::Catch | Token::Filter |
+                        Token::True | Token::False) {
+                        break;
+                    }
                 }
             }
 
