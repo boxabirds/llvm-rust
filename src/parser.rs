@@ -501,26 +501,38 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::Alloca => {
-                // alloca type [, type NumElements] [, align ...]
-                let _ty = self.parse_type()?;
-
-                // Handle optional array size: ", type numElements"
-                if self.match_token(&Token::Comma) {
-                    // Check if next is a type (for array size) or align keyword
-                    if !self.check(&Token::Align) && !self.check(&Token::Inbounds) {
-                        // Parse array size type and value
-                        let _size_ty = self.parse_type()?;
-                        let _size_val = self.parse_value()?;
-
-                        // Try to consume another comma for alignment
-                        self.match_token(&Token::Comma);
+                // alloca [inalloca] type [, type NumElements] [, align N] [, addrspace(N)]
+                // Skip inalloca keyword
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "inalloca" {
+                        self.advance();
                     }
                 }
 
-                // Skip alignment and other attributes
-                if self.match_token(&Token::Align) {
-                    if let Some(Token::Integer(_)) = self.peek() {
+                let _ty = self.parse_type()?;
+
+                // Handle optional attributes in any order
+                while self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else if self.match_token(&Token::Addrspace) {
+                        self.consume(&Token::LParen)?;
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen)?;
+                    } else if self.check(&Token::Exclaim) {
+                        // Metadata attachment - stop parsing
+                        break;
+                    } else if !self.check_type_token() {
+                        // Skip unknown attributes
                         self.advance();
+                    } else {
+                        // This is array size: type value
+                        let _size_ty = self.parse_type()?;
+                        let _size_val = self.parse_value()?;
                     }
                 }
             }
