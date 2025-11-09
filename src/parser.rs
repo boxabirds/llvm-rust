@@ -554,7 +554,10 @@ impl Parser {
         // Skip standalone function attribute keywords that might appear in basic blocks
         if self.check(&Token::Nobuiltin) || self.check(&Token::Builtin) ||
            self.check(&Token::Cold) || self.check(&Token::Hot) ||
-           self.check(&Token::Noduplicate) || self.check(&Token::Noimplicitfloat) {
+           self.check(&Token::Noduplicate) || self.check(&Token::Noimplicitfloat) ||
+           self.check(&Token::Noinline) || self.check(&Token::Strictfp) ||
+           self.check(&Token::Minsize) || self.check(&Token::Alwaysinline) ||
+           self.check(&Token::Optsize) || self.check(&Token::Optnone) {
             self.advance();
             return Ok(None);
         }
@@ -1131,7 +1134,8 @@ impl Parser {
            self.match_token(&Token::Oge) || self.match_token(&Token::Olt) ||
            self.match_token(&Token::Ole) || self.match_token(&Token::One) ||
            self.match_token(&Token::Ord) || self.match_token(&Token::Uno) ||
-           self.match_token(&Token::Ueq) || self.match_token(&Token::True) ||
+           self.match_token(&Token::Une) || self.match_token(&Token::Ueq) ||
+           self.match_token(&Token::True) ||
            self.match_token(&Token::False) {
             Ok(())
         } else {

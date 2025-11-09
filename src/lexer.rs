@@ -231,6 +231,7 @@ pub enum Token {
     One,
     Ord,
     Uno,
+    Une,
     Ueq,
 
     // Types
@@ -891,6 +892,7 @@ impl Lexer {
             "one" => Token::One,
             "ord" => Token::Ord,
             "uno" => Token::Uno,
+            "une" => Token::Une,
             "ueq" => Token::Ueq,
 
             // Types
