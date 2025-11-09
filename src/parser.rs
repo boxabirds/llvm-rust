@@ -2145,9 +2145,97 @@ impl Parser {
         while !self.is_at_end() && !self.check(&Token::LBrace) {
             if self.check(&Token::Hash) || self.check_attr_group_id() {
                 self.advance();
-            } else {
-                break;
+                continue;
             }
+
+            // Skip keyword-based function attributes
+            if self.match_token(&Token::Noreturn) ||
+               self.match_token(&Token::Noinline) ||
+               self.match_token(&Token::Alwaysinline) ||
+               self.match_token(&Token::Inlinehint) ||
+               self.match_token(&Token::Optsize) ||
+               self.match_token(&Token::Optnone) ||
+               self.match_token(&Token::Minsize) ||
+               self.match_token(&Token::Nounwind) ||
+               self.match_token(&Token::Norecurse) ||
+               self.match_token(&Token::Willreturn) ||
+               self.match_token(&Token::Nosync) ||
+               self.match_token(&Token::Readnone) ||
+               self.match_token(&Token::Readonly) ||
+               self.match_token(&Token::Writeonly) ||
+               self.match_token(&Token::Argmemonly) ||
+               self.match_token(&Token::Inaccessiblememonly) ||
+               self.match_token(&Token::Inaccessiblemem_or_argmemonly) ||
+               self.match_token(&Token::Speculatable) ||
+               self.match_token(&Token::Returns_twice) ||
+               self.match_token(&Token::Ssp) ||
+               self.match_token(&Token::Sspreq) ||
+               self.match_token(&Token::Sspstrong) ||
+               self.match_token(&Token::Sanitize_address) ||
+               self.match_token(&Token::Sanitize_thread) ||
+               self.match_token(&Token::Sanitize_memory) ||
+               self.match_token(&Token::Sanitize_hwaddress) ||
+               self.match_token(&Token::Safestack) ||
+               self.match_token(&Token::Uwtable) ||
+               self.match_token(&Token::Nocf_check) ||
+               self.match_token(&Token::Shadowcallstack) ||
+               self.match_token(&Token::Mustprogress) ||
+               self.match_token(&Token::Strictfp) ||
+               self.match_token(&Token::Naked) ||
+               self.match_token(&Token::Builtin) ||
+               self.match_token(&Token::Cold) ||
+               self.match_token(&Token::Hot) ||
+               self.match_token(&Token::Nobuiltin) ||
+               self.match_token(&Token::Noduplicate) ||
+               self.match_token(&Token::Noimplicitfloat) ||
+               self.match_token(&Token::Nomerge) ||
+               self.match_token(&Token::Nonlazybind) ||
+               self.match_token(&Token::Noredzone) ||
+               self.match_token(&Token::Null_pointer_is_valid) ||
+               self.match_token(&Token::Optforfuzzing) ||
+               self.match_token(&Token::Thunk) {
+                continue;
+            }
+
+            // Skip metadata attachments: !dbg !12
+            if self.is_metadata_token() {
+                self.skip_metadata();
+                continue;
+            }
+
+            // Skip identifier-based attributes (memory(...), vscale_range(...), etc.)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "memory" | "convergent" | "inaccessiblememonly" |
+                                          "null_pointer_is_valid" | "optforfuzzing" | "presplitcoroutine" |
+                                          "sanitize_address_dyninit" | "allockind" | "allocptr" |
+                                          "alloc-family" | "fn_ret_thunk_extern") {
+                    self.advance();
+                    // Some have parameters: memory(read)
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+            }
+
+            // Handle vscale_range with parameters
+            if self.match_token(&Token::Vscale_range) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // No more recognized attributes
+            break;
         }
     }
 
