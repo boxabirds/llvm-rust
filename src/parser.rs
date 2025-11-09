@@ -1048,9 +1048,9 @@ impl Parser {
                     continue;
                 }
 
-                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type)
+                // Handle identifier-based attributes with type parameters: byref(type), elementtype(type), nofpclass(...)
                 if let Some(Token::Identifier(attr)) = self.peek() {
-                    if matches!(attr.as_str(), "byref" | "elementtype") {
+                    if matches!(attr.as_str(), "byref" | "elementtype" | "nofpclass") {
                         self.advance();
                         if self.check(&Token::LParen) {
                             self.advance();
@@ -1752,11 +1752,11 @@ impl Parser {
                 }
             }
 
-            // Handle identifier-based attributes (noundef, nonnull, etc.)
+            // Handle identifier-based attributes (noundef, nonnull, nofpclass, etc.)
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef" | "nonnull" | "readonly" | "writeonly" |
                                           "readnone" | "returned" | "noreturn" | "nounwind" |
-                                          "allocalign" | "allocsize" | "initializes") {
+                                          "allocalign" | "allocsize" | "initializes" | "nofpclass") {
                     self.advance();
                     // Some attributes have parameters in parentheses (possibly nested like initializes((0, 4)))
                     if self.check(&Token::LParen) {
