@@ -1667,6 +1667,14 @@ impl Parser {
                    id.starts_with("aarch64_") || id.starts_with("x86_") ||
                    id.starts_with("riscv_") || id == "cc" || id.starts_with("cc") {
                     self.advance();
+                    // Some calling conventions have parameters: riscv_vls_cc(N)
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
                     continue;
                 }
             }
