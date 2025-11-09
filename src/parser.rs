@@ -1552,7 +1552,7 @@ impl Parser {
             Token::BitCast | Token::AddrSpaceCast |
             Token::Trunc | Token::ZExt | Token::SExt | Token::FPTrunc | Token::FPExt |
             Token::FPToUI | Token::FPToSI | Token::UIToFP | Token::SIToFP |
-            Token::GetElementPtr | Token::Sub | Token::Add | Token::Mul |
+            Token::GetElementPtr | Token::Sub | Token::Add | Token::Mul | Token::FNeg |
             Token::UDiv | Token::SDiv | Token::URem | Token::SRem |
             Token::Shl | Token::LShr | Token::AShr | Token::And | Token::Or | Token::Xor |
             Token::ICmp | Token::FCmp | Token::Select | Token::ExtractValue |
@@ -1594,6 +1594,7 @@ impl Parser {
             Token::Sub => Opcode::Sub,
             Token::Add => Opcode::Add,
             Token::Mul => Opcode::Mul,
+            Token::FNeg => Opcode::FNeg,
             Token::UDiv => Opcode::UDiv,
             Token::SDiv => Opcode::SDiv,
             Token::URem => Opcode::URem,
@@ -1871,7 +1872,22 @@ impl Parser {
                self.match_token(&Token::Signext) ||
                self.match_token(&Token::Noalias) ||
                self.match_token(&Token::Nocapture) ||
-               self.match_token(&Token::Nest) {
+               self.match_token(&Token::Nest) ||
+               self.match_token(&Token::Nonnull) ||
+               self.match_token(&Token::Readonly) ||
+               self.match_token(&Token::Writeonly) {
+                continue;
+            }
+
+            // Attributes with parameters: dereferenceable(N), dereferenceable_or_null(N)
+            if self.match_token(&Token::Dereferenceable) || self.match_token(&Token::Dereferenceable_or_null) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
                 continue;
             }
 
