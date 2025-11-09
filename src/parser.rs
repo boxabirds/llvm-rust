@@ -479,11 +479,28 @@ impl Parser {
                 }
             }
             Opcode::Call => {
-                // call [attrs] type @func(args...)
+                // call [attrs] type [(param_types...)] @func(args...)
                 // Skip return attributes (inreg, zeroext, etc.)
                 self.skip_attributes();
 
                 let _ret_ty = self.parse_type()?;
+
+                // Check for optional function signature: (param_types...)
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume '('
+                    // Parse parameter types for function pointer
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        if self.match_token(&Token::Ellipsis) {
+                            break; // varargs
+                        }
+                        self.parse_type()?;
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume(&Token::RParen)?;
+                }
+
                 let _func = self.parse_value()?;
                 self.consume(&Token::LParen)?;
                 let _args = self.parse_call_arguments()?;
@@ -685,6 +702,24 @@ impl Parser {
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             let ty = self.parse_type()?;
+
+            // Skip parameter attributes (byval, sret, etc.)
+            while self.match_token(&Token::Byval) ||
+                  self.match_token(&Token::Sret) ||
+                  self.match_token(&Token::Inreg) ||
+                  self.match_token(&Token::Noalias) ||
+                  self.match_token(&Token::Nocapture) ||
+                  self.match_token(&Token::Nest) ||
+                  self.match_token(&Token::Zeroext) ||
+                  self.match_token(&Token::Signext) {
+                // Handle byval(type) syntax
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    self.parse_type()?;  // Parse the type argument
+                    self.consume(&Token::RParen)?;
+                }
+            }
+
             let val = self.parse_value()?;
             args.push((ty, val));
 
