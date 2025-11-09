@@ -301,6 +301,7 @@ impl Parser {
                     Token::LocalIdent(n) => Some(n),
                     Token::Identifier(n) => Some(n), // Bare identifiers like BB1, then, etc.
                     Token::Integer(n) => Some(n.to_string()), // Numeric labels like 1:, 2:
+                    Token::StringLit(s) => Some(s), // String labels like "2":
                     // Common keywords that can be used as labels
                     Token::Entry => Some("entry".to_string()),
                     Token::Cleanup => Some("cleanup".to_string()),
@@ -334,9 +335,40 @@ impl Parser {
                     self.advance(); // skip colon
                     Some(format!("unknown_label_{}", self.current))
                 }
-            } else {
-                // Entry block without label
-                None
+            }
+            // Check for multi-token labels like -3:, -N-:, $N:
+            // Look ahead a few tokens to see if there's a colon
+            else {
+                let mut colon_pos = None;
+                for i in 1..=5 {
+                    if self.peek_ahead(i) == Some(&Token::Colon) {
+                        colon_pos = Some(i);
+                        break;
+                    }
+                }
+
+                if let Some(pos) = colon_pos {
+                    // Found a colon within 5 tokens, treat this as a multi-token label
+                    let mut label_name = String::new();
+                    for _ in 0..pos {
+                        if let Some(tok) = self.peek() {
+                            // Build label name from tokens
+                            match tok {
+                                Token::Sub => label_name.push('-'),
+                                Token::Integer(n) => label_name.push_str(&n.to_string()),
+                                Token::Identifier(s) => label_name.push_str(s),
+                                Token::StringLit(s) => label_name.push_str(s),
+                                _ => label_name.push_str(&format!("{:?}", tok)),
+                            }
+                        }
+                        self.advance();
+                    }
+                    self.advance(); // consume colon
+                    Some(label_name)
+                } else {
+                    // Entry block without label
+                    None
+                }
             }
         } else {
             None
