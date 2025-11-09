@@ -444,11 +444,14 @@ impl Parser {
             return Ok(None);
         }
 
-        let bb = BasicBlock::new(name);
+        let bb = BasicBlock::new(name.clone());
 
         // Parse instructions with iteration limit to prevent infinite loops
         let mut inst_count = 0;
+        let mut last_position = self.current;
+        let mut stuck_count = 0;
         const MAX_INSTRUCTIONS_PER_BLOCK: usize = 10000;
+        const MAX_STUCK_ITERATIONS: usize = 3;
 
         loop {
             if inst_count >= MAX_INSTRUCTIONS_PER_BLOCK {
@@ -457,6 +460,22 @@ impl Parser {
                     position: self.current,
                 });
             }
+
+            // Detect if we're stuck on the same token
+            if self.current == last_position {
+                stuck_count += 1;
+                if stuck_count >= MAX_STUCK_ITERATIONS {
+                    let stuck_token = self.peek().map(|t| format!("{:?}", t)).unwrap_or_else(|| "EOF".to_string());
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("Parser stuck at token position {} on token: {}", self.current, stuck_token),
+                        position: self.current,
+                    });
+                }
+            } else {
+                stuck_count = 0;
+                last_position = self.current;
+            }
+
             inst_count += 1;
 
             // Stop if we hit next label, closing brace, or EOF
@@ -478,7 +497,18 @@ impl Parser {
                     break;
                 }
             } else {
-                break;
+                // parse_instruction returned None - this can mean:
+                // 1. We skipped a directive (debug record, uselistorder, etc.) - continue parsing
+                // 2. We're at the end of the block - the checks above will catch this next iteration
+                // 3. First iteration of unlabeled block with nothing - return None to avoid infinite loop
+                if inst_count == 1 && name.is_none() && bb.instructions().is_empty() {
+                    // Check if we're truly at end or just skipped something
+                    if self.check(&Token::RBrace) || self.is_at_end() ||
+                       self.peek_ahead(1) == Some(&Token::Colon) {
+                        return Ok(None);
+                    }
+                }
+                // Otherwise continue - we probably just skipped a directive
             }
         }
 
@@ -513,10 +543,61 @@ impl Parser {
             }
         }
 
-        // Skip calling convention modifiers (tail, musttail, notail)
+        // Skip calling convention modifiers (tail, musttail, notail) and standalone function attributes
         if let Some(Token::Identifier(id)) = self.peek() {
             if id == "tail" || id == "musttail" || id == "notail" {
                 self.advance(); // skip the modifier
+                return Ok(None);
+            }
+        }
+
+        // Skip standalone function attribute keywords that might appear in basic blocks
+        if self.check(&Token::Nobuiltin) || self.check(&Token::Builtin) ||
+           self.check(&Token::Cold) || self.check(&Token::Hot) ||
+           self.check(&Token::Noduplicate) || self.check(&Token::Noimplicitfloat) {
+            self.advance();
+            return Ok(None);
+        }
+
+        // Check for debug records: #dbg_declare, #dbg_value, etc. or dbg_declare (if # was consumed elsewhere)
+        if self.check(&Token::Hash) {
+            // Check if this is followed by an identifier (debug intrinsic)
+            if matches!(self.peek_ahead(1), Some(Token::Identifier(_))) {
+                self.advance(); // consume #
+                self.advance(); // skip identifier (dbg_declare/dbg_value/etc)
+                // Skip the argument list if present
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    let mut depth = 1;
+                    while depth > 0 && !self.is_at_end() {
+                        if self.check(&Token::LParen) {
+                            depth += 1;
+                        } else if self.check(&Token::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                }
+                return Ok(None);
+            }
+        } else if let Some(Token::Identifier(id)) = self.peek() {
+            // Handle debug intrinsics where # was already consumed
+            if id.starts_with("dbg_") {
+                self.advance(); // skip identifier
+                // Skip the argument list if present
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    let mut depth = 1;
+                    while depth > 0 && !self.is_at_end() {
+                        if self.check(&Token::LParen) {
+                            depth += 1;
+                        } else if self.check(&Token::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                }
+                return Ok(None);
             }
         }
 
@@ -701,12 +782,13 @@ impl Parser {
             }
             Opcode::Call => {
                 // call [fast-math-flags] [cc] [attrs] type [(param_types...)] @func(args...)
-                // Skip calling convention first
-                self.skip_linkage_and_visibility();
-                // Skip return attributes (inreg, zeroext, etc.)
-                self.skip_attributes();
-                // Skip fast-math flags before return type
+                // Parse in the correct order:
+                // 1. Fast-math flags (nnan, ninf, etc.)
                 self.skip_instruction_flags();
+                // 2. Calling convention (fastcc, coldcc, etc.)
+                self.skip_linkage_and_visibility();
+                // 3. Return attributes (inreg, zeroext, etc.)
+                self.skip_attributes();
 
                 let _ret_ty = self.parse_type()?;
 
@@ -872,7 +954,8 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::PHI => {
-                // phi type [ val1, %bb1 ], [ val2, %bb2 ], ...
+                // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
+                self.skip_instruction_flags();
                 let _ty = self.parse_type()?;
                 while !self.is_at_end() {
                     if !self.match_token(&Token::LBracket) {
@@ -899,7 +982,8 @@ impl Parser {
                 let _dest_ty = self.parse_type()?;
             }
             Opcode::Select => {
-                // select i1 %cond, type %val1, type %val2
+                // select [fast-math-flags] i1 %cond, type %val1, type %val2
+                self.skip_instruction_flags();
                 let _cond_ty = self.parse_type()?;
                 let _cond = self.parse_value()?;
                 self.consume(&Token::Comma)?;
@@ -951,9 +1035,23 @@ impl Parser {
                 // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering> [, align N] [, !metadata !0]
                 self.match_token(&Token::Volatile);
 
-                // Parse operation (add, sub, xchg, etc.)
-                // These can be opcodes or identifiers
-                self.advance(); // Skip the operation token (whatever it is)
+                // Parse operation (xchg, add, sub, and, or, xor, max, min, umax, umin, etc.)
+                // These can be opcodes (Add, Sub, etc.) or identifiers (xchg, max, min, etc.)
+                if let Some(token) = self.peek() {
+                    match token {
+                        // Match known atomic RMW operation tokens/keywords
+                        Token::Add | Token::Sub | Token::And | Token::Or | Token::Xor |
+                        Token::Identifier(_) => {
+                            self.advance(); // Skip the operation
+                        }
+                        _ => {
+                            // Unknown operation, try to skip anyway
+                            self.advance();
+                        }
+                    }
+                } else {
+                    return Err(ParseError::UnexpectedEOF);
+                }
 
                 // Parse pointer type and value
                 let _ptr_ty = self.parse_type()?;
@@ -1374,37 +1472,58 @@ impl Parser {
                 Ok(crate::types::Type::struct_type(&self.context, field_types, None))
             }
             Token::LAngle => {
-                // Vector type: < size x type > or scalable: < vscale x size x type >
+                // Could be:
+                // 1. Vector type: < size x type > or scalable: < vscale x size x type >
+                // 2. Packed struct: <{ type1, type2, ... }>
                 self.advance();
 
-                // Check for vscale (scalable vector)
-                let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
-                    if id == "vscale" {
-                        self.advance();
-                        self.consume(&Token::X)?; // consume 'x' after vscale
-                        true
+                // Check if this is a packed struct <{...}>
+                if self.match_token(&Token::LBrace) {
+                    // Packed struct
+                    let mut field_types = Vec::new();
+                    // Handle empty packed struct <{}>
+                    if !self.check(&Token::RBrace) {
+                        loop {
+                            field_types.push(self.parse_type()?);
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
+                    }
+                    self.consume(&Token::RBrace)?;
+                    self.consume(&Token::RAngle)?;
+                    Ok(crate::types::Type::struct_type_packed(&self.context, field_types, None, true))
+                } else {
+                    // Vector type
+                    // Check for vscale (scalable vector)
+                    let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
+                        if id == "vscale" {
+                            self.advance();
+                            self.consume(&Token::X)?; // consume 'x' after vscale
+                            true
+                        } else {
+                            false
+                        }
                     } else {
                         false
-                    }
-                } else {
-                    false
-                };
+                    };
 
-                let size = if let Some(Token::Integer(n)) = self.peek() {
-                    let size = *n as u64;
-                    self.advance();
-                    size
-                } else {
-                    return Err(ParseError::InvalidSyntax {
-                        message: "Expected vector size".to_string(),
-                        position: self.current,
-                    });
-                };
-                self.consume(&Token::X)?; // 'x'
-                let elem_ty = self.parse_type()?;
-                self.consume(&Token::RAngle)?;
-                // For now, treat scalable vectors like regular vectors
-                Ok(self.context.vector_type(elem_ty, size as usize))
+                    let size = if let Some(Token::Integer(n)) = self.peek() {
+                        let size = *n as u64;
+                        self.advance();
+                        size
+                    } else {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "Expected vector size".to_string(),
+                            position: self.current,
+                        });
+                    };
+                    self.consume(&Token::X)?; // 'x'
+                    let elem_ty = self.parse_type()?;
+                    self.consume(&Token::RAngle)?;
+                    // For now, treat scalable vectors like regular vectors
+                    Ok(self.context.vector_type(elem_ty, size as usize))
+                }
             }
             Token::LocalIdent(_) => {
                 // Type reference like %TypeName
@@ -1597,20 +1716,42 @@ impl Parser {
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
             Token::LAngle => {
-                // Vector constant: < type val1, type val2, ... >
+                // Could be:
+                // 1. Vector constant: < type val1, type val2, ... >
+                // 2. Packed struct constant: <{ type val1, type val2, ... }>
                 self.advance(); // consume '<'
-                // Parse vector elements
-                while !self.check(&Token::RAngle) && !self.is_at_end() {
-                    // Parse element type and value
-                    let _elem_ty = self.parse_type()?;
-                    let _elem_val = self.parse_value()?;
-                    if !self.match_token(&Token::Comma) {
-                        break;
+
+                // Check for packed struct constant
+                if self.match_token(&Token::LBrace) {
+                    // Packed struct constant: <{ type val, type val, ... }>
+                    // Handle empty packed struct constant <{}>
+                    if !self.check(&Token::RBrace) {
+                        loop {
+                            let _ty = self.parse_type()?;
+                            let _val = self.parse_value()?;
+                            if !self.match_token(&Token::Comma) {
+                                break;
+                            }
+                        }
                     }
+                    self.consume(&Token::RBrace)?;
+                    self.consume(&Token::RAngle)?;
+                    // Return placeholder packed struct constant
+                    Ok(Value::zero_initializer(self.context.void_type()))
+                } else {
+                    // Vector constant
+                    while !self.check(&Token::RAngle) && !self.is_at_end() {
+                        // Parse element type and value
+                        let _elem_ty = self.parse_type()?;
+                        let _elem_val = self.parse_value()?;
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume(&Token::RAngle)?;
+                    // Return placeholder vector constant
+                    Ok(Value::zero_initializer(self.context.void_type()))
                 }
-                self.consume(&Token::RAngle)?;
-                // Return placeholder vector constant
-                Ok(Value::zero_initializer(self.context.void_type()))
             }
             Token::LBracket => {
                 // Array constant: [type val1, type val2, ...]
@@ -2144,9 +2285,97 @@ impl Parser {
         while !self.is_at_end() && !self.check(&Token::LBrace) {
             if self.check(&Token::Hash) || self.check_attr_group_id() {
                 self.advance();
-            } else {
-                break;
+                continue;
             }
+
+            // Skip keyword-based function attributes
+            if self.match_token(&Token::Noreturn) ||
+               self.match_token(&Token::Noinline) ||
+               self.match_token(&Token::Alwaysinline) ||
+               self.match_token(&Token::Inlinehint) ||
+               self.match_token(&Token::Optsize) ||
+               self.match_token(&Token::Optnone) ||
+               self.match_token(&Token::Minsize) ||
+               self.match_token(&Token::Nounwind) ||
+               self.match_token(&Token::Norecurse) ||
+               self.match_token(&Token::Willreturn) ||
+               self.match_token(&Token::Nosync) ||
+               self.match_token(&Token::Readnone) ||
+               self.match_token(&Token::Readonly) ||
+               self.match_token(&Token::Writeonly) ||
+               self.match_token(&Token::Argmemonly) ||
+               self.match_token(&Token::Inaccessiblememonly) ||
+               self.match_token(&Token::Inaccessiblemem_or_argmemonly) ||
+               self.match_token(&Token::Speculatable) ||
+               self.match_token(&Token::Returns_twice) ||
+               self.match_token(&Token::Ssp) ||
+               self.match_token(&Token::Sspreq) ||
+               self.match_token(&Token::Sspstrong) ||
+               self.match_token(&Token::Sanitize_address) ||
+               self.match_token(&Token::Sanitize_thread) ||
+               self.match_token(&Token::Sanitize_memory) ||
+               self.match_token(&Token::Sanitize_hwaddress) ||
+               self.match_token(&Token::Safestack) ||
+               self.match_token(&Token::Uwtable) ||
+               self.match_token(&Token::Nocf_check) ||
+               self.match_token(&Token::Shadowcallstack) ||
+               self.match_token(&Token::Mustprogress) ||
+               self.match_token(&Token::Strictfp) ||
+               self.match_token(&Token::Naked) ||
+               self.match_token(&Token::Builtin) ||
+               self.match_token(&Token::Cold) ||
+               self.match_token(&Token::Hot) ||
+               self.match_token(&Token::Nobuiltin) ||
+               self.match_token(&Token::Noduplicate) ||
+               self.match_token(&Token::Noimplicitfloat) ||
+               self.match_token(&Token::Nomerge) ||
+               self.match_token(&Token::Nonlazybind) ||
+               self.match_token(&Token::Noredzone) ||
+               self.match_token(&Token::Null_pointer_is_valid) ||
+               self.match_token(&Token::Optforfuzzing) ||
+               self.match_token(&Token::Thunk) {
+                continue;
+            }
+
+            // Skip metadata attachments: !dbg !12
+            if self.is_metadata_token() {
+                self.skip_metadata();
+                continue;
+            }
+
+            // Skip identifier-based attributes (memory(...), vscale_range(...), etc.)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "memory" | "convergent" | "inaccessiblememonly" |
+                                          "null_pointer_is_valid" | "optforfuzzing" | "presplitcoroutine" |
+                                          "sanitize_address_dyninit" | "allockind" | "allocptr" |
+                                          "alloc-family" | "fn_ret_thunk_extern") {
+                    self.advance();
+                    // Some have parameters: memory(read)
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+            }
+
+            // Handle vscale_range with parameters
+            if self.match_token(&Token::Vscale_range) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // No more recognized attributes
+            break;
         }
     }
 

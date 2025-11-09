@@ -33,7 +33,52 @@ pub enum VerificationError {
     UnreachableCode { location: String },
     /// Invalid control flow
     InvalidControlFlow { reason: String, location: String },
+    /// Invalid cast operation
+    InvalidCast { from: String, to: String, reason: String, location: String },
+    /// Invalid function call
+    InvalidCall { expected_args: usize, found_args: usize, location: String },
+    /// Invalid phi node
+    InvalidPhi { reason: String, location: String },
+    /// Invalid alignment
+    InvalidAlignment { value: usize, location: String },
 }
+
+impl std::fmt::Display for VerificationError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            VerificationError::TypeMismatch { expected, found, location } =>
+                write!(f, "Type mismatch at {}: expected {}, found {}", location, expected, found),
+            VerificationError::InvalidSSA { value, location } =>
+                write!(f, "Invalid SSA form at {}: value {} assigned multiple times", location, value),
+            VerificationError::MissingTerminator { block } =>
+                write!(f, "Block {} missing terminator instruction", block),
+            VerificationError::MultipleTerminators { block } =>
+                write!(f, "Block {} has multiple terminator instructions", block),
+            VerificationError::UndefinedValue { value, location } =>
+                write!(f, "Undefined value {} used at {}", value, location),
+            VerificationError::InvalidOperandCount { instruction, expected, found } =>
+                write!(f, "Invalid operand count for {}: expected {}, found {}", instruction, expected, found),
+            VerificationError::InvalidInstruction { reason, location } =>
+                write!(f, "Invalid instruction at {}: {}", location, reason),
+            VerificationError::EntryBlockMissing { function } =>
+                write!(f, "Function {} missing entry block", function),
+            VerificationError::UnreachableCode { location } =>
+                write!(f, "Unreachable code at {}", location),
+            VerificationError::InvalidControlFlow { reason, location } =>
+                write!(f, "Invalid control flow at {}: {}", location, reason),
+            VerificationError::InvalidCast { from, to, reason, location } =>
+                write!(f, "Invalid cast from {} to {} at {}: {}", from, to, location, reason),
+            VerificationError::InvalidCall { expected_args, found_args, location } =>
+                write!(f, "Invalid function call at {}: expected {} arguments, found {}", location, expected_args, found_args),
+            VerificationError::InvalidPhi { reason, location } =>
+                write!(f, "Invalid phi node at {}: {}", location, reason),
+            VerificationError::InvalidAlignment { value, location } =>
+                write!(f, "Invalid alignment {} at {}: must be power of 2", value, location),
+        }
+    }
+}
+
+impl std::error::Error for VerificationError {}
 
 /// Verification result
 pub type VerificationResult = Result<(), Vec<VerificationError>>;
@@ -136,13 +181,164 @@ impl Verifier {
     }
 
     /// Verify an instruction
-    pub fn verify_instruction(&mut self, _inst: &Instruction) {
-        // Type checking for instruction operands
-        // This is a simplified version - real LLVM does extensive type checking
+    pub fn verify_instruction(&mut self, inst: &Instruction) {
+        let location = format!("instruction {:?}", inst.opcode());
 
-        // Check operand count based on opcode
-        // Check type compatibility
-        // etc.
+        // Type checking based on opcode
+        match inst.opcode() {
+            Opcode::Add | Opcode::Sub | Opcode::Mul |
+            Opcode::UDiv | Opcode::SDiv | Opcode::URem | Opcode::SRem |
+            Opcode::Shl | Opcode::LShr | Opcode::AShr |
+            Opcode::And | Opcode::Or | Opcode::Xor => {
+                // Binary operations: require 2 operands of same integer type
+                let operands = inst.operands();
+                if operands.len() < 2 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: format!("{:?}", inst.opcode()),
+                        expected: 2,
+                        found: operands.len(),
+                    });
+                    return;
+                }
+
+                // Check that operands have compatible types
+                if operands.len() >= 2 {
+                    let ty1 = operands[0].get_type();
+                    let ty2 = operands[1].get_type();
+
+                    if !ty1.is_integer() || !ty2.is_integer() {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: "integer type".to_string(),
+                            found: format!("{:?}, {:?}", ty1, ty2),
+                            location: location.clone(),
+                        });
+                    }
+                }
+            }
+
+            Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
+                // Floating-point binary operations
+                let operands = inst.operands();
+                if operands.len() < 2 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: format!("{:?}", inst.opcode()),
+                        expected: 2,
+                        found: operands.len(),
+                    });
+                    return;
+                }
+
+                if operands.len() >= 2 {
+                    let ty1 = operands[0].get_type();
+                    let ty2 = operands[1].get_type();
+
+                    if !ty1.is_float() || !ty2.is_float() {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: "floating-point type".to_string(),
+                            found: format!("{:?}, {:?}", ty1, ty2),
+                            location: location.clone(),
+                        });
+                    }
+                }
+            }
+
+            Opcode::ICmp => {
+                // Integer comparison: requires 2 integer operands
+                let operands = inst.operands();
+                if operands.len() < 2 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: "icmp".to_string(),
+                        expected: 2,
+                        found: operands.len(),
+                    });
+                }
+            }
+
+            Opcode::FCmp => {
+                // Float comparison: requires 2 float operands
+                let operands = inst.operands();
+                if operands.len() < 2 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: "fcmp".to_string(),
+                        expected: 2,
+                        found: operands.len(),
+                    });
+                }
+            }
+
+            Opcode::Br => {
+                // Branch: either 1 label (unconditional) or 3 operands (conditional)
+                let operands = inst.operands();
+                if operands.len() != 1 && operands.len() != 3 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: "br".to_string(),
+                        expected: 1,  // or 3
+                        found: operands.len(),
+                    });
+                }
+            }
+
+            Opcode::Ret => {
+                // Return: 0 operands (void) or 1 operand (value)
+                let operands = inst.operands();
+                if operands.len() > 1 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: "ret".to_string(),
+                        expected: 1,
+                        found: operands.len(),
+                    });
+                }
+            }
+
+            Opcode::Call => {
+                // Call: function + arguments
+                // Type checking would require function signature analysis
+                // For now, just check that we have at least a function operand
+                let operands = inst.operands();
+                if operands.is_empty() {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: "call".to_string(),
+                        expected: 1,
+                        found: 0,
+                    });
+                }
+            }
+
+            Opcode::Alloca => {
+                // Alloca: requires type operand
+                // Check alignment if specified (must be power of 2)
+                // This is handled by the parser mostly
+            }
+
+            Opcode::Load | Opcode::Store => {
+                // Memory operations: require pointer operand
+                let operands = inst.operands();
+                if operands.is_empty() {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: format!("{:?}", inst.opcode()),
+                        expected: 1,
+                        found: 0,
+                    });
+                }
+            }
+
+            Opcode::GetElementPtr => {
+                // GEP: requires pointer base + indices
+                let operands = inst.operands();
+                if operands.len() < 2 {
+                    self.errors.push(VerificationError::InvalidOperandCount {
+                        instruction: "getelementptr".to_string(),
+                        expected: 2,
+                        found: operands.len(),
+                    });
+                }
+            }
+
+            _ => {
+                // Other opcodes: basic validation
+                // Full LLVM verification would check all opcode-specific constraints
+            }
+        }
     }
 
     /// Verify SSA form

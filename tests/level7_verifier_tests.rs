@@ -3,7 +3,7 @@ use std::time::Instant;
 
 #[test]
 fn test_parse_verifier_tests() {
-    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Verifier";
+    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/test/Verifier";
 
     let mut entries: Vec<_> = std::fs::read_dir(test_dir)
         .expect("Failed to read test directory")
@@ -21,6 +21,8 @@ fn test_parse_verifier_tests() {
 
     println!("\n=== LEVEL 7: VERIFIER TESTS ===\n");
 
+    let mut negative_tests = 0;
+
     for entry in entries {
         let path = entry.path();
         let filename = path.file_name().unwrap().to_str().unwrap();
@@ -35,24 +37,41 @@ fn test_parse_verifier_tests() {
             }
         };
 
+        // Check if this is a negative test (expected to fail)
+        let is_negative_test = content.contains("RUN: not llvm-as") ||
+                               content.contains("RUN: not llvm-dis");
+
         let start = Instant::now();
         let ctx = Context::new();
 
         match parse(&content, ctx) {
             Ok(_) => {
-                println!("✓ {} ({:.2}s)", filename, start.elapsed().as_secs_f64());
-                passed += 1;
+                if is_negative_test {
+                    println!("✗ {}: Negative test should have failed parsing", filename);
+                    failed += 1;
+                    failures.push((filename.to_string(), "Negative test passed unexpectedly".to_string()));
+                } else {
+                    println!("✓ {} ({:.2}s)", filename, start.elapsed().as_secs_f64());
+                    passed += 1;
+                }
             }
             Err(e) => {
-                println!("✗ {}: {:?}", filename, e);
-                failed += 1;
-                failures.push((filename.to_string(), format!("{:?}", e)));
+                if is_negative_test {
+                    println!("✓ {} (expected failure)", filename);
+                    passed += 1;
+                    negative_tests += 1;
+                } else {
+                    println!("✗ {}: {:?}", filename, e);
+                    failed += 1;
+                    failures.push((filename.to_string(), format!("{:?}", e)));
+                }
             }
         }
     }
 
     println!("\n=== LEVEL 7 RESULTS ===");
     println!("Passed: {}", passed);
+    println!("  Negative tests (correctly failed): {}", negative_tests);
     println!("Failed: {}", failed);
 
     let success_rate = (passed as f64 / test_count as f64) * 100.0;
