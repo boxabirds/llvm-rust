@@ -1157,6 +1157,30 @@ impl Parser {
             }
         }?;
 
+        // Check for function type syntax: type(params...)
+        if self.check(&Token::LParen) {
+            self.advance(); // consume '('
+
+            let mut param_types = Vec::new();
+            while !self.check(&Token::RParen) && !self.is_at_end() {
+                // Check for varargs
+                if self.check(&Token::Ellipsis) {
+                    self.advance();
+                    break;
+                }
+                let param_ty = self.parse_type()?;
+                param_types.push(param_ty);
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+            }
+            self.consume(&Token::RParen)?;
+
+            // base_type is the return type, create function type
+            let func_type = self.context.function_type(base_type, param_types, false);
+            return Ok(func_type);
+        }
+
         // Check for old-style typed pointer syntax: type addrspace(n)* or type*
         // Skip optional addrspace modifier
         if self.check(&Token::Addrspace) {
