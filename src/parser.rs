@@ -486,6 +486,33 @@ impl Parser {
     }
 
     fn parse_instruction(&mut self) -> ParseResult<Option<Instruction>> {
+        // Skip uselistorder directives: uselistorder type value, { order... }
+        if let Some(Token::Identifier(id)) = self.peek() {
+            if id == "uselistorder" || id == "uselistorder_bb" {
+                self.advance(); // skip uselistorder
+                // Skip the rest of the directive until we hit a closing brace
+                let mut brace_depth = 0;
+                while !self.is_at_end() {
+                    if self.check(&Token::LBrace) {
+                        brace_depth += 1;
+                        self.advance();
+                    } else if self.check(&Token::RBrace) {
+                        if brace_depth == 0 {
+                            break; // End of function
+                        }
+                        brace_depth -= 1;
+                        self.advance();
+                        if brace_depth == 0 {
+                            break; // End of uselistorder
+                        }
+                    } else {
+                        self.advance();
+                    }
+                }
+                return Ok(None);
+            }
+        }
+
         // Skip calling convention modifiers (tail, musttail, notail)
         if let Some(Token::Identifier(id)) = self.peek() {
             if id == "tail" || id == "musttail" || id == "notail" {
