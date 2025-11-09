@@ -7,7 +7,7 @@ use std::thread;
 
 #[test]
 fn test_parse_llvm_assembler_tests() {
-    let test_dir = Path::new("/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Assembler");
+    let test_dir = Path::new("/home/user/llvm-rust/llvm-tests/llvm-project/test/Assembler");
 
     if !test_dir.exists() {
         eprintln!("Test directory doesn't exist, skipping");

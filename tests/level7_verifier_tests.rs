@@ -3,7 +3,7 @@ use std::time::Instant;
 
 #[test]
 fn test_parse_verifier_tests() {
-    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Verifier";
+    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/test/Verifier";
 
     let mut entries: Vec<_> = std::fs::read_dir(test_dir)
         .expect("Failed to read test directory")

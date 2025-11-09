@@ -3,7 +3,7 @@ use std::time::Instant;
 
 #[test]
 fn test_parse_assembler_tests() {
-    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Assembler";
+    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/test/Assembler";
 
     let mut entries: Vec<_> = std::fs::read_dir(test_dir)
         .expect("Failed to read test directory")
