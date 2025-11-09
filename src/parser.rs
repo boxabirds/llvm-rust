@@ -925,29 +925,41 @@ impl Parser {
             }
             Opcode::Load => {
                 // load [atomic] [volatile] type, ptr %ptr [unordered|monotonic|acquire|...] [, align ...]
-                // Skip atomic and volatile modifiers
+                // Old syntax: load atomic i32* %ptr (no comma, typed pointer)
+                // New syntax: load atomic i32, ptr %ptr (comma-separated)
                 self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
                 let _ty = self.parse_type()?;
-                self.consume(&Token::Comma)?;
-                let _ptr_ty = self.parse_type()?;
-                let _ptr = self.parse_value()?;
+
+                // Check if using old syntax (no comma) or new syntax (comma)
+                if self.match_token(&Token::Comma) {
+                    // New syntax: comma separates type from pointer
+                    let _ptr_ty = self.parse_type()?;
+                    let _ptr = self.parse_value()?;
+                } else {
+                    // Old syntax: pointer value directly follows (type already includes *)
+                    let _ptr = self.parse_value()?;
+                }
 
                 // Skip memory ordering and other attributes
                 self.skip_load_store_attributes();
             }
             Opcode::Store => {
                 // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
-                // Skip atomic and volatile modifiers
+                // Old syntax: store i32 %val, i32* %ptr (typed pointer)
+                // New syntax: store i32 %val, ptr %ptr (opaque pointer)
                 self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
                 let _val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
                 self.consume(&Token::Comma)?;
+
+                // Parse pointer - could be "ptr" keyword (new) or typed pointer (old)
                 let _ptr_ty = self.parse_type()?;
                 let _ptr = self.parse_value()?;
+
                 // Skip attributes
                 self.skip_load_store_attributes();
             }
