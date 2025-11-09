@@ -20,7 +20,7 @@ impl Pass for DeadCodeEliminationPass {
 
 impl FunctionPass for DeadCodeEliminationPass {
     fn run_on_function(&mut self, function: &mut Function) -> PassResult<bool> {
-        let mut changed = false;
+        let changed = false;
 
         // Mark live instructions
         let mut live = HashSet::new();
@@ -87,7 +87,7 @@ impl Pass for ConstantFoldingPass {
 
 impl FunctionPass for ConstantFoldingPass {
     fn run_on_function(&mut self, _function: &mut Function) -> PassResult<bool> {
-        let mut changed = false;
+        let changed = false;
 
         // Fold constant operations
         // For each instruction, if all operands are constants, compute the result
@@ -108,7 +108,7 @@ impl Pass for InstructionCombiningPass {
 
 impl FunctionPass for InstructionCombiningPass {
     fn run_on_function(&mut self, _function: &mut Function) -> PassResult<bool> {
-        let mut changed = false;
+        let changed = false;
 
         // Combine instructions to simplify the IR
         // Examples:
@@ -183,6 +183,7 @@ impl Mem2RegPass {
 }
 
 /// Simple inlining pass
+#[allow(dead_code)]
 pub struct InliningPass {
     threshold: usize,
 }
@@ -250,8 +251,8 @@ impl Pass for CSEPass {
 
 impl FunctionPass for CSEPass {
     fn run_on_function(&mut self, _function: &mut Function) -> PassResult<bool> {
-        let mut changed = false;
-        let mut available_exprs: HashMap<String, Value> = HashMap::new();
+        let changed = false;
+        let mut _available_exprs: HashMap<String, Value> = HashMap::new();
 
         // For each basic block
         // Track available expressions
@@ -276,7 +277,7 @@ impl Pass for LICMPass {
 
 impl FunctionPass for LICMPass {
     fn run_on_function(&mut self, _function: &mut Function) -> PassResult<bool> {
-        let mut changed = false;
+        let changed = false;
 
         // Find loops
         // For each loop:
@@ -298,7 +299,7 @@ impl Pass for SROAPass {
 
 impl FunctionPass for SROAPass {
     fn run_on_function(&mut self, _function: &mut Function) -> PassResult<bool> {
-        let mut changed = false;
+        let changed = false;
 
         // Find aggregate allocas (structs, arrays)
         // Split them into scalar allocas for each field/element

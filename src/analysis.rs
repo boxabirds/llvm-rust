@@ -8,6 +8,7 @@ use crate::cfg::{CFG, Loop};
 use crate::passes::{Pass, AnalysisPass, PassResult};
 
 /// Dominator tree analysis
+#[allow(dead_code)]
 pub struct DominatorTree {
     /// Maps block index to its immediate dominator
     idoms: Vec<Option<usize>>,

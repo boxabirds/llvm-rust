@@ -175,7 +175,7 @@ pub fn print_function(function: &Function) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Context, BasicBlock};
+    use crate::Context;
 
     #[test]
     fn test_print_empty_module() {

@@ -42,6 +42,7 @@ pub enum FloatKind {
 }
 
 impl Type {
+    #[allow(dead_code)]
     pub(crate) fn new(data: TypeData) -> Self {
         Self {
             data: Arc::new(data),

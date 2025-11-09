@@ -721,7 +721,7 @@ impl Parser {
     }
 
     fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<Vec<Value>> {
-        let mut operands = Vec::new();
+        let operands = Vec::new();
 
         // Parse based on instruction type
         match opcode {

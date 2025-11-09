@@ -67,7 +67,7 @@ fn test_parse_instcombine_tests() {
                 println!("✓ {} ({:.2}s)", filename, elapsed.as_secs_f64());
             }
             Err(e) => {
-                let elapsed = start.elapsed();
+                let _elapsed = start.elapsed();
                 failed += 1;
                 let error_msg = format!("{:?}", e);
                 println!("✗ {}: {:?}", filename, e);

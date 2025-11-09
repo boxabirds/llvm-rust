@@ -8,6 +8,7 @@ use crate::basic_block::BasicBlock;
 use crate::instruction::Opcode;
 
 /// Control Flow Graph
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct CFG {
     /// Maps block names to their indices
@@ -25,8 +26,8 @@ impl CFG {
     pub fn from_function(function: &Function) -> Self {
         let blocks = function.basic_blocks();
         let mut block_indices = HashMap::new();
-        let mut successors = vec![Vec::new(); blocks.len()];
-        let mut predecessors = vec![Vec::new(); blocks.len()];
+        let successors = vec![Vec::new(); blocks.len()];
+        let predecessors = vec![Vec::new(); blocks.len()];
 
         // Build block index map
         for (i, bb) in blocks.iter().enumerate() {
@@ -38,7 +39,7 @@ impl CFG {
         }
 
         // Build successor/predecessor edges
-        for (i, bb) in blocks.iter().enumerate() {
+        for (_i, bb) in blocks.iter().enumerate() {
             if let Some(term) = bb.terminator() {
                 match term.opcode() {
                     Opcode::Br => {

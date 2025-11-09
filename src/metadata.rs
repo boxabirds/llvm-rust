@@ -14,6 +14,7 @@ pub struct Metadata {
     data: Arc<MetadataData>,
 }
 
+#[allow(dead_code)]
 enum MetadataData {
     /// String metadata
     String(String),
