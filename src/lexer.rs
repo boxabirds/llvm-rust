@@ -387,6 +387,11 @@ impl Lexer {
                 self.advance();
                 self.read_global_ident()
             }
+            '$' => {
+                // Comdat group name: $name
+                self.advance();
+                self.read_global_ident() // Treat like global ident
+            }
             '"' => self.read_string_literal(),
             'c' if self.peek_char() == Some('"') => self.read_c_string(),
             '-' | '0'..='9' => self.read_number_literal(),
