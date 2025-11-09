@@ -193,7 +193,8 @@ impl Parser {
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
-        // declare [ret attrs] type @name([params])
+        // declare [cc] [ret attrs] type @name([params])
+        self.skip_linkage_and_visibility(); // For calling conventions
         self.skip_attributes();
 
         let return_type = self.parse_type()?;
@@ -479,8 +480,28 @@ impl Parser {
                 }
             }
             Opcode::Call => {
-                // call type @func(args...)
+                // call [attrs] type [(param_types...)] @func(args...)
+                // Skip return attributes (inreg, zeroext, etc.)
+                self.skip_attributes();
+
                 let _ret_ty = self.parse_type()?;
+
+                // Check for optional function signature: (param_types...)
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume '('
+                    // Parse parameter types for function pointer
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        if self.match_token(&Token::Ellipsis) {
+                            break; // varargs
+                        }
+                        self.parse_type()?;
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume(&Token::RParen)?;
+                }
+
                 let _func = self.parse_value()?;
                 self.consume(&Token::LParen)?;
                 let _args = self.parse_call_arguments()?;
@@ -498,40 +519,61 @@ impl Parser {
                 let _op2 = self.parse_value()?;
             }
             Opcode::Alloca => {
-                // alloca type [, type NumElements] [, align ...]
-                let _ty = self.parse_type()?;
-
-                // Handle optional array size: ", type numElements"
-                if self.match_token(&Token::Comma) {
-                    // Check if next is a type (for array size) or align keyword
-                    if !self.check(&Token::Align) && !self.check(&Token::Inbounds) {
-                        // Parse array size type and value
-                        let _size_ty = self.parse_type()?;
-                        let _size_val = self.parse_value()?;
-
-                        // Try to consume another comma for alignment
-                        self.match_token(&Token::Comma);
+                // alloca [inalloca] type [, type NumElements] [, align N] [, addrspace(N)]
+                // Skip inalloca keyword
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "inalloca" {
+                        self.advance();
                     }
                 }
 
-                // Skip alignment and other attributes
-                if self.match_token(&Token::Align) {
-                    if let Some(Token::Integer(_)) = self.peek() {
+                let _ty = self.parse_type()?;
+
+                // Handle optional attributes in any order
+                while self.match_token(&Token::Comma) {
+                    if self.match_token(&Token::Align) {
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                    } else if self.match_token(&Token::Addrspace) {
+                        self.consume(&Token::LParen)?;
+                        if let Some(Token::Integer(_)) = self.peek() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen)?;
+                    } else if self.check(&Token::Exclaim) {
+                        // Metadata attachment - stop parsing
+                        break;
+                    } else if !self.check_type_token() {
+                        // Skip unknown attributes
                         self.advance();
+                    } else {
+                        // This is array size: type value
+                        let _size_ty = self.parse_type()?;
+                        let _size_val = self.parse_value()?;
                     }
                 }
             }
             Opcode::Load => {
-                // load type, ptr %ptr [, align ...]
+                // load [atomic] [volatile] type, ptr %ptr [unordered|monotonic|acquire|...] [, align ...]
+                // Skip atomic and volatile modifiers
+                self.match_token(&Token::Atomic);
+                self.match_token(&Token::Volatile);
+
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
                 let _ptr = self.parse_value()?;
-                // Skip attributes
+
+                // Skip memory ordering and other attributes
                 self.skip_load_store_attributes();
             }
             Opcode::Store => {
-                // store type %val, ptr %ptr [, align ...]
+                // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
+                // Skip atomic and volatile modifiers
+                self.match_token(&Token::Atomic);
+                self.match_token(&Token::Volatile);
+
                 let _val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
                 self.consume(&Token::Comma)?;
@@ -597,6 +639,84 @@ impl Parser {
                 let _ty2 = self.parse_type()?;
                 let _val2 = self.parse_value()?;
             }
+            Opcode::AtomicCmpXchg => {
+                // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering>
+                self.match_token(&Token::Weak);
+                self.match_token(&Token::Volatile);
+
+                // Parse pointer type and value
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+
+                // Parse compare type and value
+                let _cmp_ty = self.parse_type()?;
+                let _cmp = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+
+                // Parse new type and value
+                let _new_ty = self.parse_type()?;
+                let _new = self.parse_value()?;
+
+                // Skip syncscope if present
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "syncscope" {
+                        self.advance();
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.consume(&Token::RParen)?;
+                        }
+                    }
+                }
+
+                // Parse two memory orderings
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance(); // First ordering
+                }
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance(); // Second ordering
+                }
+            }
+            Opcode::AtomicRMW => {
+                // atomicrmw [volatile] <operation> ptr <pointer>, type <value> [syncscope] <ordering>
+                self.match_token(&Token::Volatile);
+
+                // Parse operation (add, sub, xchg, etc.)
+                // These can be opcodes or identifiers
+                self.advance(); // Skip the operation token (whatever it is)
+
+                // Parse pointer type and value
+                let _ptr_ty = self.parse_type()?;
+                let _ptr = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+
+                // Parse value type and value
+                let _val_ty = self.parse_type()?;
+                let _val = self.parse_value()?;
+
+                // Skip syncscope if present
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "syncscope" {
+                        self.advance();
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            // Skip scope string
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.consume(&Token::RParen)?;
+                        }
+                    }
+                }
+
+                // Parse ordering (monotonic, acquire, release, etc.)
+                if let Some(Token::Identifier(_)) = self.peek() {
+                    self.advance();
+                }
+            }
             _ => {
                 // For other instructions, skip to end of line or next instruction
                 // Skip until we find something that looks like the next instruction/statement
@@ -657,11 +777,99 @@ impl Parser {
         }
     }
 
+    fn skip_metadata(&mut self) {
+        // Skip metadata reference: !{...}, !0, !DIExpression(), etc.
+        if self.match_token(&Token::Exclaim) {
+            if self.check(&Token::LBrace) {
+                // !{...}
+                self.advance();
+                let mut depth = 1;
+                while depth > 0 && !self.is_at_end() {
+                    if self.check(&Token::LBrace) {
+                        depth += 1;
+                    } else if self.check(&Token::RBrace) {
+                        depth -= 1;
+                    }
+                    self.advance();
+                }
+            } else if let Some(Token::Identifier(_)) | Some(Token::MetadataIdent(_)) = self.peek() {
+                // !DIExpression() or similar metadata identifier
+                self.advance();
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    let mut depth = 1;
+                    while depth > 0 && !self.is_at_end() {
+                        if self.check(&Token::LParen) {
+                            depth += 1;
+                        } else if self.check(&Token::RParen) {
+                            depth -= 1;
+                        }
+                        self.advance();
+                    }
+                }
+            } else if let Some(Token::Integer(_)) = self.peek() {
+                // !0, !1, etc.
+                self.advance();
+            }
+        }
+    }
+
     fn parse_call_arguments(&mut self) -> ParseResult<Vec<(Type, Value)>> {
         let mut args = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
+            // Handle metadata arguments specially: metadata i32 0 or metadata !{}
+            if self.match_token(&Token::Metadata) {
+                // Check for various metadata forms
+                if let Some(Token::MetadataIdent(_)) = self.peek() {
+                    // metadata !DIExpression() or !0
+                    self.advance(); // consume the metadata ident
+                    // If followed by parens, skip them
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                            }
+                            self.advance();
+                        }
+                    }
+                } else if self.check(&Token::Exclaim) {
+                    // metadata !{} - literal metadata
+                    self.skip_metadata();
+                } else {
+                    // metadata i32 0 - parse type and value
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
+                }
+                if !self.match_token(&Token::Comma) {
+                    break;
+                }
+                continue;
+            }
+
             let ty = self.parse_type()?;
+
+            // Skip parameter attributes (byval, sret, etc.)
+            while self.match_token(&Token::Byval) ||
+                  self.match_token(&Token::Sret) ||
+                  self.match_token(&Token::Inreg) ||
+                  self.match_token(&Token::Noalias) ||
+                  self.match_token(&Token::Nocapture) ||
+                  self.match_token(&Token::Nest) ||
+                  self.match_token(&Token::Zeroext) ||
+                  self.match_token(&Token::Signext) {
+                // Handle byval(type) syntax
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    self.parse_type()?;  // Parse the type argument
+                    self.consume(&Token::RParen)?;
+                }
+            }
+
             let val = self.parse_value()?;
             args.push((ty, val));
 
@@ -700,8 +908,40 @@ impl Parser {
             }
             Token::Ptr => {
                 self.advance();
-                // Modern LLVM uses opaque pointers (ptr)
-                Ok(self.context.ptr_type(self.context.int8_type()))
+                // Check if this is a function pointer type: ptr (...)
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume '('
+
+                    // Parse function parameter types
+                    let mut param_types = Vec::new();
+
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        param_types.push(self.parse_type()?);
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+
+                    self.consume(&Token::RParen)?;
+
+                    // Function pointers have void return type by default
+                    let return_type = self.context.void_type();
+                    let func_type = self.context.function_type(return_type, param_types, false);
+                    Ok(self.context.ptr_type(func_type))
+                } else {
+                    // Check if followed by addrspace modifier
+                    if self.check(&Token::Addrspace) {
+                        self.advance(); // consume 'addrspace'
+                        self.consume(&Token::LParen)?;
+                        // Parse address space number
+                        if let Some(Token::Integer(_n)) = self.peek() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen)?;
+                    }
+                    // Modern LLVM uses opaque pointers (ptr)
+                    Ok(self.context.ptr_type(self.context.int8_type()))
+                }
             }
             Token::Label => {
                 self.advance();
@@ -744,8 +984,22 @@ impl Parser {
                 Ok(crate::types::Type::struct_type(&self.context, field_types, None))
             }
             Token::LAngle => {
-                // Vector type: < size x type >
+                // Vector type: < size x type > or scalable: < vscale x size x type >
                 self.advance();
+
+                // Check for vscale (scalable vector)
+                let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "vscale" {
+                        self.advance();
+                        self.consume(&Token::X)?; // consume 'x' after vscale
+                        true
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                };
+
                 let size = if let Some(Token::Integer(n)) = self.peek() {
                     let size = *n as u64;
                     self.advance();
@@ -759,6 +1013,7 @@ impl Parser {
                 self.consume(&Token::X)?; // 'x'
                 let elem_ty = self.parse_type()?;
                 self.consume(&Token::RAngle)?;
+                // For now, treat scalable vectors like regular vectors
                 Ok(self.context.vector_type(elem_ty, size as usize))
             }
             Token::LocalIdent(_) => {
@@ -820,6 +1075,36 @@ impl Parser {
             }
             Token::Zeroinitializer => {
                 self.advance();
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
+            Token::LAngle => {
+                // Vector constant: < type val1, type val2, ... >
+                self.advance(); // consume '<'
+                // Parse vector elements
+                while !self.check(&Token::RAngle) && !self.is_at_end() {
+                    // Parse element type and value
+                    let _elem_ty = self.parse_type()?;
+                    let _elem_val = self.parse_value()?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RAngle)?;
+                // Return placeholder vector constant
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
+            Token::LBrace => {
+                // Struct constant: { type val1, type val2, ... }
+                self.advance(); // consume '{'
+                while !self.check(&Token::RBrace) && !self.is_at_end() {
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RBrace)?;
+                // Return placeholder struct constant
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
             // Constant expressions - instructions that can appear in constant contexts
@@ -893,27 +1178,58 @@ impl Parser {
 
         // For cast operations: castop (srctype value to desttype)
         // For binary ops: binop (type val1, type val2)
-        // For GEP: getelementptr (type, ptr %ptr, indices...)
+        // For GEP: getelementptr (basetype, ptrtype ptrvalue, indices...)
+        // For select: select (type cond, type val1, type val2)
 
-        // Simplified parsing - just parse type and value, skip to closing paren
-        // This allows the constant expression to be recognized without full semantic support
-        let _src_ty = self.parse_type()?;
-        let _src_val = self.parse_value()?;
-
-        // Handle 'to' keyword for casts
-        if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast |
-                           Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
-                           Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
-                           Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
-                           Opcode::AddrSpaceCast) {
-            if self.match_token(&Token::To) {
-                let _dest_ty = self.parse_type()?;
+        if matches!(opcode, Opcode::GetElementPtr) {
+            // GEP is special: getelementptr (basetype, ptrtype ptrvalue, indextype indexvalue, ...)
+            let _base_ty = self.parse_type()?;
+            self.consume(&Token::Comma)?;
+            let _ptr_ty = self.parse_type()?;
+            let _ptr_val = self.parse_value()?;
+            // Parse remaining indices
+            while self.match_token(&Token::Comma) {
+                let _idx_ty = self.parse_type()?;
+                let _idx_val = self.parse_value()?;
             }
         } else {
-            // Binary operations - parse second operand
-            if self.match_token(&Token::Comma) {
-                let _ty2 = self.parse_type()?;
-                let _val2 = self.parse_value()?;
+            // Simplified parsing - just parse type and value, skip to closing paren
+            // This allows the constant expression to be recognized without full semantic support
+            let _src_ty = self.parse_type()?;
+            let _src_val = self.parse_value()?;
+
+            // Handle 'to' keyword for casts
+            if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::BitCast |
+                               Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
+                               Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
+                               Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
+                               Opcode::AddrSpaceCast) {
+                if self.match_token(&Token::To) {
+                    let _dest_ty = self.parse_type()?;
+                }
+            } else if matches!(opcode, Opcode::Select) {
+                // Select: select (type cond, type val1, type val2)
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                    if self.match_token(&Token::Comma) {
+                        let _ty3 = self.parse_type()?;
+                        let _val3 = self.parse_value()?;
+                    }
+                }
+            } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
+                // Comparison: icmp/fcmp (predicate type val1, type val2)
+                // The first "type" we parsed might actually be a predicate, skip
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                }
+            } else {
+                // Binary operations and others - parse second operand if comma present
+                if self.match_token(&Token::Comma) {
+                    let _ty2 = self.parse_type()?;
+                    let _val2 = self.parse_value()?;
+                }
             }
         }
 
@@ -981,26 +1297,69 @@ impl Parser {
     // Helper methods
 
     fn skip_linkage_and_visibility(&mut self) {
-        while self.match_token(&Token::Private) ||
-              self.match_token(&Token::Internal) ||
-              self.match_token(&Token::External) ||
-              self.match_token(&Token::Weak) ||
-              self.match_token(&Token::Linkonce) ||
-              self.match_token(&Token::Common) ||
-              self.match_token(&Token::Appending) ||
-              self.match_token(&Token::Hidden) ||
-              self.match_token(&Token::Protected) ||
-              self.match_token(&Token::Default) ||
-              self.match_token(&Token::Dllimport) ||
-              self.match_token(&Token::Dllexport) ||
-              self.match_token(&Token::Unnamed_addr) {
-            // Keep consuming
+        loop {
+            if self.match_token(&Token::Private) ||
+               self.match_token(&Token::Internal) ||
+               self.match_token(&Token::External) ||
+               self.match_token(&Token::Weak) ||
+               self.match_token(&Token::Linkonce) ||
+               self.match_token(&Token::Common) ||
+               self.match_token(&Token::Appending) ||
+               self.match_token(&Token::Hidden) ||
+               self.match_token(&Token::Protected) ||
+               self.match_token(&Token::Default) ||
+               self.match_token(&Token::Dllimport) ||
+               self.match_token(&Token::Dllexport) ||
+               self.match_token(&Token::Unnamed_addr) ||
+               self.match_token(&Token::Dso_local) ||
+               self.match_token(&Token::Thread_local) ||
+               self.match_token(&Token::Local_unnamed_addr) ||
+               // GPU calling conventions
+               self.match_token(&Token::Amdgpu_kernel) ||
+               self.match_token(&Token::Amdgpu_cs_chain) ||
+               self.match_token(&Token::Amdgpu_ps) {
+                // Keep consuming
+                continue;
+            }
+
+            // Check for identifier-based calling conventions (e.g., amdgpu_cs_chain_preserve)
+            if let Some(Token::Identifier(id)) = self.peek() {
+                if id.starts_with("amdgpu_") || id.starts_with("spir_") ||
+                   id.starts_with("aarch64_") || id == "cc" || id.starts_with("cc") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        // Handle addrspace modifier: addrspace(N)
+        if self.match_token(&Token::Addrspace) {
+            if self.match_token(&Token::LParen) {
+                // Parse address space number
+                if let Some(Token::Integer(_)) = self.peek() {
+                    self.advance();
+                }
+                self.match_token(&Token::RParen);
+            }
         }
     }
 
     fn skip_attributes(&mut self) {
-        while self.check(&Token::Hash) || self.check_attr_group_id() {
-            self.advance();
+        // Skip numbered attribute groups (#0, #1, etc.) and attribute keywords
+        while self.check(&Token::Hash) || self.check_attr_group_id() ||
+              self.match_token(&Token::Inreg) ||
+              self.match_token(&Token::Zeroext) ||
+              self.match_token(&Token::Signext) ||
+              self.match_token(&Token::Noalias) ||
+              self.match_token(&Token::Byval) ||
+              self.match_token(&Token::Sret) ||
+              self.match_token(&Token::Nocapture) ||
+              self.match_token(&Token::Nest) {
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+            }
         }
     }
 
@@ -1039,7 +1398,33 @@ impl Parser {
     }
 
     fn skip_load_store_attributes(&mut self) {
-        while self.match_token(&Token::Comma) {
+        // Also handle attributes that appear without comma (syncscope, orderings)
+        loop {
+            // Check for syncscope("...")
+            if let Some(Token::Identifier(id)) = self.peek() {
+                if id == "syncscope" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.consume(&Token::RParen).ok();
+                    }
+                    continue;
+                }
+                // Check for memory ordering: unordered, monotonic, acquire, release, acq_rel, seq_cst
+                if matches!(id.as_str(), "unordered" | "monotonic" | "acquire" | "release" | "acq_rel" | "seq_cst") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            // Check for comma-separated attributes
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+
             if self.match_token(&Token::Align) {
                 if let Some(Token::Integer(_)) = self.peek() {
                     self.advance();
