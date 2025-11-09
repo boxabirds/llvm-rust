@@ -1435,6 +1435,13 @@ impl Parser {
                 // Return placeholder - treat as the wrapped value
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
+            Token::Identifier(id) if id == "no_cfi" => {
+                // no_cfi marker: no_cfi @func
+                self.advance(); // consume 'no_cfi'
+                let _val = self.parse_value()?; // Parse the wrapped value
+                // Return placeholder - treat as the wrapped value
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
             Token::Identifier(id) if id == "blockaddress" => {
                 // Block address: blockaddress(@func, %block)
                 self.advance(); // consume 'blockaddress'
@@ -1616,6 +1623,11 @@ impl Parser {
 
         // Skip instruction flags (nuw, nsw, exact, fast-math flags)
         self.skip_instruction_flags();
+
+        // For ICmp/FCmp, parse the predicate before the opening paren: icmp ne (...)
+        if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
+            self.parse_comparison_predicate()?;
+        }
 
         // Parse the operands inside parentheses
         self.consume(&Token::LParen)?;
@@ -1803,10 +1815,10 @@ impl Parser {
                    id.starts_with("aarch64_") || id.starts_with("x86_") ||
                    id.starts_with("riscv_") || id.starts_with("arm_") ||
                    id.starts_with("avr_") || id.starts_with("ptx_") ||
+                   id.starts_with("msp430_") || id.starts_with("preserve_") ||
                    id == "cc" || id.starts_with("cc") ||
                    id == "ccc" || id == "fastcc" || id == "coldcc" ||
                    id == "webkit_jscc" || id == "anyregcc" ||
-                   id == "preserve_mostcc" || id == "preserve_allcc" ||
                    id == "cxx_fast_tlscc" || id == "swiftcc" || id == "swifttailcc" ||
                    id == "cfguard_checkcc" || id == "ghccc" || id == "hhvmcc" || id == "hhvm_ccc" ||
                    id == "intel_ocl_bicc" || id == "win64cc" {
