@@ -1249,6 +1249,20 @@ impl Parser {
                 // Return placeholder vector constant
                 Ok(Value::zero_initializer(self.context.void_type()))
             }
+            Token::LBracket => {
+                // Array constant: [type val1, type val2, ...]
+                self.advance(); // consume '['
+                while !self.check(&Token::RBracket) && !self.is_at_end() {
+                    let _ty = self.parse_type()?;
+                    let _val = self.parse_value()?;
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RBracket)?;
+                // Return placeholder array constant
+                Ok(Value::zero_initializer(self.context.void_type()))
+            }
             Token::LBrace => {
                 // Struct constant: { type val1, type val2, ... }
                 self.advance(); // consume '{'
