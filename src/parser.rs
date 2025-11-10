@@ -1101,11 +1101,11 @@ impl Parser {
                 // Binary ops: op [flags] type op1, op2
                 self.skip_instruction_flags();
                 let ty = self.parse_type()?;
-                result_type = Some(ty);  // Binary op result has same type as operands
-                let op1 = self.parse_value()?;
+                result_type = Some(ty.clone());  // Binary op result has same type as operands
+                let op1 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let op2 = self.parse_value()?;
+                let op2 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op2);
             }
             Opcode::Alloca => {
@@ -2315,17 +2315,27 @@ impl Parser {
             Token::Integer(n) => {
                 let n = *n;
                 self.advance();
-                // Use expected type if provided and it's an integer type
-                let ty = if let Some(expected) = expected_type {
-                    if expected.is_integer() {
-                        expected.clone()
-                    } else {
-                        self.context.int32_type()
+                // Check if expected type is float - hex integer constants can be float representations
+                if let Some(expected) = expected_type {
+                    if expected.is_float() {
+                        // Hex integer constant used as float (e.g., 0x427F4000 for double)
+                        // Convert the hex bits to a float based on the float size
+                        // Check the expected type's format string to determine float width
+                        let expected_str = format!("{}", expected);
+                        let float_val = if expected_str == "double" || expected_str.starts_with("fp128") {
+                            // 64-bit double from i64 bits
+                            f64::from_bits(n as u64)
+                        } else {
+                            // 32-bit float or half from i32 bits
+                            f32::from_bits(n as u32) as f64
+                        };
+                        return Ok(Value::const_float(expected.clone(), float_val, None));
+                    } else if expected.is_integer() {
+                        return Ok(Value::const_int(expected.clone(), n as i64, None));
                     }
-                } else {
-                    self.context.int32_type()
-                };
-                Ok(Value::const_int(ty, n as i64, None))
+                }
+                // Default: integer type
+                Ok(Value::const_int(self.context.int32_type(), n as i64, None))
             }
             Token::Float64(f) => {
                 let f = *f;
