@@ -849,7 +849,8 @@ impl Parser {
                 // 3. Return attributes (inreg, zeroext, etc.)
                 self.skip_attributes();
 
-                let _ret_ty = self.parse_type()?;
+                let ret_ty = self.parse_type()?;
+                result_type = Some(ret_ty);  // Call result type is the return type
 
                 // Check for optional function signature: (param_types...)
                 if self.check(&Token::LParen) {
@@ -1089,7 +1090,8 @@ impl Parser {
                 let _src_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
                 self.consume(&Token::To)?;
-                let _dest_ty = self.parse_type()?;
+                let dest_ty = self.parse_type()?;
+                result_type = Some(dest_ty);  // Cast result type is the destination type
             }
             Opcode::Select => {
                 // select [fast-math-flags] i1 %cond, type %val1, type %val2
