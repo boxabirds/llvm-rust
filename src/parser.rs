@@ -846,15 +846,24 @@ impl Parser {
             }
         }
 
-        // Create result value if there's a result name
-        let result = result_name.map(|name| {
-            // Use the result type from instruction parsing, or void if not determined
+        // Create result value if there's a result name OR if instruction produces a non-void result
+        let result = if let Some(name) = result_name {
+            // Named result
             let ty = result_type.unwrap_or_else(|| self.context.void_type());
             let value = Value::instruction(ty, opcode, Some(name.clone()));
             // Add to symbol table for lookup
             self.symbol_table.insert(name, value.clone());
-            value
-        });
+            Some(value)
+        } else if let Some(ty) = result_type {
+            // Unnamed result but non-void type (e.g., call that returns value but result unused)
+            if !ty.is_void() {
+                Some(Value::instruction(ty, opcode, None))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Some(Instruction::new(opcode, operands, result)))
     }
@@ -2352,15 +2361,18 @@ impl Parser {
             }
             Token::Undef => {
                 self.advance();
-                Ok(Value::undef(self.context.void_type()))
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::undef(ty))
             }
             Token::Poison => {
                 self.advance();
-                Ok(Value::undef(self.context.void_type())) // Treat poison like undef for now
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::undef(ty)) // Treat poison like undef for now
             }
             Token::Zeroinitializer => {
                 self.advance();
-                Ok(Value::zero_initializer(self.context.void_type()))
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::zero_initializer(ty))
             }
             Token::LAngle => {
                 // Could be:
