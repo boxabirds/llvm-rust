@@ -1445,29 +1445,32 @@ impl Parser {
                 );
                 operands.push(default_label);
 
-                // Parse cases: [ <intty> <val>, label <dest> ]*
-                while self.match_token(&Token::LBracket) {
-                    // Parse case value: type value
-                    let case_ty = self.parse_type()?;
-                    let case_val = self.parse_value_with_type(Some(&case_ty))?;
-                    operands.push(case_val);
+                // Parse cases: [ <intty> <val>, label <dest> ... ]
+                // Note: All cases are in a single bracket pair
+                if self.match_token(&Token::LBracket) {
+                    while !self.check(&Token::RBracket) && !self.is_at_end() {
+                        // Parse case value: type value
+                        let case_ty = self.parse_type()?;
+                        let case_val = self.parse_value_with_type(Some(&case_ty))?;
+                        operands.push(case_val);
 
-                    self.consume(&Token::Comma)?;
+                        self.consume(&Token::Comma)?;
 
-                    // Parse case destination: label %dest
-                    self.consume(&Token::Label)?;
-                    let case_dest = self.expect_local_ident()?;
-                    let case_label = Value::new(
-                        self.context.label_type(),
-                        crate::value::ValueKind::BasicBlock,
-                        Some(case_dest)
-                    );
-                    operands.push(case_label);
+                        // Parse case destination: label %dest
+                        self.consume(&Token::Label)?;
+                        let case_dest = self.expect_local_ident()?;
+                        let case_label = Value::new(
+                            self.context.label_type(),
+                            crate::value::ValueKind::BasicBlock,
+                            Some(case_dest)
+                        );
+                        operands.push(case_label);
 
+                        // Cases are just whitespace/newline separated, no commas between them
+                        // But there might be commas in some formats, so consume if present
+                        self.match_token(&Token::Comma);
+                    }
                     self.consume(&Token::RBracket)?;
-
-                    // Check for comma before next case (optional)
-                    self.match_token(&Token::Comma);
                 }
             }
             // Binary operations: op [flags] type op1, type op2 or just op type op1, op2
@@ -2183,7 +2186,8 @@ impl Parser {
                     self.consume(&Token::RBrace)?;
                     self.consume(&Token::RAngle)?;
                     // Return placeholder packed struct constant
-                    Ok(Value::zero_initializer(self.context.void_type()))
+                    let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                    Ok(Value::zero_initializer(ty))
                 } else {
                     // Vector constant
                     while !self.check(&Token::RAngle) && !self.is_at_end() {
@@ -2195,8 +2199,9 @@ impl Parser {
                         }
                     }
                     self.consume(&Token::RAngle)?;
-                    // Return placeholder vector constant
-                    Ok(Value::zero_initializer(self.context.void_type()))
+                    // Return placeholder vector constant with expected type
+                    let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                    Ok(Value::zero_initializer(ty))
                 }
             }
             Token::LBracket => {
@@ -2210,8 +2215,9 @@ impl Parser {
                     }
                 }
                 self.consume(&Token::RBracket)?;
-                // Return placeholder array constant
-                Ok(Value::zero_initializer(self.context.void_type()))
+                // Return placeholder array constant with expected type
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::zero_initializer(ty))
             }
             Token::LBrace => {
                 // Struct constant: { type val1, type val2, ... }
@@ -2224,8 +2230,9 @@ impl Parser {
                     }
                 }
                 self.consume(&Token::RBrace)?;
-                // Return placeholder struct constant
-                Ok(Value::zero_initializer(self.context.void_type()))
+                // Return placeholder struct constant with expected type
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::zero_initializer(ty))
             }
             // Constant expressions - instructions that can appear in constant contexts
             Token::PtrToInt | Token::IntToPtr | Token::PtrToAddr | Token::AddrToPtr |

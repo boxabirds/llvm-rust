@@ -529,7 +529,7 @@ fn test_invalid_shufflevector_non_vector() {
 fn test_valid_shl() {
     assert_valid(r#"
         define void @test() {
-            %1 = shl i32 1, i32 5
+            %1 = shl i32 1, 5
             ret void
         }
     "#);
@@ -549,7 +549,7 @@ fn test_invalid_shl_type_mismatch() {
 fn test_valid_lshr() {
     assert_valid(r#"
         define void @test() {
-            %1 = lshr i32 100, i32 2
+            %1 = lshr i32 100, 2
             ret void
         }
     "#);
@@ -559,7 +559,7 @@ fn test_valid_lshr() {
 fn test_valid_ashr() {
     assert_valid(r#"
         define void @test() {
-            %1 = ashr i32 -100, i32 2
+            %1 = ashr i32 -100, 2
             ret void
         }
     "#);
@@ -607,7 +607,7 @@ fn test_invalid_phi_type_mismatch() {
 fn test_valid_add() {
     assert_valid(r#"
         define void @test() {
-            %1 = add i32 1, i32 2
+            %1 = add i32 1, 2
             ret void
         }
     "#);
@@ -627,7 +627,7 @@ fn test_invalid_add_type_mismatch() {
 fn test_valid_fadd() {
     assert_valid(r#"
         define void @test() {
-            %1 = fadd float 1.0, float 2.0
+            %1 = fadd float 1.0, 2.0
             ret void
         }
     "#);
@@ -649,7 +649,7 @@ fn test_invalid_fadd_type_mismatch() {
 fn test_valid_icmp() {
     assert_valid(r#"
         define void @test() {
-            %1 = icmp eq i32 1, i32 2
+            %1 = icmp eq i32 1, 2
             ret void
         }
     "#);
@@ -669,7 +669,7 @@ fn test_invalid_icmp_type_mismatch() {
 fn test_valid_fcmp() {
     assert_valid(r#"
         define void @test() {
-            %1 = fcmp oeq float 1.0, float 2.0
+            %1 = fcmp oeq float 1.0, 2.0
             ret void
         }
     "#);
