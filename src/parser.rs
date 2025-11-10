@@ -1047,25 +1047,33 @@ impl Parser {
                 // icmp/fcmp [samesign] predicate type op1, op2
                 self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
-                let _ty = self.parse_type()?;
+                let ty = self.parse_type()?;
                 result_type = Some(self.context.bool_type());  // Comparison result is i1
-                let op1 = self.parse_value()?;
+                let op1 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let op2 = self.parse_value()?;
+                let op2 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op2);
             }
             Opcode::PHI => {
                 // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
                 self.skip_instruction_flags();
-                let _ty = self.parse_type()?;
+                let ty = self.parse_type()?;
+                result_type = Some(ty.clone());
                 while !self.is_at_end() {
                     if !self.match_token(&Token::LBracket) {
                         break;
                     }
-                    let _val = self.parse_value()?;
+                    let val = self.parse_value_with_type(Some(&ty))?;
+                    operands.push(val);
                     self.consume(&Token::Comma)?;
-                    let _bb = self.expect_local_ident()?;
+                    let bb = self.expect_local_ident()?;
+                    let bb_label = Value::new(
+                        self.context.label_type(),
+                        crate::value::ValueKind::BasicBlock,
+                        Some(bb)
+                    );
+                    operands.push(bb_label);
                     self.consume(&Token::RBracket)?;
                     if !self.match_token(&Token::Comma) {
                         break;
@@ -1078,8 +1086,9 @@ impl Parser {
             Opcode::BitCast | Opcode::AddrSpaceCast => {
                 // cast [flags] type1 %val to type2
                 self.skip_instruction_flags(); // Skip fast-math flags for FP casts
-                let _src_ty = self.parse_type()?;
-                let _val = self.parse_value()?;
+                let src_ty = self.parse_type()?;
+                let val = self.parse_value_with_type(Some(&src_ty))?;
+                operands.push(val);
                 self.consume(&Token::To)?;
                 let dest_ty = self.parse_type()?;
                 result_type = Some(dest_ty);  // Cast result type is the destination type
@@ -1087,10 +1096,12 @@ impl Parser {
             Opcode::ExtractElement => {
                 // extractelement <vector type> %vec, <index type> %idx
                 let vec_ty = self.parse_type()?;
-                let _vec = self.parse_value()?;
+                let vec = self.parse_value_with_type(Some(&vec_ty))?;
+                operands.push(vec);
                 self.consume(&Token::Comma)?;
-                let _idx_ty = self.parse_type()?;
-                let _idx = self.parse_value()?;
+                let idx_ty = self.parse_type()?;
+                let idx = self.parse_value_with_type(Some(&idx_ty))?;
+                operands.push(idx);
 
                 // Result type is the element type of the vector
                 // For vector types like <2 x i8>, the element type is i8
@@ -1101,28 +1112,35 @@ impl Parser {
             Opcode::InsertElement => {
                 // insertelement <vector type> %vec, <element type> %elt, <index type> %idx
                 let vec_ty = self.parse_type()?;
-                let _vec = self.parse_value()?;
+                let vec = self.parse_value_with_type(Some(&vec_ty))?;
+                operands.push(vec);
                 self.consume(&Token::Comma)?;
-                let _elt_ty = self.parse_type()?;
-                let _elt = self.parse_value()?;
+                let elt_ty = self.parse_type()?;
+                let elt = self.parse_value_with_type(Some(&elt_ty))?;
+                operands.push(elt);
                 self.consume(&Token::Comma)?;
-                let _idx_ty = self.parse_type()?;
-                let _idx = self.parse_value()?;
+                let idx_ty = self.parse_type()?;
+                let idx = self.parse_value_with_type(Some(&idx_ty))?;
+                operands.push(idx);
 
                 // Result type is the same as the input vector type
-                result_type = Some(vec_ty);
+                result_type = Some(vec_ty.clone());
             }
             Opcode::Select => {
                 // select [fast-math-flags] i1 %cond, type %val1, type %val2
                 self.skip_instruction_flags();
-                let _cond_ty = self.parse_type()?;
-                let _cond = self.parse_value()?;
+                let cond_ty = self.parse_type()?;
+                let cond = self.parse_value_with_type(Some(&cond_ty))?;
+                operands.push(cond);
                 self.consume(&Token::Comma)?;
-                let _ty1 = self.parse_type()?;
-                let _val1 = self.parse_value()?;
+                let ty1 = self.parse_type()?;
+                let val1 = self.parse_value_with_type(Some(&ty1))?;
+                operands.push(val1);
                 self.consume(&Token::Comma)?;
-                let _ty2 = self.parse_type()?;
-                let _val2 = self.parse_value()?;
+                let ty2 = self.parse_type()?;
+                let val2 = self.parse_value_with_type(Some(&ty2))?;
+                operands.push(val2);
+                result_type = Some(ty1);
             }
             Opcode::AtomicCmpXchg => {
                 // cmpxchg [weak] [volatile] ptr <pointer>, type <cmp>, type <new> [syncscope] <ordering> <ordering> [, align N] [, !metadata !0]
@@ -1452,6 +1470,31 @@ impl Parser {
                     self.match_token(&Token::Comma);
                 }
             }
+            // Binary operations: op [flags] type op1, type op2 or just op type op1, op2
+            Opcode::Add | Opcode::FAdd | Opcode::Sub | Opcode::FSub | Opcode::Mul | Opcode::FMul |
+            Opcode::UDiv | Opcode::SDiv | Opcode::FDiv | Opcode::URem | Opcode::SRem | Opcode::FRem |
+            Opcode::Shl | Opcode::LShr | Opcode::AShr |
+            Opcode::And | Opcode::Or | Opcode::Xor => {
+                // Skip instruction flags (nsw, nuw, exact, fast-math flags, etc.)
+                self.skip_instruction_flags();
+
+                // Parse: type op1, op2
+                let ty = self.parse_type()?;
+                let op1 = self.parse_value_with_type(Some(&ty))?;
+                operands.push(op1);
+                self.consume(&Token::Comma)?;
+
+                // Second operand might have explicit type or reuse first type
+                // Check if next token is a type or a value
+                let op2 = if self.check_type_token() {
+                    let ty2 = self.parse_type()?;  // Usually same as ty
+                    self.parse_value_with_type(Some(&ty2))?
+                } else {
+                    self.parse_value_with_type(Some(&ty))?
+                };
+                operands.push(op2);
+                result_type = Some(ty);
+            }
             _ => {
                 // For other instructions, skip to end of line or next instruction
                 // Skip until we find something that looks like the next instruction/statement
@@ -1704,8 +1747,8 @@ impl Parser {
                 break;
             }
 
-            let val = self.parse_value()?;
-            args.push((ty, val));
+            let val = self.parse_value_with_type(Some(&ty))?;
+            args.push((ty.clone(), val));
 
             if !self.match_token(&Token::Comma) {
                 break;
