@@ -172,7 +172,14 @@ impl Verifier {
                             });
                         } else if operands.len() == 1 {
                             let ret_val_type = operands[0].get_type();
-                            if *ret_val_type != return_type {
+                            // In modern LLVM, all pointers are opaque - treat pointer types as equivalent
+                            let types_match = if ret_val_type.is_pointer() && return_type.is_pointer() {
+                                true  // All pointer types are compatible
+                            } else {
+                                *ret_val_type == return_type
+                            };
+
+                            if !types_match {
                                 self.errors.push(VerificationError::TypeMismatch {
                                     expected: format!("{:?}", return_type),
                                     found: format!("{:?}", ret_val_type),
@@ -245,6 +252,208 @@ impl Verifier {
                                 location: "alloca instruction".to_string(),
                             });
                         }
+                    }
+                }
+            }
+            Opcode::Switch => {
+                // Switch: condition type must match all case types
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let cond_type = operands[0].get_type();
+                    // Check all case values (every other operand starting from index 2)
+                    // Format: [condition, default_dest, case1_value, case1_dest, case2_value, case2_dest, ...]
+                    let mut case_idx = 2;
+                    while case_idx < operands.len() {
+                        let case_type = operands[case_idx].get_type();
+                        if *case_type != *cond_type {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                expected: format!("{:?}", cond_type),
+                                found: format!("{:?}", case_type),
+                                location: format!("switch case {}", (case_idx - 2) / 2),
+                            });
+                        }
+                        case_idx += 2; // Skip destination, move to next case value
+                    }
+                }
+            }
+            Opcode::PHI => {
+                // PHI: all incoming values must have same type as result
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+                    let operands = inst.operands();
+                    // PHI operands are pairs: [value1, block1, value2, block2, ...]
+                    let mut i = 0;
+                    while i < operands.len() {
+                        if i % 2 == 0 {
+                            // Even indices are values
+                            let value_type = operands[i].get_type();
+                            // Allow pointer type equivalence
+                            let types_match = if value_type.is_pointer() && result_type.is_pointer() {
+                                true
+                            } else {
+                                *value_type == *result_type
+                            };
+                            if !types_match {
+                                self.errors.push(VerificationError::TypeMismatch {
+                                    expected: format!("{:?}", result_type),
+                                    found: format!("{:?}", value_type),
+                                    location: format!("phi incoming value {}", i / 2),
+                                });
+                            }
+                        }
+                        i += 1;
+                    }
+                }
+            }
+            Opcode::ShuffleVector => {
+                // ShuffleVector: vec1 and vec2 must be same type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let vec1_type = operands[0].get_type();
+                    let vec2_type = operands[1].get_type();
+                    if *vec1_type != *vec2_type {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", vec1_type),
+                            found: format!("{:?}", vec2_type),
+                            location: "shufflevector second vector".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
+            Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
+            Opcode::And | Opcode::Or | Opcode::Xor |
+            Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
+                // Binary operations: both operands must have same type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let op1_type = operands[0].get_type();
+                    let op2_type = operands[1].get_type();
+                    if *op1_type != *op2_type {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", op1_type),
+                            found: format!("{:?}", op2_type),
+                            location: format!("{:?} instruction", inst.opcode()),
+                        });
+                    }
+                }
+            }
+            Opcode::ICmp | Opcode::FCmp => {
+                // Comparison: both operands must have same type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let op1_type = operands[0].get_type();
+                    let op2_type = operands[1].get_type();
+                    // Allow pointer type equivalence for comparisons
+                    let types_match = if op1_type.is_pointer() && op2_type.is_pointer() {
+                        true
+                    } else {
+                        *op1_type == *op2_type
+                    };
+                    if !types_match {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", op1_type),
+                            found: format!("{:?}", op2_type),
+                            location: "comparison operands".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Store => {
+                // Store: value type must be sized
+                // Skip validation if types are void (indicates parser limitations)
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let value_type = operands[0].get_type();
+                    let ptr_type = operands[1].get_type();
+
+                    // Skip validation if either type is void (parser limitation)
+                    if value_type.is_void() || ptr_type.is_void() {
+                        return;
+                    }
+
+                    // Validate pointer operand is actually a pointer
+                    if !ptr_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("store pointer operand must be a pointer type, got {:?}", ptr_type),
+                            location: "store instruction".to_string(),
+                        });
+                    }
+
+                    // Value must be sized (structs are sized in LLVM)
+                    if !value_type.is_sized() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("store value must be sized type, got {:?}", value_type),
+                            location: "store instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Load => {
+                // Load: pointer must be pointer type, result must be sized
+                // Skip validation if types are void (indicates parser limitations)
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let ptr_type = operands[0].get_type();
+
+                    // Skip if void (parser limitation)
+                    if ptr_type.is_void() {
+                        return;
+                    }
+
+                    if !ptr_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("load operand must be a pointer type, got {:?}", ptr_type),
+                            location: "load instruction".to_string(),
+                        });
+                    }
+                }
+
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+                    // Skip if void (parser may not preserve full type info)
+                    if result_type.is_void() {
+                        return;
+                    }
+
+                    if !result_type.is_sized() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("load result must be sized type, got {:?}", result_type),
+                            location: "load instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Select => {
+                // Select: condition must be i1 or vector of i1, both values must match type
+                let operands = inst.operands();
+                if operands.len() >= 3 {
+                    let cond_type = operands[0].get_type();
+                    let true_type = operands[1].get_type();
+                    let false_type = operands[2].get_type();
+
+                    // Allow pointer type equivalence
+                    let types_match = if true_type.is_pointer() && false_type.is_pointer() {
+                        true
+                    } else {
+                        *true_type == *false_type
+                    };
+
+                    if !types_match {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", true_type),
+                            found: format!("{:?}", false_type),
+                            location: "select true/false values".to_string(),
+                        });
+                    }
+
+                    // Condition should be i1 (or vector of i1)
+                    if !cond_type.is_integer() && !cond_type.is_vector() {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: "i1 or vector of i1".to_string(),
+                            found: format!("{:?}", cond_type),
+                            location: "select condition".to_string(),
+                        });
                     }
                 }
             }
