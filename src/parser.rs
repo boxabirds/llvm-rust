@@ -40,6 +40,8 @@ pub struct Parser {
     symbol_table: std::collections::HashMap<String, Value>,
     /// Function declarations table for tracking global function types
     function_decls: std::collections::HashMap<String, Type>,
+    /// Type table for tracking numbered type definitions (%0, %1, etc.)
+    type_table: std::collections::HashMap<String, Type>,
 }
 
 impl Parser {
@@ -50,6 +52,7 @@ impl Parser {
             current: 0,
             symbol_table: std::collections::HashMap::new(),
             function_decls: std::collections::HashMap::new(),
+            type_table: std::collections::HashMap::new(),
         }
     }
 
@@ -86,8 +89,9 @@ impl Parser {
                 continue;
             }
 
-            // Parse type declarations
-            if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
+            // Parse type declarations: %TypeName = type { ... } or %0 = type { ... }
+            if (self.peek_global_ident().is_some() || self.check_local_ident())
+                && self.peek_ahead(1) == Some(&Token::Equal)
                 && self.peek_ahead(2) == Some(&Token::Type) {
                 self.parse_type_declaration()?;
                 continue;
@@ -233,11 +237,29 @@ impl Parser {
     }
 
     fn parse_type_declaration(&mut self) -> ParseResult<()> {
-        // %TypeName = type { ... }
-        self.advance(); // global ident
+        // %TypeName = type { ... } or %0 = type { ... } or %TypeName = type opaque
+        let type_name = match self.peek() {
+            Some(Token::GlobalIdent(name)) => name.clone(),
+            Some(Token::LocalIdent(name)) => name.clone(),
+            _ => return Err(ParseError::InvalidSyntax {
+                message: "Expected type name".to_string(),
+                position: self.current,
+            }),
+        };
+        self.advance(); // consume type name
         self.consume(&Token::Equal)?;
         self.consume(&Token::Type)?;
-        self.parse_type()?;
+
+        // Check if it's an opaque type
+        let ty = if self.match_token(&Token::Opaque) {
+            // Opaque type - use i8 as placeholder
+            self.context.int8_type()
+        } else {
+            self.parse_type()?
+        };
+
+        // Store in type table
+        self.type_table.insert(type_name, ty);
         Ok(())
     }
 
@@ -2219,11 +2241,17 @@ impl Parser {
                     Ok(self.context.vector_type(elem_ty, size as usize))
                 }
             }
-            Token::LocalIdent(_) => {
-                // Type reference like %TypeName
+            Token::LocalIdent(name) => {
+                // Type reference like %TypeName or %0
+                let name = name.clone();
                 self.advance();
-                // Treat as opaque type placeholder (use i8 to ensure it's sized for alloca)
-                Ok(self.context.int8_type())
+                // Look up in type table
+                if let Some(ty) = self.type_table.get(&name) {
+                    Ok(ty.clone())
+                } else {
+                    // Type not found - treat as opaque type placeholder (use i8 to ensure it's sized for alloca)
+                    Ok(self.context.int8_type())
+                }
             }
             Token::Ellipsis => {
                 // Ellipsis for varargs - should be caught before parse_type() is called
