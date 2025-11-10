@@ -10,6 +10,81 @@ use crate::types::Type;
 use crate::basic_block::BasicBlock;
 use crate::value::Value;
 
+/// Function attributes
+#[derive(Debug, Clone, Default)]
+pub struct FunctionAttributes {
+    // Function-level attributes
+    pub noinline: bool,
+    pub alwaysinline: bool,
+    pub inlinehint: bool,
+    pub optsize: bool,
+    pub optnone: bool,
+    pub minsize: bool,
+    pub noreturn: bool,
+    pub nounwind: bool,
+    pub norecurse: bool,
+    pub willreturn: bool,
+    pub nosync: bool,
+    pub readnone: bool,
+    pub readonly: bool,
+    pub writeonly: bool,
+    pub argmemonly: bool,
+    pub speculatable: bool,
+    pub returns_twice: bool,
+    pub ssp: bool,
+    pub sspreq: bool,
+    pub sspstrong: bool,
+    pub uwtable: bool,
+    pub cold: bool,
+    pub hot: bool,
+    pub naked: bool,
+    pub builtin: bool,
+
+    // Return attributes
+    pub return_attributes: ReturnAttributes,
+
+    // Parameter attributes (indexed by parameter position)
+    pub parameter_attributes: Vec<ParameterAttributes>,
+
+    // Attribute group references (#0, #1, etc.)
+    pub attribute_groups: Vec<String>,
+
+    // Other attributes as strings
+    pub other_attributes: Vec<String>,
+}
+
+/// Return value attributes
+#[derive(Debug, Clone, Default)]
+pub struct ReturnAttributes {
+    pub zeroext: bool,
+    pub signext: bool,
+    pub inreg: bool,
+    pub noalias: bool,
+    pub nonnull: bool,
+    pub dereferenceable: Option<u64>,
+}
+
+/// Parameter attributes
+#[derive(Debug, Clone, Default)]
+pub struct ParameterAttributes {
+    pub zeroext: bool,
+    pub signext: bool,
+    pub inreg: bool,
+    pub byval: Option<Type>,
+    pub inalloca: Option<Type>,
+    pub sret: Option<Type>,
+    pub noalias: bool,
+    pub nocapture: bool,
+    pub nest: bool,
+    pub returned: bool,
+    pub nonnull: bool,
+    pub dereferenceable: Option<u64>,
+    pub swiftself: bool,
+    pub swifterror: bool,
+    pub swiftasync: bool,
+    pub immarg: bool,
+}
+
 /// A function in LLVM IR
 #[derive(Clone)]
 pub struct Function {
@@ -21,6 +96,9 @@ struct FunctionData {
     ty: Type,
     basic_blocks: Vec<BasicBlock>,
     arguments: Vec<Value>,
+    attributes: FunctionAttributes,
+    linkage: crate::module::Linkage,
+    visibility: crate::module::Visibility,
 }
 
 impl Function {
@@ -34,8 +112,41 @@ impl Function {
                 ty,
                 basic_blocks: Vec::new(),
                 arguments: Vec::new(),
+                attributes: FunctionAttributes::default(),
+                linkage: crate::module::Linkage::External,
+                visibility: crate::module::Visibility::Default,
             })),
         }
+    }
+
+    /// Get the function attributes
+    pub fn attributes(&self) -> FunctionAttributes {
+        self.data.read().unwrap().attributes.clone()
+    }
+
+    /// Set the function attributes
+    pub fn set_attributes(&self, attributes: FunctionAttributes) {
+        self.data.write().unwrap().attributes = attributes;
+    }
+
+    /// Get the function linkage
+    pub fn linkage(&self) -> crate::module::Linkage {
+        self.data.read().unwrap().linkage
+    }
+
+    /// Set the function linkage
+    pub fn set_linkage(&self, linkage: crate::module::Linkage) {
+        self.data.write().unwrap().linkage = linkage;
+    }
+
+    /// Get the function visibility
+    pub fn visibility(&self) -> crate::module::Visibility {
+        self.data.read().unwrap().visibility
+    }
+
+    /// Set the function visibility
+    pub fn set_visibility(&self, visibility: crate::module::Visibility) {
+        self.data.write().unwrap().visibility = visibility;
     }
 
     /// Get the name of this function

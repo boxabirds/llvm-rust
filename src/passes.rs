@@ -4,6 +4,7 @@
 //! passes on LLVM IR.
 
 use std::collections::HashMap;
+use std::sync::{Arc, Mutex, Once};
 use crate::module::Module;
 use crate::function::Function;
 
@@ -62,6 +63,53 @@ pub trait AnalysisPass: Pass {
     fn run_analysis(&mut self, function: &Function) -> PassResult<Self::Result>;
 }
 
+/// Type for pass constructor functions
+type PassConstructor = Arc<dyn Fn() -> Box<dyn FunctionPass> + Send + Sync>;
+
+/// Global pass registry for registering and creating passes by name
+pub struct PassRegistry {
+    passes: HashMap<String, PassConstructor>,
+}
+
+impl PassRegistry {
+    fn new() -> Self {
+        Self {
+            passes: HashMap::new(),
+        }
+    }
+
+    /// Register a function pass with a constructor
+    pub fn register_pass<F>(&mut self, name: String, constructor: F)
+    where
+        F: Fn() -> Box<dyn FunctionPass> + Send + Sync + 'static,
+    {
+        self.passes.insert(name, Arc::new(constructor));
+    }
+
+    /// Create a pass by name
+    pub fn create_pass(&self, name: &str) -> Option<Box<dyn FunctionPass>> {
+        self.passes.get(name).map(|ctor| ctor())
+    }
+
+    /// Get all registered pass names
+    pub fn registered_passes(&self) -> Vec<String> {
+        self.passes.keys().cloned().collect()
+    }
+
+    /// Get the global pass registry instance
+    pub fn global() -> Arc<Mutex<PassRegistry>> {
+        static INIT: Once = Once::new();
+        static mut REGISTRY: Option<Arc<Mutex<PassRegistry>>> = None;
+
+        unsafe {
+            INIT.call_once(|| {
+                REGISTRY = Some(Arc::new(Mutex::new(PassRegistry::new())));
+            });
+            REGISTRY.clone().unwrap()
+        }
+    }
+}
+
 /// Pass manager for running passes
 pub struct PassManager {
     module_passes: Vec<Box<dyn ModulePass>>,
@@ -88,8 +136,110 @@ impl PassManager {
         self.function_passes.push(pass);
     }
 
+    /// Add a function pass by name from the registry
+    pub fn add_pass_by_name(&mut self, name: &str) -> Result<(), String> {
+        let registry = PassRegistry::global();
+        let registry_lock = registry.lock().unwrap();
+
+        if let Some(pass) = registry_lock.create_pass(name) {
+            self.function_passes.push(pass);
+            Ok(())
+        } else {
+            Err(format!("Pass '{}' not found in registry", name))
+        }
+    }
+
+    /// Sort passes based on their dependencies (topological sort)
+    fn sort_passes(&mut self) -> PassResult<()> {
+        // Extract pass names and prerequisites
+        let mut pass_info: Vec<(String, Vec<String>)> = Vec::new();
+        for pass in &self.function_passes {
+            pass_info.push((pass.name().to_string(), pass.prerequisites()));
+        }
+
+        // Perform topological sort
+        let _sorted_indices = self.topological_sort(&pass_info)?;
+
+        // Note: Reordering passes based on sorted indices would require
+        // restructuring the trait object storage. For now, we just validate
+        // that prerequisites are met when running (see validate_prerequisites).
+        // A full implementation would reorder self.function_passes here.
+
+        Ok(())
+    }
+
+    /// Topological sort helper
+    fn topological_sort(&self, pass_info: &[(String, Vec<String>)]) -> PassResult<Vec<usize>> {
+        let n = pass_info.len();
+        let mut in_degree = vec![0; n];
+        let mut adj: Vec<Vec<usize>> = vec![Vec::new(); n];
+
+        // Build adjacency list and in-degree
+        for i in 0..n {
+            for prereq in &pass_info[i].1 {
+                // Find prerequisite index
+                if let Some(j) = pass_info.iter().position(|(name, _)| name == prereq) {
+                    adj[j].push(i);
+                    in_degree[i] += 1;
+                } else {
+                    // Prerequisite not found - this is just a warning
+                    // In a real implementation, we might require all prerequisites
+                }
+            }
+        }
+
+        // Kahn's algorithm
+        let mut queue: Vec<usize> = Vec::new();
+        for i in 0..n {
+            if in_degree[i] == 0 {
+                queue.push(i);
+            }
+        }
+
+        let mut result = Vec::new();
+        while let Some(u) = queue.pop() {
+            result.push(u);
+            for &v in &adj[u] {
+                in_degree[v] -= 1;
+                if in_degree[v] == 0 {
+                    queue.push(v);
+                }
+            }
+        }
+
+        if result.len() != n {
+            return Err(PassError::PrerequisitesNotMet(vec![
+                "Circular dependency detected in pass ordering".to_string()
+            ]));
+        }
+
+        Ok(result)
+    }
+
+    /// Validate that all pass prerequisites are available
+    fn validate_prerequisites(&self) -> PassResult<()> {
+        let available_passes: std::collections::HashSet<String> =
+            self.function_passes.iter().map(|p| p.name().to_string()).collect();
+
+        for pass in &self.function_passes {
+            for prereq in pass.prerequisites() {
+                if !available_passes.contains(&prereq) {
+                    return Err(PassError::PrerequisitesNotMet(vec![
+                        format!("Pass '{}' requires '{}' but it's not in the pass list",
+                                pass.name(), prereq)
+                    ]));
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Run all passes on a module
     pub fn run(&mut self, module: &mut Module) -> PassResult<()> {
+        // Validate prerequisites before running
+        self.validate_prerequisites()?;
+
         // Run module passes
         for pass in &mut self.module_passes {
             pass.run_on_module(module)?;

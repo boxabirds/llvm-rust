@@ -38,6 +38,8 @@ pub struct Parser {
     current: usize,
     /// Symbol table for tracking local values within a function
     symbol_table: std::collections::HashMap<String, Value>,
+    /// Function declarations table for tracking global function types
+    function_decls: std::collections::HashMap<String, Type>,
 }
 
 impl Parser {
@@ -47,6 +49,7 @@ impl Parser {
             tokens: Vec::new(),
             current: 0,
             symbol_table: std::collections::HashMap::new(),
+            function_decls: std::collections::HashMap::new(),
         }
     }
 
@@ -159,6 +162,8 @@ impl Parser {
             // Parse function declarations
             if self.match_token(&Token::Declare) {
                 let function = self.parse_function_declaration()?;
+                // Track function type for call validation
+                self.function_decls.insert(function.name().to_string(), function.get_type());
                 module.add_function(function);
                 continue;
             }
@@ -166,6 +171,8 @@ impl Parser {
             // Parse function definitions
             if self.match_token(&Token::Define) {
                 let function = self.parse_function_definition()?;
+                // Track function type for call validation
+                self.function_decls.insert(function.name().to_string(), function.get_type());
                 module.add_function(function);
                 continue;
             }
@@ -235,28 +242,97 @@ impl Parser {
     }
 
     fn parse_global_variable(&mut self) -> ParseResult<GlobalVariable> {
-        // @name = [linkage] [visibility] [externally_initialized] global/constant type [initializer]
+        use crate::module::{Linkage, Visibility, DLLStorageClass, ThreadLocalMode, UnnamedAddr};
+
+        // @name = [linkage] [visibility] [dll_storage] [thread_local] [unnamed_addr] [addrspace] [externally_initialized] global/constant type [initializer] [attributes]
         let name = self.expect_global_ident()?;
         self.consume(&Token::Equal)?;
 
-        // Skip linkage and visibility keywords
-        self.skip_linkage_and_visibility();
+        // Parse linkage, visibility, and other attributes
+        let mut linkage = Linkage::External;
+        let mut visibility = Visibility::Default;
+        let mut dll_storage_class = DLLStorageClass::Default;
+        let mut thread_local_mode = ThreadLocalMode::NotThreadLocal;
+        let mut unnamed_addr = UnnamedAddr::None;
+        let mut externally_initialized = false;
+        let mut addrspace = None;
+        let mut section = None;
+        let mut alignment = None;
+        let mut comdat = None;
 
-        // Skip externally_initialized if present
-        if let Some(Token::Identifier(id)) = self.peek() {
-            if id == "externally_initialized" {
-                self.advance();
-            }
-        }
+        // Parse attributes in a loop since they can appear in any order
+        loop {
+            match self.peek() {
+                Some(Token::Private) => { self.advance(); linkage = Linkage::Private; },
+                Some(Token::Internal) => { self.advance(); linkage = Linkage::Internal; },
+                Some(Token::External) => { self.advance(); linkage = Linkage::External; },
+                Some(Token::Weak) => { self.advance(); linkage = Linkage::Weak; },
+                Some(Token::Linkonce) => { self.advance(); linkage = Linkage::Linkonce; },
+                Some(Token::Linkonce_odr) => { self.advance(); linkage = Linkage::LinkonceOdr; },
+                Some(Token::Weak_odr) => { self.advance(); linkage = Linkage::WeakOdr; },
+                Some(Token::Available_externally) => { self.advance(); linkage = Linkage::AvailableExternally; },
+                Some(Token::Extern_weak) => { self.advance(); linkage = Linkage::ExternWeak; },
+                Some(Token::Common) => { self.advance(); linkage = Linkage::Common; },
+                Some(Token::Appending) => { self.advance(); linkage = Linkage::Appending; },
 
-        // Skip addrspace modifier if present: addrspace(N)
-        if self.match_token(&Token::Addrspace) {
-            if self.match_token(&Token::LParen) {
-                // Parse address space number or symbolic string
-                if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
+                Some(Token::Hidden) => { self.advance(); visibility = Visibility::Hidden; },
+                Some(Token::Protected) => { self.advance(); visibility = Visibility::Protected; },
+                Some(Token::Default) => { self.advance(); visibility = Visibility::Default; },
+
+                Some(Token::Dllimport) => { self.advance(); dll_storage_class = DLLStorageClass::DllImport; },
+                Some(Token::Dllexport) => { self.advance(); dll_storage_class = DLLStorageClass::DllExport; },
+
+                Some(Token::Thread_local) => {
                     self.advance();
-                }
-                self.match_token(&Token::RParen);
+                    // Check for thread local mode: thread_local(localdynamic)
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Identifier(mode)) = self.peek() {
+                            match mode.as_str() {
+                                "generaldynamic" => thread_local_mode = ThreadLocalMode::GeneralDynamic,
+                                "localdynamic" => thread_local_mode = ThreadLocalMode::LocalDynamic,
+                                "initialexec" => thread_local_mode = ThreadLocalMode::InitialExec,
+                                "localexec" => thread_local_mode = ThreadLocalMode::LocalExec,
+                                _ => thread_local_mode = ThreadLocalMode::GeneralDynamic,
+                            }
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    } else {
+                        thread_local_mode = ThreadLocalMode::GeneralDynamic;
+                    }
+                },
+
+                Some(Token::Unnamed_addr) => { self.advance(); unnamed_addr = UnnamedAddr::Global; },
+                Some(Token::Local_unnamed_addr) => { self.advance(); unnamed_addr = UnnamedAddr::Local; },
+
+                Some(Token::Dso_local) | Some(Token::Dso_preemptable) => { self.advance(); }, // Consume but don't store for now
+
+                Some(Token::Addrspace) => {
+                    self.advance();
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Integer(n)) = self.peek() {
+                            addrspace = Some(*n as u32);
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                },
+
+                Some(Token::Identifier(id)) if id == "externally_initialized" => {
+                    self.advance();
+                    externally_initialized = true;
+                },
+
+                // GPU calling conventions and other identifiers we should skip
+                Some(Token::Identifier(id)) if
+                    id.starts_with("amdgpu_") || id.starts_with("spir_") ||
+                    id.starts_with("aarch64_") || id.starts_with("x86_") ||
+                    id.starts_with("riscv_") || id.starts_with("arm_") ||
+                    id == "linker_private" || id == "linker_private_weak" => {
+                    self.advance();
+                },
+
+                _ => break,
             }
         }
 
@@ -274,19 +350,105 @@ impl Parser {
         let ty = self.parse_type()?;
 
         // Parse initializer if present
-        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) {
-            // Skip initializer parsing for now (complex)
-            None
+        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) {
+            // Try to parse the initializer
+            self.parse_global_initializer(&ty).ok()
         } else {
             None
         };
 
-        Ok(GlobalVariable {
+        // Parse trailing attributes (section, align, comdat, etc.)
+        loop {
+            match self.peek() {
+                Some(Token::Comma) => { self.advance(); },
+                Some(Token::Section) => {
+                    self.advance();
+                    if let Some(Token::StringLit(s)) = self.peek() {
+                        section = Some(s.clone());
+                        self.advance();
+                    }
+                },
+                Some(Token::Align) => {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        alignment = Some(*n as u32);
+                        self.advance();
+                    }
+                },
+                Some(Token::Comdat) => {
+                    self.advance();
+                    // Comdat can have an optional name: comdat($name) or comdat(identifier)
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Identifier(name)) = self.peek() {
+                            comdat = Some(name.clone());
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                },
+                _ => break,
+            }
+        }
+
+        Ok(crate::module::GlobalVariable::new_with_attributes(
             name,
             ty,
             is_constant,
             initializer,
-        })
+            linkage,
+            visibility,
+            dll_storage_class,
+            thread_local_mode,
+            unnamed_addr,
+            addrspace,
+            externally_initialized,
+            section,
+            alignment,
+            comdat,
+        ))
+    }
+
+    fn parse_global_initializer(&mut self, ty: &Type) -> ParseResult<Value> {
+        // Parse common initializer forms
+        match self.peek() {
+            Some(Token::Zeroinitializer) => {
+                self.advance();
+                Ok(Value::zero_initializer(ty.clone()))
+            },
+            Some(Token::Undef) => {
+                self.advance();
+                Ok(Value::undef(ty.clone()))
+            },
+            Some(Token::Null) => {
+                self.advance();
+                Ok(Value::const_null(ty.clone()))
+            },
+            Some(Token::Integer(_)) => {
+                if let Some(Token::Integer(n)) = self.peek() {
+                    let val = *n as i64;
+                    self.advance();
+                    Ok(Value::const_int(ty.clone(), val, None))
+                } else {
+                    unreachable!()
+                }
+            },
+            Some(Token::True) => {
+                self.advance();
+                Ok(Value::const_int(ty.clone(), 1, None))
+            },
+            Some(Token::False) => {
+                self.advance();
+                Ok(Value::const_int(ty.clone(), 0, None))
+            },
+            Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
+                // Complex aggregate constant - use constant expression parser
+                self.parse_constant_expression()
+            },
+            _ => {
+                // Try parsing as a constant expression
+                self.parse_constant_expression()
+            }
+        }
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
@@ -303,14 +465,16 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let param_types = self.parse_parameter_types()?;
+        let (param_types, is_vararg) = self.parse_parameter_types()?;
         self.consume(&Token::RParen)?;
 
-        // Skip function attributes
-        self.skip_function_attributes();
+        // Parse function attributes
+        let attrs = self.parse_function_attributes();
 
-        let fn_type = self.context.function_type(return_type, param_types, false);
-        Ok(Function::new(name, fn_type))
+        let fn_type = self.context.function_type(return_type, param_types, is_vararg);
+        let function = Function::new(name, fn_type);
+        function.set_attributes(attrs);
+        Ok(function)
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
@@ -330,13 +494,14 @@ impl Parser {
         let params = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
 
-        // Skip function attributes
-        self.skip_function_attributes();
+        // Parse function attributes
+        let attrs = self.parse_function_attributes();
 
         // Create function
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
         let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+        function.set_attributes(attrs);
 
         // Set arguments
         let args: Vec<Value> = params.iter().enumerate().map(|(idx, (ty, name))| {
@@ -841,26 +1006,28 @@ impl Parser {
                 self.skip_attributes();
 
                 let ret_ty = self.parse_type()?;
-                result_type = Some(ret_ty);  // Call result type is the return type
 
-                // Check for optional function signature: (param_types...)
-                if self.check(&Token::LParen) {
-                    self.advance(); // consume '('
-                    // Parse parameter types for function pointer
-                    while !self.check(&Token::RParen) && !self.is_at_end() {
-                        if self.match_token(&Token::Ellipsis) {
-                            break; // varargs
-                        }
-                        self.parse_type()?;
-                        if !self.match_token(&Token::Comma) {
-                            break;
-                        }
+                // If parse_type returned a function type (e.g., i32 (i8*, ...)), extract components
+                let (return_type, explicit_fn_type) = if ret_ty.is_function() {
+                    // parse_type already parsed the full function signature
+                    if let Some((ret, _, _)) = ret_ty.function_info() {
+                        (ret, Some(ret_ty.clone()))
+                    } else {
+                        (ret_ty.clone(), None)
                     }
-                    self.consume(&Token::RParen)?;
-                }
+                } else {
+                    // Just a return type, no explicit function signature
+                    (ret_ty.clone(), None)
+                };
+
+                result_type = Some(return_type);  // Call result type is the return type
 
                 // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
-                let func = self.parse_value()?;
+                let func = if let Some(fn_ty) = explicit_fn_type {
+                    self.parse_value_with_type(Some(&fn_ty))?
+                } else {
+                    self.parse_value()?
+                };
                 operands.push(func);
                 self.consume(&Token::LParen)?;
                 let args = self.parse_call_arguments()?;
@@ -1973,10 +2140,12 @@ impl Parser {
             self.advance(); // consume '('
 
             let mut param_types = Vec::new();
+            let mut is_vararg = false;
             while !self.check(&Token::RParen) && !self.is_at_end() {
                 // Check for varargs
                 if self.check(&Token::Ellipsis) {
                     self.advance();
+                    is_vararg = true;
                     break;
                 }
                 let param_ty = self.parse_type()?;
@@ -1988,7 +2157,7 @@ impl Parser {
             self.consume(&Token::RParen)?;
 
             // base_type is the return type, create function type
-            let mut func_type = self.context.function_type(base_type, param_types, false);
+            let mut func_type = self.context.function_type(base_type, param_types, is_vararg);
 
             // Check for stars to make function pointer: void ()* or void ()**
             while self.check(&Token::Star) {
@@ -2111,8 +2280,14 @@ impl Parser {
             Token::GlobalIdent(name) => {
                 let name = name.clone();
                 self.advance();
-                // Create a global variable value with expected type if available
-                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                // Use expected type if provided, otherwise look up function declaration, otherwise default to void
+                let ty = if let Some(expected) = expected_type {
+                    expected.clone()
+                } else if let Some(fn_type) = self.function_decls.get(&name) {
+                    fn_type.clone()
+                } else {
+                    self.context.void_type()
+                };
                 Ok(Value::new(ty, crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
             }
             Token::Integer(n) => {
@@ -2133,7 +2308,17 @@ impl Parser {
             Token::Float64(f) => {
                 let f = *f;
                 self.advance();
-                Ok(Value::const_float(self.context.double_type(), f, None))
+                // Use expected type if provided and it's a floating point type
+                let ty = if let Some(expected) = expected_type {
+                    if expected.is_float() {
+                        expected.clone()
+                    } else {
+                        self.context.double_type()
+                    }
+                } else {
+                    self.context.double_type()
+                };
+                Ok(Value::const_float(ty, f, None))
             }
             Token::True => {
                 self.advance();
@@ -2445,13 +2630,15 @@ impl Parser {
         Ok(params)
     }
 
-    fn parse_parameter_types(&mut self) -> ParseResult<Vec<Type>> {
+    fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, bool)> {
         let mut types = Vec::new();
+        let mut is_vararg = false;
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             // Check for varargs
             if self.check(&Token::Ellipsis) {
                 self.advance();
+                is_vararg = true;
                 break;
             }
 
@@ -2471,7 +2658,7 @@ impl Parser {
             }
         }
 
-        Ok(types)
+        Ok((types, is_vararg))
     }
 
     // Helper methods
@@ -2756,6 +2943,122 @@ impl Parser {
             self.advance();
             skip_count += 1;
         }
+    }
+
+    fn parse_function_attributes(&mut self) -> crate::function::FunctionAttributes {
+        use crate::function::FunctionAttributes;
+        let mut attrs = FunctionAttributes::default();
+
+        // Parse function attributes
+        while !self.is_at_end() && !self.check(&Token::LBrace) {
+            // Handle attribute groups: #0, #1, etc.
+            if self.check(&Token::Hash) {
+                self.advance();
+                if let Some(Token::Integer(n)) = self.peek() {
+                    attrs.attribute_groups.push(format!("#{}", n));
+                    self.advance();
+                }
+                continue;
+            }
+
+            // Parse structured function attributes
+            match self.peek() {
+                Some(Token::Noreturn) => { self.advance(); attrs.noreturn = true; },
+                Some(Token::Noinline) => { self.advance(); attrs.noinline = true; },
+                Some(Token::Alwaysinline) => { self.advance(); attrs.alwaysinline = true; },
+                Some(Token::Inlinehint) => { self.advance(); attrs.inlinehint = true; },
+                Some(Token::Optsize) => { self.advance(); attrs.optsize = true; },
+                Some(Token::Optnone) => { self.advance(); attrs.optnone = true; },
+                Some(Token::Minsize) => { self.advance(); attrs.minsize = true; },
+                Some(Token::Nounwind) => { self.advance(); attrs.nounwind = true; },
+                Some(Token::Norecurse) => { self.advance(); attrs.norecurse = true; },
+                Some(Token::Willreturn) => { self.advance(); attrs.willreturn = true; },
+                Some(Token::Nosync) => { self.advance(); attrs.nosync = true; },
+                Some(Token::Readnone) => { self.advance(); attrs.readnone = true; },
+                Some(Token::Readonly) => { self.advance(); attrs.readonly = true; },
+                Some(Token::Writeonly) => { self.advance(); attrs.writeonly = true; },
+                Some(Token::Argmemonly) => { self.advance(); attrs.argmemonly = true; },
+                Some(Token::Speculatable) => { self.advance(); attrs.speculatable = true; },
+                Some(Token::Returns_twice) => { self.advance(); attrs.returns_twice = true; },
+                Some(Token::Ssp) => { self.advance(); attrs.ssp = true; },
+                Some(Token::Sspreq) => { self.advance(); attrs.sspreq = true; },
+                Some(Token::Sspstrong) => { self.advance(); attrs.sspstrong = true; },
+                Some(Token::Uwtable) => { self.advance(); attrs.uwtable = true; },
+                Some(Token::Cold) => { self.advance(); attrs.cold = true; },
+                Some(Token::Hot) => { self.advance(); attrs.hot = true; },
+                Some(Token::Naked) => { self.advance(); attrs.naked = true; },
+                Some(Token::Builtin) => { self.advance(); attrs.builtin = true; },
+                _ => {
+                    // Handle other attributes and unrecognized ones
+                    if self.match_token(&Token::Inaccessiblememonly) ||
+                       self.match_token(&Token::Inaccessiblemem_or_argmemonly) ||
+                       self.match_token(&Token::Sanitize_address) ||
+                       self.match_token(&Token::Sanitize_thread) ||
+                       self.match_token(&Token::Sanitize_memory) ||
+                       self.match_token(&Token::Sanitize_hwaddress) ||
+                       self.match_token(&Token::Safestack) ||
+                       self.match_token(&Token::Nocf_check) ||
+                       self.match_token(&Token::Shadowcallstack) ||
+                       self.match_token(&Token::Mustprogress) ||
+                       self.match_token(&Token::Strictfp) ||
+                       self.match_token(&Token::Nobuiltin) ||
+                       self.match_token(&Token::Noduplicate) ||
+                       self.match_token(&Token::Noimplicitfloat) ||
+                       self.match_token(&Token::Nomerge) ||
+                       self.match_token(&Token::Nonlazybind) ||
+                       self.match_token(&Token::Noredzone) ||
+                       self.match_token(&Token::Null_pointer_is_valid) ||
+                       self.match_token(&Token::Optforfuzzing) ||
+                       self.match_token(&Token::Thunk) {
+                        // These are stored but not in structured form yet
+                        continue;
+                    }
+
+                    // Handle metadata
+                    if self.is_metadata_token() {
+                        self.skip_metadata();
+                        continue;
+                    }
+
+                    // Handle attributes with parameters
+                    if self.match_token(&Token::Preallocated) || self.match_token(&Token::Vscale_range) {
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.match_token(&Token::RParen);
+                        }
+                        continue;
+                    }
+
+                    // Handle identifier-based attributes
+                    if let Some(Token::Identifier(attr)) = self.peek() {
+                        if matches!(attr.as_str(), "memory" | "convergent" | "inaccessiblememonly" |
+                                                  "null_pointer_is_valid" | "optforfuzzing" | "presplitcoroutine" |
+                                                  "sanitize_address_dyninit" | "allockind" | "allocptr" |
+                                                  "alloc-family" | "fn_ret_thunk_extern") {
+                            attrs.other_attributes.push(attr.clone());
+                            self.advance();
+                            // Some have parameters
+                            if self.check(&Token::LParen) {
+                                self.advance();
+                                while !self.check(&Token::RParen) && !self.is_at_end() {
+                                    self.advance();
+                                }
+                                self.match_token(&Token::RParen);
+                            }
+                            continue;
+                        }
+                    }
+
+                    // Exit loop if we don't recognize the token as an attribute
+                    break;
+                }
+            }
+        }
+
+        attrs
     }
 
     fn skip_function_attributes(&mut self) {

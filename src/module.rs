@@ -10,6 +10,86 @@ use crate::function::Function;
 use crate::types::Type;
 use crate::value::Value;
 
+/// Linkage types for global values
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Linkage {
+    External,
+    Private,
+    Internal,
+    AvailableExternally,
+    Linkonce,
+    Weak,
+    Common,
+    Appending,
+    ExternWeak,
+    LinkonceOdr,
+    WeakOdr,
+}
+
+impl Default for Linkage {
+    fn default() -> Self {
+        Linkage::External
+    }
+}
+
+/// Visibility types for global values
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Visibility {
+    Default,
+    Hidden,
+    Protected,
+}
+
+impl Default for Visibility {
+    fn default() -> Self {
+        Visibility::Default
+    }
+}
+
+/// DLL storage class for global values
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DLLStorageClass {
+    Default,
+    DllImport,
+    DllExport,
+}
+
+impl Default for DLLStorageClass {
+    fn default() -> Self {
+        DLLStorageClass::Default
+    }
+}
+
+/// Thread local mode for global variables
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThreadLocalMode {
+    NotThreadLocal,
+    GeneralDynamic,
+    LocalDynamic,
+    InitialExec,
+    LocalExec,
+}
+
+impl Default for ThreadLocalMode {
+    fn default() -> Self {
+        ThreadLocalMode::NotThreadLocal
+    }
+}
+
+/// Unnamed address type for global values
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UnnamedAddr {
+    None,
+    Local,
+    Global,
+}
+
+impl Default for UnnamedAddr {
+    fn default() -> Self {
+        UnnamedAddr::None
+    }
+}
+
 /// A module in LLVM IR
 #[derive(Clone)]
 pub struct Module {
@@ -30,6 +110,16 @@ pub struct GlobalVariable {
     pub ty: Type,
     pub is_constant: bool,
     pub initializer: Option<Value>,
+    pub linkage: Linkage,
+    pub visibility: Visibility,
+    pub dll_storage_class: DLLStorageClass,
+    pub thread_local_mode: ThreadLocalMode,
+    pub unnamed_addr: UnnamedAddr,
+    pub addrspace: Option<u32>,
+    pub externally_initialized: bool,
+    pub section: Option<String>,
+    pub alignment: Option<u32>,
+    pub comdat: Option<String>,
 }
 
 impl Module {
@@ -109,6 +199,51 @@ impl GlobalVariable {
             ty,
             is_constant,
             initializer,
+            linkage: Linkage::default(),
+            visibility: Visibility::default(),
+            dll_storage_class: DLLStorageClass::default(),
+            thread_local_mode: ThreadLocalMode::default(),
+            unnamed_addr: UnnamedAddr::default(),
+            addrspace: None,
+            externally_initialized: false,
+            section: None,
+            alignment: None,
+            comdat: None,
+        }
+    }
+
+    /// Create a new global variable with full attributes
+    pub fn new_with_attributes(
+        name: String,
+        ty: Type,
+        is_constant: bool,
+        initializer: Option<Value>,
+        linkage: Linkage,
+        visibility: Visibility,
+        dll_storage_class: DLLStorageClass,
+        thread_local_mode: ThreadLocalMode,
+        unnamed_addr: UnnamedAddr,
+        addrspace: Option<u32>,
+        externally_initialized: bool,
+        section: Option<String>,
+        alignment: Option<u32>,
+        comdat: Option<String>,
+    ) -> Self {
+        Self {
+            name,
+            ty,
+            is_constant,
+            initializer,
+            linkage,
+            visibility,
+            dll_storage_class,
+            thread_local_mode,
+            unnamed_addr,
+            addrspace,
+            externally_initialized,
+            section,
+            alignment,
+            comdat,
         }
     }
 
