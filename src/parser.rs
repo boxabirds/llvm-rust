@@ -1211,6 +1211,14 @@ impl Parser {
                     }
                 }
             }
+            Opcode::VAArg => {
+                // va_arg ptr_type ptr_val, result_type
+                let _ptr_ty = self.parse_type()?;
+                let _ptr_val = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let result_ty = self.parse_type()?;
+                result_type = Some(result_ty);  // va_arg result is the specified type
+            }
             _ => {
                 // For other instructions, skip to end of line or next instruction
                 // Skip until we find something that looks like the next instruction/statement
