@@ -40,6 +40,12 @@ pub enum VerificationError {
     InvalidPhi { reason: String, location: String },
     /// Invalid alignment
     InvalidAlignment { value: usize, location: String },
+    /// Invalid metadata
+    InvalidMetadata { reason: String, location: String },
+    /// Invalid debug info
+    InvalidDebugInfo { reason: String, location: String },
+    /// Metadata reference error
+    MetadataReference { reason: String, location: String },
 }
 
 impl std::fmt::Display for VerificationError {
@@ -73,6 +79,12 @@ impl std::fmt::Display for VerificationError {
                 write!(f, "Invalid phi node at {}: {}", location, reason),
             VerificationError::InvalidAlignment { value, location } =>
                 write!(f, "Invalid alignment {} at {}: must be power of 2", value, location),
+            VerificationError::InvalidMetadata { reason, location } =>
+                write!(f, "Invalid metadata at {}: {}", location, reason),
+            VerificationError::InvalidDebugInfo { reason, location } =>
+                write!(f, "Invalid debug info at {}: {}", location, reason),
+            VerificationError::MetadataReference { reason, location } =>
+                write!(f, "Metadata reference error at {}: {}", location, reason),
         }
     }
 }
@@ -1024,6 +1036,25 @@ impl Verifier {
     pub fn verify_ssa_form(&mut self, _function: &Function) {
         // Disabled for now as it catches parser bugs rather than IR semantic errors
         // TODO: Re-enable once parser properly populates instruction operands and results
+    }
+
+    /// Verify metadata attachments (placeholder - parser doesn't preserve metadata yet)
+    pub fn verify_metadata(&mut self, _module: &Module) {
+        // TODO: Once parser preserves metadata, validate:
+        // 1. Named metadata nodes are well-formed
+        // 2. Metadata references are valid
+        // 3. Debug info structure is correct
+        // 4. Metadata types are appropriate for their use
+        // 5. No circular references in metadata
+    }
+
+    /// Verify debug info metadata structure
+    fn verify_debug_info(&mut self, _debug_info: &crate::metadata::DebugInfo, _location: &str) {
+        // TODO: Validate debug info structure:
+        // 1. Compile units have valid file references
+        // 2. Subprograms have valid scopes
+        // 3. Types have valid sizes and encodings
+        // 4. Locations have valid line/column numbers
     }
 
     /// Verify control flow
