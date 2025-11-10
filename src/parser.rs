@@ -902,7 +902,15 @@ impl Parser {
                 self.match_token(&Token::Inalloca);
                 self.match_token(&Token::Swifterror);
 
-                let _ty = self.parse_type()?;
+                let alloca_ty = self.parse_type()?;
+
+                // Validate that alloca type is sized (not void, function, label, token, or metadata)
+                if !alloca_ty.is_sized() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("invalid type for alloca: {:?}", alloca_ty),
+                        position: self.current,
+                    });
+                }
 
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
@@ -2710,7 +2718,23 @@ impl Parser {
 /// Parse a module from a string
 pub fn parse(source: &str, context: Context) -> ParseResult<Module> {
     let mut parser = Parser::new(context);
-    parser.parse_module(source)
+    let module = parser.parse_module(source)?;
+
+    // Verify the module after parsing
+    match crate::verification::verify_module(&module) {
+        Ok(_) => Ok(module),
+        Err(errors) => {
+            // Convert verification errors to parse error
+            let error_msg = errors.iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            Err(ParseError::InvalidSyntax {
+                message: format!("Verification failed: {}", error_msg),
+                position: 0,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
