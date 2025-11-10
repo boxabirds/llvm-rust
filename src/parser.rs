@@ -2360,13 +2360,15 @@ impl Parser {
             }
             Token::Identifier(id) if id == "blockaddress" => {
                 // Block address: blockaddress(@func, %block)
+                // Returns a pointer to a basic block
                 self.advance(); // consume 'blockaddress'
                 self.consume(&Token::LParen)?;
-                let _func = self.parse_value()?; // @func
+                let func = self.parse_value()?; // @func
                 self.consume(&Token::Comma)?;
-                let _block = self.parse_value()?; // %block
+                let block = self.parse_value()?; // %block
                 self.consume(&Token::RParen)?;
-                Ok(Value::zero_initializer(self.context.void_type()))
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.ptr_type(self.context.int8_type()));
+                Ok(Value::block_address(ty, func, block))
             }
             Token::LocalIdent(name) => {
                 let name = name.clone();
