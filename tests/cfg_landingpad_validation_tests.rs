@@ -71,7 +71,7 @@ fn test_valid_landingpad_first_instruction() {
 }
 
 #[test]
-#[ignore] // Parser doesn't enforce this yet
+#[ignore] // Parser doesn't allow invalid landingpad placement
 fn test_invalid_landingpad_not_first() {
     // Test: Landing pad must be first non-PHI instruction
     assert_invalid(r#"
@@ -93,7 +93,7 @@ fn test_invalid_landingpad_not_first() {
 }
 
 #[test]
-#[ignore] // Parser doesn't enforce this yet
+#[ignore] // Parser doesn't allow multiple landingpads
 fn test_invalid_multiple_landingpads() {
     // Test: Only one landing pad per block
     assert_invalid(r#"
@@ -200,7 +200,7 @@ fn test_valid_resume() {
 }
 
 #[test]
-#[ignore] // Need proper operand validation
+#[ignore] // Parser doesn't allow invalid resume syntax
 fn test_invalid_resume_wrong_operand_count() {
     // Test: Resume must have exactly one operand
     assert_invalid(r#"
@@ -213,7 +213,7 @@ fn test_invalid_resume_wrong_operand_count() {
 }
 
 #[test]
-#[ignore] // Need proper type validation
+#[ignore] // Parser doesn't preserve enough type info
 fn test_invalid_resume_wrong_type() {
     // Test: Resume operand must be aggregate type
     assert_invalid(r#"
