@@ -725,7 +725,7 @@ impl Parser {
     }
 
     fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<Vec<Value>> {
-        let operands = Vec::new();
+        let mut operands = Vec::new();
 
         // Parse based on instruction type
         match opcode {
@@ -766,7 +766,8 @@ impl Parser {
                                              Some(Token::ICmp) | Some(Token::FCmp) | Some(Token::Select) |
                                              Some(Token::ExtractValue) | Some(Token::ExtractElement) |
                                              Some(Token::InsertElement) | Some(Token::ShuffleVector)) {
-                        let _val = self.parse_value()?;
+                        let val = self.parse_value()?;
+                        operands.push(val);
                     }
                 }
             }

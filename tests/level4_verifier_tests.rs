@@ -3,7 +3,7 @@ use std::time::Instant;
 
 #[test]
 fn test_parse_verifier_tests() {
-    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/test/Verifier";
+    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm/test/Verifier";
 
     let mut entries: Vec<_> = std::fs::read_dir(test_dir)
         .expect("Failed to read test directory")
@@ -16,9 +16,8 @@ fn test_parse_verifier_tests() {
     // Sort by filename for consistency
     entries.sort_by_key(|e| e.path());
 
-    // Test first 200 files
-    let test_count = 200.min(entries.len());
-    let entries = &entries[..test_count];
+    // Test all files
+    let test_count = entries.len();
 
     let mut passed = 0;
     let mut failed = 0;
