@@ -20,48 +20,69 @@ impl Pass for DeadCodeEliminationPass {
 
 impl FunctionPass for DeadCodeEliminationPass {
     fn run_on_function(&mut self, function: &mut Function) -> PassResult<bool> {
-        let changed = false;
-
-        // Mark live instructions
-        let mut live = HashSet::new();
+        let mut changed = false;
         let basic_blocks = function.basic_blocks();
 
-        // Mark terminators and instructions with side effects as live
-        for (bb_idx, bb) in basic_blocks.iter().enumerate() {
-            for (inst_idx, inst) in bb.instructions().iter().enumerate() {
-                if inst.is_terminator() || self.has_side_effects(inst) {
-                    let inst_id = format!("bb{}_inst{}", bb_idx, inst_idx);
-                    live.insert(inst_id);
-                }
-            }
-        }
+        // Build set of all used values (values that appear as operands)
+        let mut used_values = HashSet::new();
 
-        // Iteratively mark instructions that compute live values
-        let mut work_list = live.clone();
-        while !work_list.is_empty() {
-            let mut new_work = HashSet::new();
-
-            for (bb_idx, bb) in basic_blocks.iter().enumerate() {
-                for (inst_idx, inst) in bb.instructions().iter().enumerate() {
-                    let inst_id = format!("bb{}_inst{}", bb_idx, inst_idx);
-                    if live.contains(&inst_id) {
-                        // Mark operands as live
-                        for operand in inst.operands() {
-                            if !operand.is_constant() {
-                                if let Some(name) = operand.name() {
-                                    new_work.insert(name.to_string());
-                                }
-                            }
+        for bb in &basic_blocks {
+            for inst in bb.instructions() {
+                // All operands are "used"
+                for operand in inst.operands() {
+                    if !operand.is_constant() {
+                        if let Some(name) = operand.name() {
+                            used_values.insert(name.to_string());
                         }
                     }
                 }
             }
-
-            work_list = new_work;
         }
 
-        // Remove dead instructions (simplified - would need mutable access)
-        // In a real implementation, we'd rebuild the basic blocks without dead instructions
+        // Process each basic block
+        for bb in &basic_blocks {
+            let instructions = bb.instructions();
+            let mut to_remove = Vec::new();
+
+            // Find dead instructions
+            for (idx, inst) in instructions.iter().enumerate() {
+                // Always keep terminators and side-effecting instructions
+                if inst.is_terminator() || self.has_side_effects(inst) {
+                    continue;
+                }
+
+                // Check if this instruction's result is used
+                let is_dead = if let Some(result) = inst.result() {
+                    // If the result has a name and it's not in the used set, it's dead
+                    if let Some(name) = result.name() {
+                        !used_values.contains(name)
+                    } else {
+                        // No name means it's likely dead (shouldn't happen in normal IR)
+                        true
+                    }
+                } else {
+                    // Instructions without results that aren't side-effecting are dead
+                    true
+                };
+
+                if is_dead {
+                    to_remove.push(idx);
+                }
+            }
+
+            // Remove dead instructions
+            if !to_remove.is_empty() {
+                changed = true;
+                // Remove in reverse order to maintain indices
+                bb.transform_instructions(|insts| {
+                    for &idx in to_remove.iter().rev() {
+                        if idx < insts.len() {
+                            insts.remove(idx);
+                        }
+                    }
+                });
+            }
+        }
 
         Ok(changed)
     }
