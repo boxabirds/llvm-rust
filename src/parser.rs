@@ -2382,13 +2382,19 @@ impl Parser {
             Token::GlobalIdent(name) => {
                 let name = name.clone();
                 self.advance();
-                // Use expected type if provided, otherwise look up function declaration, otherwise default to void
+                // Use expected type if provided, otherwise look up function declaration, otherwise default to ptr
                 let ty = if let Some(expected) = expected_type {
                     expected.clone()
                 } else if let Some(fn_type) = self.function_decls.get(&name) {
-                    fn_type.clone()
+                    // Function references are pointers to functions
+                    if fn_type.is_function() {
+                        self.context.ptr_type(fn_type.clone())
+                    } else {
+                        fn_type.clone()
+                    }
                 } else {
-                    self.context.void_type()
+                    // Global variable reference - default to ptr in opaque pointer mode
+                    self.context.ptr_type(self.context.int8_type())
                 };
                 Ok(Value::new(ty, crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
             }
