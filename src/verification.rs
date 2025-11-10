@@ -770,7 +770,14 @@ impl Verifier {
                             *result_type == ret_type
                         };
 
-                        if !types_match {
+                        // Skip verification for LLVM intrinsics (functions starting with @llvm.)
+                        // as they may be subject to auto-upgrades where the call site type
+                        // differs from the declaration
+                        let is_llvm_intrinsic = callee.name()
+                            .map(|name| name.starts_with("llvm."))
+                            .unwrap_or(false);
+
+                        if !types_match && !is_llvm_intrinsic {
                             self.errors.push(VerificationError::TypeMismatch {
                                 expected: format!("{:?}", ret_type),
                                 found: format!("{:?}", result_type),

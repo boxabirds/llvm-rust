@@ -203,6 +203,15 @@ impl Parser {
                 continue;
             }
 
+            // Skip named metadata definitions: !name = !{ ... }
+            if let Some(Token::MetadataIdent(_)) = self.peek() {
+                self.advance(); // skip metadata name
+                self.match_token(&Token::Equal);
+                // Skip metadata value
+                self.skip_metadata();
+                continue;
+            }
+
             // Skip unknown tokens
             if !self.is_at_end() {
                 self.advance();
@@ -899,18 +908,30 @@ impl Parser {
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
 
-        // Skip metadata attachments after instructions (,!dbg !0, !prof !1, etc.)
-        while self.match_token(&Token::Comma) {
-            if self.is_metadata_token() {
-                // Skip metadata name like !dbg
+        // Skip metadata attachments after instructions
+        // Some instructions (like extractvalue) may consume a comma but leave metadata
+        // Handle both: ", !foo !0" and "!foo !0" (comma already consumed)
+        loop {
+            if self.match_token(&Token::Comma) {
+                // Comma-prefixed metadata: , !dbg !0
+                if self.is_metadata_token() {
+                    self.skip_metadata();
+                    if self.is_metadata_token() {
+                        self.skip_metadata();
+                    }
+                } else {
+                    // Not metadata, put comma back and stop
+                    self.current -= 1;
+                    break;
+                }
+            } else if self.is_metadata_token() {
+                // Direct metadata (comma was consumed by operand parsing)
                 self.skip_metadata();
-                // Skip metadata value like !0
                 if self.is_metadata_token() {
                     self.skip_metadata();
                 }
             } else {
-                // Not metadata, put comma back and stop
-                self.current -= 1;
+                // No more metadata
                 break;
             }
         }
