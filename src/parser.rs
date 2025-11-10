@@ -554,11 +554,24 @@ impl Parser {
             }
         }
 
-        // Skip calling convention modifiers (tail, musttail, notail) and standalone function attributes
+        // Check for result assignment: %name = ... (must be done BEFORE skipping modifiers)
+
+        let result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
+            if self.peek_ahead(1) == Some(&Token::Equal) {
+                self.advance(); // consume ident
+                self.advance(); // consume =
+                Some(n)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        // Skip calling convention modifiers (tail, musttail, notail) - these modify the following call
         if let Some(Token::Identifier(id)) = self.peek() {
             if id == "tail" || id == "musttail" || id == "notail" {
-                self.advance(); // skip the modifier
-                return Ok(None);
+                self.advance(); // skip the modifier, but continue parsing the call
             }
         }
 
@@ -614,19 +627,6 @@ impl Parser {
                 return Ok(None);
             }
         }
-
-        // Check for result assignment: %name = ...
-        let result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
-            if self.peek_ahead(1) == Some(&Token::Equal) {
-                self.advance(); // consume ident
-                self.advance(); // consume =
-                Some(n)
-            } else {
-                None
-            }
-        } else {
-            None
-        };
 
         // Parse instruction opcode
         let opcode = if let Some(op) = self.parse_opcode()? {
@@ -1093,6 +1093,34 @@ impl Parser {
                 let dest_ty = self.parse_type()?;
                 result_type = Some(dest_ty);  // Cast result type is the destination type
             }
+            Opcode::ExtractElement => {
+                // extractelement <vector type> %vec, <index type> %idx
+                let vec_ty = self.parse_type()?;
+                let _vec = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _idx_ty = self.parse_type()?;
+                let _idx = self.parse_value()?;
+
+                // Result type is the element type of the vector
+                // For vector types like <2 x i8>, the element type is i8
+                if let Some((elem_ty, _size)) = vec_ty.vector_info() {
+                    result_type = Some(elem_ty.clone());
+                }
+            }
+            Opcode::InsertElement => {
+                // insertelement <vector type> %vec, <element type> %elt, <index type> %idx
+                let vec_ty = self.parse_type()?;
+                let _vec = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _elt_ty = self.parse_type()?;
+                let _elt = self.parse_value()?;
+                self.consume(&Token::Comma)?;
+                let _idx_ty = self.parse_type()?;
+                let _idx = self.parse_value()?;
+
+                // Result type is the same as the input vector type
+                result_type = Some(vec_ty);
+            }
             Opcode::Select => {
                 // select [fast-math-flags] i1 %cond, type %val1, type %val2
                 self.skip_instruction_flags();
@@ -1391,10 +1419,11 @@ impl Parser {
                     continue;
                 }
 
-                // Attributes with optional type parameters: byval(type), sret(type), inalloca(type)
+                // Attributes with optional type parameters: byval(type), sret(type), inalloca(type), preallocated(type)
                 if self.match_token(&Token::Byval) ||
                    self.match_token(&Token::Sret) ||
-                   self.match_token(&Token::Inalloca) {
+                   self.match_token(&Token::Inalloca) ||
+                   self.match_token(&Token::Preallocated) {
                     // Handle optional (type) syntax
                     if self.check(&Token::LParen) {
                         self.advance();
@@ -2277,10 +2306,11 @@ impl Parser {
                 continue;
             }
 
-            // Handle attributes with optional type parameters: byval(type), sret(type), byref(type), inalloca(type)
+            // Handle attributes with optional type parameters: byval(type), sret(type), byref(type), inalloca(type), preallocated(type)
             if self.match_token(&Token::Byval) ||
                self.match_token(&Token::Sret) ||
-               self.match_token(&Token::Inalloca) {
+               self.match_token(&Token::Inalloca) ||
+               self.match_token(&Token::Preallocated) {
                 if self.check(&Token::LParen) {
                     self.advance();
                     // Skip the type - just consume tokens until )
@@ -2370,10 +2400,11 @@ impl Parser {
                 break;
             }
 
-            // Handle attributes with type parameters: byval(type), sret(type), inalloca(type)
+            // Handle attributes with type parameters: byval(type), sret(type), inalloca(type), preallocated(type)
             if self.match_token(&Token::Byval) ||
                self.match_token(&Token::Sret) ||
-               self.match_token(&Token::Inalloca) {
+               self.match_token(&Token::Inalloca) ||
+               self.match_token(&Token::Preallocated) {
                 // Check for optional type parameter
                 if self.check(&Token::LParen) {
                     self.advance(); // consume (
@@ -2490,6 +2521,18 @@ impl Parser {
             // Skip metadata attachments: !dbg !12
             if self.is_metadata_token() {
                 self.skip_metadata();
+                continue;
+            }
+
+            // Handle attributes with type parameters that can appear on calls: preallocated(type)
+            if self.match_token(&Token::Preallocated) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
                 continue;
             }
 
