@@ -242,28 +242,97 @@ impl Parser {
     }
 
     fn parse_global_variable(&mut self) -> ParseResult<GlobalVariable> {
-        // @name = [linkage] [visibility] [externally_initialized] global/constant type [initializer]
+        use crate::module::{Linkage, Visibility, DLLStorageClass, ThreadLocalMode, UnnamedAddr};
+
+        // @name = [linkage] [visibility] [dll_storage] [thread_local] [unnamed_addr] [addrspace] [externally_initialized] global/constant type [initializer] [attributes]
         let name = self.expect_global_ident()?;
         self.consume(&Token::Equal)?;
 
-        // Skip linkage and visibility keywords
-        self.skip_linkage_and_visibility();
+        // Parse linkage, visibility, and other attributes
+        let mut linkage = Linkage::External;
+        let mut visibility = Visibility::Default;
+        let mut dll_storage_class = DLLStorageClass::Default;
+        let mut thread_local_mode = ThreadLocalMode::NotThreadLocal;
+        let mut unnamed_addr = UnnamedAddr::None;
+        let mut externally_initialized = false;
+        let mut addrspace = None;
+        let mut section = None;
+        let mut alignment = None;
+        let mut comdat = None;
 
-        // Skip externally_initialized if present
-        if let Some(Token::Identifier(id)) = self.peek() {
-            if id == "externally_initialized" {
-                self.advance();
-            }
-        }
+        // Parse attributes in a loop since they can appear in any order
+        loop {
+            match self.peek() {
+                Some(Token::Private) => { self.advance(); linkage = Linkage::Private; },
+                Some(Token::Internal) => { self.advance(); linkage = Linkage::Internal; },
+                Some(Token::External) => { self.advance(); linkage = Linkage::External; },
+                Some(Token::Weak) => { self.advance(); linkage = Linkage::Weak; },
+                Some(Token::Linkonce) => { self.advance(); linkage = Linkage::Linkonce; },
+                Some(Token::Linkonce_odr) => { self.advance(); linkage = Linkage::LinkonceOdr; },
+                Some(Token::Weak_odr) => { self.advance(); linkage = Linkage::WeakOdr; },
+                Some(Token::Available_externally) => { self.advance(); linkage = Linkage::AvailableExternally; },
+                Some(Token::Extern_weak) => { self.advance(); linkage = Linkage::ExternWeak; },
+                Some(Token::Common) => { self.advance(); linkage = Linkage::Common; },
+                Some(Token::Appending) => { self.advance(); linkage = Linkage::Appending; },
 
-        // Skip addrspace modifier if present: addrspace(N)
-        if self.match_token(&Token::Addrspace) {
-            if self.match_token(&Token::LParen) {
-                // Parse address space number or symbolic string
-                if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
+                Some(Token::Hidden) => { self.advance(); visibility = Visibility::Hidden; },
+                Some(Token::Protected) => { self.advance(); visibility = Visibility::Protected; },
+                Some(Token::Default) => { self.advance(); visibility = Visibility::Default; },
+
+                Some(Token::Dllimport) => { self.advance(); dll_storage_class = DLLStorageClass::DllImport; },
+                Some(Token::Dllexport) => { self.advance(); dll_storage_class = DLLStorageClass::DllExport; },
+
+                Some(Token::Thread_local) => {
                     self.advance();
-                }
-                self.match_token(&Token::RParen);
+                    // Check for thread local mode: thread_local(localdynamic)
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Identifier(mode)) = self.peek() {
+                            match mode.as_str() {
+                                "generaldynamic" => thread_local_mode = ThreadLocalMode::GeneralDynamic,
+                                "localdynamic" => thread_local_mode = ThreadLocalMode::LocalDynamic,
+                                "initialexec" => thread_local_mode = ThreadLocalMode::InitialExec,
+                                "localexec" => thread_local_mode = ThreadLocalMode::LocalExec,
+                                _ => thread_local_mode = ThreadLocalMode::GeneralDynamic,
+                            }
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    } else {
+                        thread_local_mode = ThreadLocalMode::GeneralDynamic;
+                    }
+                },
+
+                Some(Token::Unnamed_addr) => { self.advance(); unnamed_addr = UnnamedAddr::Global; },
+                Some(Token::Local_unnamed_addr) => { self.advance(); unnamed_addr = UnnamedAddr::Local; },
+
+                Some(Token::Dso_local) | Some(Token::Dso_preemptable) => { self.advance(); }, // Consume but don't store for now
+
+                Some(Token::Addrspace) => {
+                    self.advance();
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Integer(n)) = self.peek() {
+                            addrspace = Some(*n as u32);
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                },
+
+                Some(Token::Identifier(id)) if id == "externally_initialized" => {
+                    self.advance();
+                    externally_initialized = true;
+                },
+
+                // GPU calling conventions and other identifiers we should skip
+                Some(Token::Identifier(id)) if
+                    id.starts_with("amdgpu_") || id.starts_with("spir_") ||
+                    id.starts_with("aarch64_") || id.starts_with("x86_") ||
+                    id.starts_with("riscv_") || id.starts_with("arm_") ||
+                    id == "linker_private" || id == "linker_private_weak" => {
+                    self.advance();
+                },
+
+                _ => break,
             }
         }
 
@@ -281,19 +350,105 @@ impl Parser {
         let ty = self.parse_type()?;
 
         // Parse initializer if present
-        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) {
-            // Skip initializer parsing for now (complex)
-            None
+        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) {
+            // Try to parse the initializer
+            self.parse_global_initializer(&ty).ok()
         } else {
             None
         };
 
-        Ok(GlobalVariable {
+        // Parse trailing attributes (section, align, comdat, etc.)
+        loop {
+            match self.peek() {
+                Some(Token::Comma) => { self.advance(); },
+                Some(Token::Section) => {
+                    self.advance();
+                    if let Some(Token::StringLit(s)) = self.peek() {
+                        section = Some(s.clone());
+                        self.advance();
+                    }
+                },
+                Some(Token::Align) => {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        alignment = Some(*n as u32);
+                        self.advance();
+                    }
+                },
+                Some(Token::Comdat) => {
+                    self.advance();
+                    // Comdat can have an optional name: comdat($name) or comdat(identifier)
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Identifier(name)) = self.peek() {
+                            comdat = Some(name.clone());
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                },
+                _ => break,
+            }
+        }
+
+        Ok(crate::module::GlobalVariable::new_with_attributes(
             name,
             ty,
             is_constant,
             initializer,
-        })
+            linkage,
+            visibility,
+            dll_storage_class,
+            thread_local_mode,
+            unnamed_addr,
+            addrspace,
+            externally_initialized,
+            section,
+            alignment,
+            comdat,
+        ))
+    }
+
+    fn parse_global_initializer(&mut self, ty: &Type) -> ParseResult<Value> {
+        // Parse common initializer forms
+        match self.peek() {
+            Some(Token::Zeroinitializer) => {
+                self.advance();
+                Ok(Value::zero_initializer(ty.clone()))
+            },
+            Some(Token::Undef) => {
+                self.advance();
+                Ok(Value::undef(ty.clone()))
+            },
+            Some(Token::Null) => {
+                self.advance();
+                Ok(Value::const_null(ty.clone()))
+            },
+            Some(Token::Integer(_)) => {
+                if let Some(Token::Integer(n)) = self.peek() {
+                    let val = *n as i64;
+                    self.advance();
+                    Ok(Value::const_int(ty.clone(), val, None))
+                } else {
+                    unreachable!()
+                }
+            },
+            Some(Token::True) => {
+                self.advance();
+                Ok(Value::const_int(ty.clone(), 1, None))
+            },
+            Some(Token::False) => {
+                self.advance();
+                Ok(Value::const_int(ty.clone(), 0, None))
+            },
+            Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
+                // Complex aggregate constant - use constant expression parser
+                self.parse_constant_expression()
+            },
+            _ => {
+                // Try parsing as a constant expression
+                self.parse_constant_expression()
+            }
+        }
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
