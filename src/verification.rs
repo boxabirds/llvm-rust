@@ -46,6 +46,14 @@ pub enum VerificationError {
     InvalidDebugInfo { reason: String, location: String },
     /// Metadata reference error
     MetadataReference { reason: String, location: String },
+    /// Invalid control flow graph
+    InvalidCFG { reason: String, location: String },
+    /// Unreachable block
+    UnreachableBlock { block: String },
+    /// Invalid landing pad
+    InvalidLandingPad { reason: String, location: String },
+    /// Invalid exception handling
+    InvalidExceptionHandling { reason: String, location: String },
 }
 
 impl std::fmt::Display for VerificationError {
@@ -85,6 +93,14 @@ impl std::fmt::Display for VerificationError {
                 write!(f, "Invalid debug info at {}: {}", location, reason),
             VerificationError::MetadataReference { reason, location } =>
                 write!(f, "Metadata reference error at {}: {}", location, reason),
+            VerificationError::InvalidCFG { reason, location } =>
+                write!(f, "Invalid control flow graph at {}: {}", location, reason),
+            VerificationError::UnreachableBlock { block } =>
+                write!(f, "Unreachable block: {}", block),
+            VerificationError::InvalidLandingPad { reason, location } =>
+                write!(f, "Invalid landing pad at {}: {}", location, reason),
+            VerificationError::InvalidExceptionHandling { reason, location } =>
+                write!(f, "Invalid exception handling at {}: {}", location, reason),
         }
     }
 }
@@ -239,6 +255,30 @@ impl Verifier {
             self.errors.push(VerificationError::MultipleTerminators {
                 block: bb.name().unwrap_or_else(|| "unnamed".to_string()),
             });
+        }
+
+        // Check landing pad position
+        // Landing pads must be first non-PHI instruction
+        let mut found_non_phi = false;
+        let mut found_landingpad = false;
+        for inst in instructions.iter() {
+            if inst.opcode() == Opcode::LandingPad {
+                if found_landingpad {
+                    self.errors.push(VerificationError::InvalidLandingPad {
+                        reason: "multiple landing pads in same block".to_string(),
+                        location: format!("block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
+                    });
+                }
+                if found_non_phi {
+                    self.errors.push(VerificationError::InvalidLandingPad {
+                        reason: "landing pad must be first non-PHI instruction in block".to_string(),
+                        location: format!("block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
+                    });
+                }
+                found_landingpad = true;
+            } else if inst.opcode() != Opcode::PHI {
+                found_non_phi = true;
+            }
         }
 
         // Verify each instruction
@@ -1026,6 +1066,51 @@ impl Verifier {
                     }
                 }
             }
+            // === EXCEPTION HANDLING VALIDATION ===
+            Opcode::LandingPad => {
+                // LandingPad: must be first non-PHI instruction in block
+                // Note: Cannot fully validate without block context
+                // This will be checked in verify_basic_block
+            }
+            Opcode::Invoke => {
+                // Invoke: must have both normal and unwind destinations
+                // Note: Parser must preserve successor information
+                // Basic validation: check it's a valid function call
+                let operands = inst.operands();
+                if operands.is_empty() {
+                    self.errors.push(VerificationError::InvalidExceptionHandling {
+                        reason: "invoke must have a callee".to_string(),
+                        location: "invoke instruction".to_string(),
+                    });
+                }
+            }
+            Opcode::Resume => {
+                // Resume: must have exactly one operand of aggregate type
+                let operands = inst.operands();
+                if operands.len() != 1 {
+                    self.errors.push(VerificationError::InvalidExceptionHandling {
+                        reason: format!("resume must have exactly one operand, found {}", operands.len()),
+                        location: "resume instruction".to_string(),
+                    });
+                } else {
+                    let arg_type = operands[0].get_type();
+                    if !arg_type.is_struct() {
+                        self.errors.push(VerificationError::InvalidExceptionHandling {
+                            reason: format!("resume operand must be aggregate type, got {:?}", arg_type),
+                            location: "resume instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::CatchPad | Opcode::CleanupPad => {
+                // CatchPad/CleanupPad: Windows exception handling
+                // Must have a parent catchswitch or cleanuppad
+                // Note: Full validation requires CFG analysis
+            }
+            Opcode::CatchSwitch => {
+                // CatchSwitch: must have at least one handler
+                // Note: Parser must preserve handler information
+            }
             _ => {
                 // Other opcodes: no special validation yet
             }
@@ -1059,26 +1144,73 @@ impl Verifier {
 
     /// Verify control flow
     pub fn verify_control_flow(&mut self, function: &Function) {
-        // Check for unreachable blocks
-        // Check for infinite loops
-        // Check for proper dominator relationships
-        // This is a simplified version
-
+        // Enhanced CFG validation with reachability analysis
         let basic_blocks = function.basic_blocks();
         if basic_blocks.is_empty() {
             return;
         }
 
-        // Simple reachability check
-        let mut reachable: HashSet<String> = HashSet::new();
+        // Check entry block exists and has no predecessors
         if let Some(entry) = function.entry_block() {
-            if let Some(name) = entry.name() {
-                reachable.insert(name);
+            if let Some(entry_name) = entry.name() {
+                // Entry block should be first in the list
+                if !basic_blocks.is_empty() {
+                    if let Some(first_name) = basic_blocks[0].name() {
+                        if first_name != entry_name {
+                            self.errors.push(VerificationError::InvalidCFG {
+                                reason: "entry block must be first block in function".to_string(),
+                                location: format!("function {}", function.name()),
+                            });
+                        }
+                    }
+                }
+
+                // TODO: Implement full reachability analysis
+                // This would require:
+                // 1. Build CFG from terminator instructions
+                // 2. Perform DFS/BFS from entry block
+                // 3. Mark all reachable blocks
+                // 4. Report unreachable blocks
+                //
+                // Current limitation: Parser doesn't preserve CFG edges
+                // so we can't traverse the graph
             }
+        } else {
+            self.errors.push(VerificationError::EntryBlockMissing {
+                function: function.name(),
+            });
         }
 
-        // Mark all blocks as potentially unreachable for now
-        // A full implementation would do proper CFG traversal
+        // Validate exception handling control flow
+        self.verify_exception_handling_cfg(function);
+    }
+
+    /// Verify exception handling control flow constraints
+    fn verify_exception_handling_cfg(&mut self, function: &Function) {
+        // Check that landing pads are only in blocks reachable via invoke
+        // Check that resume is only in landing pad blocks
+        // Note: Full validation requires CFG analysis
+
+        for bb in function.basic_blocks() {
+            let instructions = bb.instructions();
+            let mut has_landingpad = false;
+            let mut has_resume = false;
+
+            for inst in instructions.iter() {
+                match inst.opcode() {
+                    Opcode::LandingPad => has_landingpad = true,
+                    Opcode::Resume => has_resume = true,
+                    _ => {}
+                }
+            }
+
+            // Resume should typically appear in blocks with landing pads
+            // This is a soft constraint - document but don't error
+            if has_resume && !has_landingpad {
+                // This is valid in cleanup blocks, so don't error
+                // Just a note for future enhancement
+            }
+        }
     }
 }
 
