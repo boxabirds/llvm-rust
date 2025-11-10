@@ -13,12 +13,13 @@ use std::sync::Arc;
 use std::fmt;
 
 /// Represents an LLVM type
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Type {
     data: Arc<TypeData>,
 }
 
 /// Internal representation of type data
+#[derive(PartialEq)]
 pub(crate) enum TypeData {
     Void,
     Integer { bits: u32 },
@@ -196,6 +197,18 @@ impl Type {
         matches!(&*self.data, TypeData::Metadata)
     }
 
+    /// Check if this type is sized (can be allocated)
+    /// Void, function, label, token, and metadata types are not sized
+    pub fn is_sized(&self) -> bool {
+        !matches!(&*self.data,
+            TypeData::Void |
+            TypeData::Function { .. } |
+            TypeData::Label |
+            TypeData::Token |
+            TypeData::Metadata
+        )
+    }
+
     /// Get the bit width of an integer type
     pub fn int_width(&self) -> Option<u32> {
         match &*self.data {
@@ -224,6 +237,24 @@ impl Type {
     pub fn vector_info(&self) -> Option<(&Type, usize)> {
         match &*self.data {
             TypeData::Vector { element, size } => Some((element, *size)),
+            _ => None,
+        }
+    }
+
+    /// Get the return type of a function type
+    pub fn function_return_type(&self) -> Option<Type> {
+        match &*self.data {
+            TypeData::Function { return_type, .. } => Some(return_type.clone()),
+            _ => None,
+        }
+    }
+
+    /// Get function type information (return type, param types, is_var_arg)
+    pub fn function_info(&self) -> Option<(Type, Vec<Type>, bool)> {
+        match &*self.data {
+            TypeData::Function { return_type, param_types, is_var_arg } => {
+                Some((return_type.clone(), param_types.clone(), *is_var_arg))
+            }
             _ => None,
         }
     }

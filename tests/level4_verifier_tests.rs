@@ -1,9 +1,9 @@
-use llvm_rust::{Context, parse};
+use llvm_rust::{Context, parse, verification::verify_module};
 use std::time::Instant;
 
 #[test]
 fn test_parse_verifier_tests() {
-    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Verifier";
+    let test_dir = "/home/user/llvm-rust/llvm-tests/llvm/test/Verifier";
 
     let mut entries: Vec<_> = std::fs::read_dir(test_dir)
         .expect("Failed to read test directory")
@@ -16,12 +16,13 @@ fn test_parse_verifier_tests() {
     // Sort by filename for consistency
     entries.sort_by_key(|e| e.path());
 
-    // Test first 200 files
-    let test_count = 200.min(entries.len());
-    let entries = &entries[..test_count];
+    // Test all files
+    let test_count = entries.len();
 
     let mut passed = 0;
     let mut failed = 0;
+    let mut negative_tests_correct = 0;
+    let mut negative_tests_incorrect = 0;
     let mut failures = Vec::new();
 
     println!("\n=== LEVEL 4: VERIFIER TESTS ===\n");
@@ -30,7 +31,6 @@ fn test_parse_verifier_tests() {
         let path = entry.path();
         let filename = path.file_name().unwrap().to_str().unwrap();
 
-        // Skip negative tests (tests that are meant to fail parsing)
         let content = match std::fs::read_to_string(&path) {
             Ok(c) => c,
             Err(e) => {
@@ -41,29 +41,73 @@ fn test_parse_verifier_tests() {
             }
         };
 
+        // Detect negative tests (tests that are supposed to fail)
+        let is_negative_test = content.contains("RUN: not") ||
+                               content.contains("XFAIL") ||
+                               filename.contains("invalid") ||
+                               filename.contains("bad-") ||
+                               filename.contains("-bad");
+
         let start = Instant::now();
         let ctx = Context::new();
 
-        match parse(&content, ctx) {
-            Ok(_module) => {
-                // For Level 4, we should verify the module
-                // TODO: Add verification step
-                // For now, just count as "parsed successfully"
-                let _elapsed = start.elapsed();
-                println!("✓ {} ({:.2}s)", filename, start.elapsed().as_secs_f64());
-                passed += 1;
+        let parse_result = parse(&content, ctx);
+
+        match parse_result {
+            Ok(module) => {
+                // Module parsed successfully, now verify it
+                let verify_result = verify_module(&module);
+
+                match verify_result {
+                    Ok(()) => {
+                        // Parsing and verification both succeeded
+                        if is_negative_test {
+                            // Negative test that passed - this is wrong
+                            println!("✗ {} (negative test should have failed verification) ({:.2}s)", filename, start.elapsed().as_secs_f64());
+                            negative_tests_incorrect += 1;
+                            failures.push((filename.to_string(), "Negative test should have failed".to_string()));
+                        } else {
+                            // Positive test that passed - correct
+                            println!("✓ {} ({:.2}s)", filename, start.elapsed().as_secs_f64());
+                            passed += 1;
+                        }
+                    }
+                    Err(verify_errors) => {
+                        // Verification failed
+                        if is_negative_test {
+                            // Negative test that failed verification - correct!
+                            println!("✓ {} (negative test correctly failed) ({:.2}s)", filename, start.elapsed().as_secs_f64());
+                            negative_tests_correct += 1;
+                        } else {
+                            // Positive test that failed verification - wrong
+                            println!("✗ {}: Verification errors: {:?}", filename, verify_errors.first());
+                            failed += 1;
+                            failures.push((filename.to_string(), format!("Verification failed: {:?}", verify_errors.first())));
+                        }
+                    }
+                }
             }
             Err(e) => {
-                println!("✗ {}: {:?}", filename, e);
-                failed += 1;
-                failures.push((filename.to_string(), format!("{:?}", e)));
+                // Parsing failed
+                if is_negative_test {
+                    // Negative test that failed parsing - this is correct!
+                    println!("✓ {} (negative test correctly failed parsing) ({:.2}s)", filename, start.elapsed().as_secs_f64());
+                    negative_tests_correct += 1;
+                } else {
+                    // Positive test that failed parsing - this is wrong
+                    println!("✗ {}: {:?}", filename, e);
+                    failed += 1;
+                    failures.push((filename.to_string(), format!("{:?}", e)));
+                }
             }
         }
     }
 
     println!("\n=== LEVEL 4 RESULTS ===");
-    println!("Passed: {}", passed);
-    println!("Failed: {}", failed);
+    println!("Positive tests passed: {}", passed);
+    println!("Positive tests failed: {}", failed);
+    println!("Negative tests correct: {}", negative_tests_correct);
+    println!("Negative tests incorrect: {}", negative_tests_incorrect);
     println!("Total: {}", test_count);
 
     if !failures.is_empty() {
@@ -78,13 +122,17 @@ fn test_parse_verifier_tests() {
         }
     }
 
-    let success_rate = (passed as f64 / test_count as f64) * 100.0;
-    println!("\nLevel 4 Success rate: {:.1}%", success_rate);
+    let total_correct = passed + negative_tests_correct;
+    let success_rate = (total_correct as f64 / test_count as f64) * 100.0;
+    println!("\nLevel 4 Overall success rate: {:.1}%", success_rate);
+    println!("  - Positive tests: {}/{}", passed, passed + failed);
+    println!("  - Negative tests: {}/{}", negative_tests_correct, negative_tests_correct + negative_tests_incorrect);
     println!("Target: 100.0%");
 
     // Don't fail the test, just report the status
+    let total_failed = failed + negative_tests_incorrect;
     if success_rate < 100.0 {
-        println!("\n⚠️  {} files need fixing to reach 100%", failed);
+        println!("\n⚠️  {} files need fixing to reach 100%", total_failed);
     } else {
         println!("\n🎉 LEVEL 4 COMPLETE - 100% SUCCESS! 🎉");
     }

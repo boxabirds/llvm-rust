@@ -605,7 +605,7 @@ impl Parser {
         }
 
         // Check for result assignment: %name = ...
-        let _result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
+        let result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
             if self.peek_ahead(1) == Some(&Token::Equal) {
                 self.advance(); // consume ident
                 self.advance(); // consume =
@@ -646,7 +646,14 @@ impl Parser {
             }
         }
 
-        Ok(Some(Instruction::new(opcode, operands, None)))
+        // Create result value if there's a result name
+        let result = result_name.map(|name| {
+            // Create an instruction value with void type for now
+            // The type should ideally be inferred from the instruction
+            Value::instruction(self.context.void_type(), opcode, Some(name))
+        });
+
+        Ok(Some(Instruction::new(opcode, operands, result)))
     }
 
     fn parse_opcode(&mut self) -> ParseResult<Option<Opcode>> {
@@ -725,7 +732,7 @@ impl Parser {
     }
 
     fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<Vec<Value>> {
-        let operands = Vec::new();
+        let mut operands = Vec::new();
 
         // Parse based on instruction type
         match opcode {
@@ -739,6 +746,11 @@ impl Parser {
                     // Skip parsing value if next token is a label (identifier followed by colon)
                     if self.peek_ahead(1) == Some(&Token::Colon) {
                         // Next token is a label definition, not a value - stop here
+                        return Ok(operands);
+                    }
+                    // Skip parsing value if next token is followed by =, that's a new instruction assignment
+                    if self.peek_ahead(1) == Some(&Token::Equal) {
+                        // Next token is a new instruction, not a return value - stop here
                         return Ok(operands);
                     }
                     // If we see a value token (including constant expressions), parse it
@@ -761,7 +773,8 @@ impl Parser {
                                              Some(Token::ICmp) | Some(Token::FCmp) | Some(Token::Select) |
                                              Some(Token::ExtractValue) | Some(Token::ExtractElement) |
                                              Some(Token::InsertElement) | Some(Token::ShuffleVector)) {
-                        let _val = self.parse_value()?;
+                        let val = self.parse_value()?;
+                        operands.push(val);
                     }
                 }
             }
@@ -840,9 +853,14 @@ impl Parser {
                 }
 
                 // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
-                let _func = self.parse_value()?;
+                let func = self.parse_value()?;
+                operands.push(func);
                 self.consume(&Token::LParen)?;
-                let _args = self.parse_call_arguments()?;
+                let args = self.parse_call_arguments()?;
+                // Extract values from (Type, Value) pairs
+                for (_, value) in args {
+                    operands.push(value);
+                }
                 self.consume(&Token::RParen)?;
 
                 // Handle operand bundles: ["bundle"(args...)]
@@ -876,6 +894,9 @@ impl Parser {
                     }
                     self.match_token(&Token::RBracket);
                 }
+
+                // Skip function attributes that may appear after arguments (nounwind, readonly, etc.)
+                self.skip_function_attributes();
             }
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
             Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
@@ -884,9 +905,11 @@ impl Parser {
                 // Binary ops: op [flags] type op1, op2
                 self.skip_instruction_flags();
                 let _ty = self.parse_type()?;
-                let _op1 = self.parse_value()?;
+                let op1 = self.parse_value()?;
+                operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let _op2 = self.parse_value()?;
+                let op2 = self.parse_value()?;
+                operands.push(op2);
             }
             Opcode::Alloca => {
                 // alloca [inalloca] [swifterror] type [, type NumElements] [, align N] [, addrspace(N)]
@@ -894,7 +917,15 @@ impl Parser {
                 self.match_token(&Token::Inalloca);
                 self.match_token(&Token::Swifterror);
 
-                let _ty = self.parse_type()?;
+                let alloca_ty = self.parse_type()?;
+
+                // Validate that alloca type is sized (not void, function, label, token, or metadata)
+                if !alloca_ty.is_sized() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("invalid type for alloca: {:?}", alloca_ty),
+                        position: self.current,
+                    });
+                }
 
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
@@ -950,10 +981,12 @@ impl Parser {
                 if self.match_token(&Token::Comma) {
                     // New syntax: comma separates type from pointer
                     let _ptr_ty = self.parse_type()?;
-                    let _ptr = self.parse_value()?;
+                    let ptr = self.parse_value()?;
+                    operands.push(ptr);
                 } else {
                     // Old syntax: pointer value directly follows (type already includes *)
-                    let _ptr = self.parse_value()?;
+                    let ptr = self.parse_value()?;
+                    operands.push(ptr);
                 }
 
                 // Skip memory ordering and other attributes
@@ -967,12 +1000,14 @@ impl Parser {
                 self.match_token(&Token::Volatile);
 
                 let _val_ty = self.parse_type()?;
-                let _val = self.parse_value()?;
+                let val = self.parse_value()?;
+                operands.push(val);
                 self.consume(&Token::Comma)?;
 
                 // Parse pointer - could be "ptr" keyword (new) or typed pointer (old)
                 let _ptr_ty = self.parse_type()?;
-                let _ptr = self.parse_value()?;
+                let ptr = self.parse_value()?;
+                operands.push(ptr);
 
                 // Skip attributes
                 self.skip_load_store_attributes();
@@ -983,7 +1018,8 @@ impl Parser {
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
-                let _ptr = self.parse_value()?;
+                let ptr = self.parse_value()?;
+                operands.push(ptr);
                 // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
                     // Check if this comma is followed by metadata (e.g., !dbg !23)
@@ -994,7 +1030,8 @@ impl Parser {
                     }
                     self.match_token(&Token::Inrange); // Skip optional inrange
                     let _idx_ty = self.parse_type()?;
-                    let _idx = self.parse_value()?;
+                    let idx = self.parse_value()?;
+                    operands.push(idx);
                 }
             }
             Opcode::ICmp | Opcode::FCmp => {
@@ -1002,9 +1039,11 @@ impl Parser {
                 self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
                 let _ty = self.parse_type()?;
-                let _op1 = self.parse_value()?;
+                let op1 = self.parse_value()?;
+                operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let _op2 = self.parse_value()?;
+                let op2 = self.parse_value()?;
+                operands.push(op2);
             }
             Opcode::PHI => {
                 // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
@@ -1314,7 +1353,8 @@ impl Parser {
                    self.match_token(&Token::Readonly) ||
                    self.match_token(&Token::Writeonly) ||
                    self.match_token(&Token::Swifterror) ||
-                   self.match_token(&Token::Swiftself) {
+                   self.match_token(&Token::Swiftself) ||
+                   self.match_token(&Token::Swiftasync) {
                     continue;
                 }
 
@@ -2701,7 +2741,23 @@ impl Parser {
 /// Parse a module from a string
 pub fn parse(source: &str, context: Context) -> ParseResult<Module> {
     let mut parser = Parser::new(context);
-    parser.parse_module(source)
+    let module = parser.parse_module(source)?;
+
+    // Verify the module after parsing
+    match crate::verification::verify_module(&module) {
+        Ok(_) => Ok(module),
+        Err(errors) => {
+            // Convert verification errors to parse error
+            let error_msg = errors.iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            Err(ParseError::InvalidSyntax {
+                message: format!("Verification failed: {}", error_msg),
+                position: 0,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
