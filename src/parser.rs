@@ -1219,6 +1219,50 @@ impl Parser {
                 let result_ty = self.parse_type()?;
                 result_type = Some(result_ty);  // va_arg result is the specified type
             }
+            Opcode::Switch => {
+                // switch <intty> <value>, label <defaultdest> [ <intty> <val>, label <dest> ]*
+                // Parse condition type and value
+                let cond_ty = self.parse_type()?;
+                let cond_val = self.parse_value_with_type(Some(&cond_ty))?;
+                operands.push(cond_val);
+
+                self.consume(&Token::Comma)?;
+
+                // Parse default destination: label %dest
+                self.consume(&Token::Label)?;
+                let default_dest = self.expect_local_ident()?;
+                let default_label = Value::new(
+                    self.context.label_type(),
+                    crate::value::ValueKind::BasicBlock,
+                    Some(default_dest)
+                );
+                operands.push(default_label);
+
+                // Parse cases: [ <intty> <val>, label <dest> ]*
+                while self.match_token(&Token::LBracket) {
+                    // Parse case value: type value
+                    let case_ty = self.parse_type()?;
+                    let case_val = self.parse_value_with_type(Some(&case_ty))?;
+                    operands.push(case_val);
+
+                    self.consume(&Token::Comma)?;
+
+                    // Parse case destination: label %dest
+                    self.consume(&Token::Label)?;
+                    let case_dest = self.expect_local_ident()?;
+                    let case_label = Value::new(
+                        self.context.label_type(),
+                        crate::value::ValueKind::BasicBlock,
+                        Some(case_dest)
+                    );
+                    operands.push(case_label);
+
+                    self.consume(&Token::RBracket)?;
+
+                    // Check for comma before next case (optional)
+                    self.match_token(&Token::Comma);
+                }
+            }
             _ => {
                 // For other instructions, skip to end of line or next instruction
                 // Skip until we find something that looks like the next instruction/statement
