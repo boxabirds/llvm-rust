@@ -1673,8 +1673,8 @@ impl Parser {
             Token::LocalIdent(_) => {
                 // Type reference like %TypeName
                 self.advance();
-                // For now, treat as opaque type
-                Ok(self.context.void_type())
+                // Treat as opaque type placeholder (use i8 to ensure it's sized for alloca)
+                Ok(self.context.int8_type())
             }
             Token::Ellipsis => {
                 // Ellipsis for varargs - should be caught before parse_type() is called
