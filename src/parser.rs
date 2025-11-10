@@ -635,8 +635,8 @@ impl Parser {
             return Ok(None);
         };
 
-        // Parse operands (simplified for now)
-        let operands = self.parse_instruction_operands(opcode)?;
+        // Parse operands and get result type if instruction produces one
+        let (operands, result_type) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -659,9 +659,9 @@ impl Parser {
 
         // Create result value if there's a result name
         let result = result_name.map(|name| {
-            // Create an instruction value with void type for now
-            // The type should ideally be inferred from the instruction
-            let value = Value::instruction(self.context.void_type(), opcode, Some(name.clone()));
+            // Use the result type from instruction parsing, or void if not determined
+            let ty = result_type.unwrap_or_else(|| self.context.void_type());
+            let value = Value::instruction(ty, opcode, Some(name.clone()));
             // Add to symbol table for lookup
             self.symbol_table.insert(name, value.clone());
             value
@@ -745,8 +745,9 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<Vec<Value>> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>)> {
         let mut operands = Vec::new();
+        let mut result_type: Option<Type> = None;
 
         // Parse based on instruction type
         match opcode {
@@ -760,12 +761,12 @@ impl Parser {
                     // Skip parsing value if next token is a label (identifier followed by colon)
                     if self.peek_ahead(1) == Some(&Token::Colon) {
                         // Next token is a label definition, not a value - stop here
-                        return Ok(operands);
+                        return Ok((operands, result_type));
                     }
                     // Skip parsing value if next token is followed by =, that's a new instruction assignment
                     if self.peek_ahead(1) == Some(&Token::Equal) {
                         // Next token is a new instruction, not a return value - stop here
-                        return Ok(operands);
+                        return Ok((operands, result_type));
                     }
                     // If we see a value token (including constant expressions), parse it
                     if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
@@ -918,7 +919,8 @@ impl Parser {
             Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
                 // Binary ops: op [flags] type op1, op2
                 self.skip_instruction_flags();
-                let _ty = self.parse_type()?;
+                let ty = self.parse_type()?;
+                result_type = Some(ty);  // Binary op result has same type as operands
                 let op1 = self.parse_value()?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
@@ -989,7 +991,8 @@ impl Parser {
                 self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
-                let _ty = self.parse_type()?;
+                let ty = self.parse_type()?;
+                result_type = Some(ty);  // Load result type is the loaded type
 
                 // Check if using old syntax (no comma) or new syntax (comma)
                 if self.match_token(&Token::Comma) {
@@ -1053,6 +1056,7 @@ impl Parser {
                 self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
                 let _ty = self.parse_type()?;
+                result_type = Some(self.context.bool_type());  // Comparison result is i1
                 let op1 = self.parse_value()?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
@@ -1223,7 +1227,7 @@ impl Parser {
             }
         }
 
-        Ok(operands)
+        Ok((operands, result_type))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
