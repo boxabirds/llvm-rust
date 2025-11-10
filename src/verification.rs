@@ -172,7 +172,14 @@ impl Verifier {
                             });
                         } else if operands.len() == 1 {
                             let ret_val_type = operands[0].get_type();
-                            if *ret_val_type != return_type {
+                            // In modern LLVM, all pointers are opaque - treat pointer types as equivalent
+                            let types_match = if ret_val_type.is_pointer() && return_type.is_pointer() {
+                                true  // All pointer types are compatible
+                            } else {
+                                *ret_val_type == return_type
+                            };
+
+                            if !types_match {
                                 self.errors.push(VerificationError::TypeMismatch {
                                     expected: format!("{:?}", return_type),
                                     found: format!("{:?}", ret_val_type),
@@ -245,6 +252,27 @@ impl Verifier {
                                 location: "alloca instruction".to_string(),
                             });
                         }
+                    }
+                }
+            }
+            Opcode::Switch => {
+                // Switch: condition type must match all case types
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let cond_type = operands[0].get_type();
+                    // Check all case values (every other operand starting from index 2)
+                    // Format: [condition, default_dest, case1_value, case1_dest, case2_value, case2_dest, ...]
+                    let mut case_idx = 2;
+                    while case_idx < operands.len() {
+                        let case_type = operands[case_idx].get_type();
+                        if *case_type != *cond_type {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                expected: format!("{:?}", cond_type),
+                                found: format!("{:?}", case_type),
+                                location: format!("switch case {}", (case_idx - 2) / 2),
+                            });
+                        }
+                        case_idx += 2; // Skip destination, move to next case value
                     }
                 }
             }
