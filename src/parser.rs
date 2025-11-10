@@ -846,9 +846,14 @@ impl Parser {
                 }
 
                 // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
-                let _func = self.parse_value()?;
+                let func = self.parse_value()?;
+                operands.push(func);
                 self.consume(&Token::LParen)?;
-                let _args = self.parse_call_arguments()?;
+                let args = self.parse_call_arguments()?;
+                // Extract values from (Type, Value) pairs
+                for (_, value) in args {
+                    operands.push(value);
+                }
                 self.consume(&Token::RParen)?;
 
                 // Handle operand bundles: ["bundle"(args...)]
@@ -893,9 +898,11 @@ impl Parser {
                 // Binary ops: op [flags] type op1, op2
                 self.skip_instruction_flags();
                 let _ty = self.parse_type()?;
-                let _op1 = self.parse_value()?;
+                let op1 = self.parse_value()?;
+                operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let _op2 = self.parse_value()?;
+                let op2 = self.parse_value()?;
+                operands.push(op2);
             }
             Opcode::Alloca => {
                 // alloca [inalloca] [swifterror] type [, type NumElements] [, align N] [, addrspace(N)]
@@ -967,10 +974,12 @@ impl Parser {
                 if self.match_token(&Token::Comma) {
                     // New syntax: comma separates type from pointer
                     let _ptr_ty = self.parse_type()?;
-                    let _ptr = self.parse_value()?;
+                    let ptr = self.parse_value()?;
+                    operands.push(ptr);
                 } else {
                     // Old syntax: pointer value directly follows (type already includes *)
-                    let _ptr = self.parse_value()?;
+                    let ptr = self.parse_value()?;
+                    operands.push(ptr);
                 }
 
                 // Skip memory ordering and other attributes
@@ -984,12 +993,14 @@ impl Parser {
                 self.match_token(&Token::Volatile);
 
                 let _val_ty = self.parse_type()?;
-                let _val = self.parse_value()?;
+                let val = self.parse_value()?;
+                operands.push(val);
                 self.consume(&Token::Comma)?;
 
                 // Parse pointer - could be "ptr" keyword (new) or typed pointer (old)
                 let _ptr_ty = self.parse_type()?;
-                let _ptr = self.parse_value()?;
+                let ptr = self.parse_value()?;
+                operands.push(ptr);
 
                 // Skip attributes
                 self.skip_load_store_attributes();
@@ -1000,7 +1011,8 @@ impl Parser {
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
                 let _ptr_ty = self.parse_type()?;
-                let _ptr = self.parse_value()?;
+                let ptr = self.parse_value()?;
+                operands.push(ptr);
                 // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
                     // Check if this comma is followed by metadata (e.g., !dbg !23)
@@ -1011,7 +1023,8 @@ impl Parser {
                     }
                     self.match_token(&Token::Inrange); // Skip optional inrange
                     let _idx_ty = self.parse_type()?;
-                    let _idx = self.parse_value()?;
+                    let idx = self.parse_value()?;
+                    operands.push(idx);
                 }
             }
             Opcode::ICmp | Opcode::FCmp => {
@@ -1019,9 +1032,11 @@ impl Parser {
                 self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
                 let _ty = self.parse_type()?;
-                let _op1 = self.parse_value()?;
+                let op1 = self.parse_value()?;
+                operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let _op2 = self.parse_value()?;
+                let op2 = self.parse_value()?;
+                operands.push(op2);
             }
             Opcode::PHI => {
                 // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
