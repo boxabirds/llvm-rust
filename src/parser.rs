@@ -40,6 +40,8 @@ pub struct Parser {
     symbol_table: std::collections::HashMap<String, Value>,
     /// Function declarations table for tracking global function types
     function_decls: std::collections::HashMap<String, Type>,
+    /// Type table for tracking numbered type definitions (%0, %1, etc.)
+    type_table: std::collections::HashMap<String, Type>,
 }
 
 impl Parser {
@@ -50,6 +52,7 @@ impl Parser {
             current: 0,
             symbol_table: std::collections::HashMap::new(),
             function_decls: std::collections::HashMap::new(),
+            type_table: std::collections::HashMap::new(),
         }
     }
 
@@ -59,6 +62,10 @@ impl Parser {
         let mut lexer = Lexer::new(source);
         self.tokens = lexer.tokenize().map_err(ParseError::LexerError)?;
         self.current = 0;
+
+        // Pre-scan and parse type declarations in multiple passes to handle forward references
+        self.parse_all_type_declarations()?;
+        self.current = 0; // Reset to beginning
 
         let module = Module::new("parsed_module".to_string(), self.context.clone());
 
@@ -86,8 +93,9 @@ impl Parser {
                 continue;
             }
 
-            // Parse type declarations
-            if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
+            // Parse type declarations: %TypeName = type { ... } or %0 = type { ... }
+            if (self.peek_global_ident().is_some() || self.check_local_ident())
+                && self.peek_ahead(1) == Some(&Token::Equal)
                 && self.peek_ahead(2) == Some(&Token::Type) {
                 self.parse_type_declaration()?;
                 continue;
@@ -195,6 +203,15 @@ impl Parser {
                 continue;
             }
 
+            // Skip named metadata definitions: !name = !{ ... }
+            if let Some(Token::MetadataIdent(_)) = self.peek() {
+                self.advance(); // skip metadata name
+                self.match_token(&Token::Equal);
+                // Skip metadata value
+                self.skip_metadata();
+                continue;
+            }
+
             // Skip unknown tokens
             if !self.is_at_end() {
                 self.advance();
@@ -232,12 +249,68 @@ impl Parser {
         Ok(())
     }
 
+    fn parse_all_type_declarations(&mut self) -> ParseResult<()> {
+        // Multi-pass approach to handle forward references
+        // Keep parsing until no more type declarations are found or max iterations reached
+        const MAX_PASSES: usize = 10;
+
+        for _pass in 0..MAX_PASSES {
+            self.current = 0;
+            let mut found_any = false;
+
+            while !self.is_at_end() {
+                // Look for type declarations
+                if (self.peek_global_ident().is_some() || self.check_local_ident())
+                    && self.peek_ahead(1) == Some(&Token::Equal)
+                    && self.peek_ahead(2) == Some(&Token::Type) {
+
+                    // Try to parse this type declaration
+                    let saved_pos = self.current;
+                    if self.parse_type_declaration().is_ok() {
+                        found_any = true;
+                    } else {
+                        // Parsing failed (probably forward reference), restore position
+                        self.current = saved_pos;
+                        self.advance();
+                    }
+                } else {
+                    self.advance();
+                }
+            }
+
+            // If no declarations were successfully parsed this pass, we're done
+            if !found_any {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
     fn parse_type_declaration(&mut self) -> ParseResult<()> {
-        // %TypeName = type { ... }
-        self.advance(); // global ident
+        // %TypeName = type { ... } or %0 = type { ... } or %TypeName = type opaque
+        let type_name = match self.peek() {
+            Some(Token::GlobalIdent(name)) => name.clone(),
+            Some(Token::LocalIdent(name)) => name.clone(),
+            _ => return Err(ParseError::InvalidSyntax {
+                message: "Expected type name".to_string(),
+                position: self.current,
+            }),
+        };
+        self.advance(); // consume type name
         self.consume(&Token::Equal)?;
         self.consume(&Token::Type)?;
-        self.parse_type()?;
+
+        // Check if it's an opaque type
+        let ty = if self.match_token(&Token::Opaque) {
+            // Opaque type - use i8 as placeholder
+            self.context.int8_type()
+        } else {
+            self.parse_type()?
+        };
+
+        // Store in type table
+        self.type_table.insert(type_name, ty);
         Ok(())
     }
 
@@ -424,21 +497,34 @@ impl Parser {
                 Ok(Value::const_null(ty.clone()))
             },
             Some(Token::Integer(_)) => {
-                if let Some(Token::Integer(n)) = self.peek() {
-                    let val = *n as i64;
-                    self.advance();
-                    Ok(Value::const_int(ty.clone(), val, None))
+                if ty.is_integer() {
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        let val = *n as i64;
+                        self.advance();
+                        Ok(Value::const_int(ty.clone(), val, None))
+                    } else {
+                        unreachable!()
+                    }
                 } else {
-                    unreachable!()
+                    // Not an integer type, use constant expression parser
+                    self.parse_constant_expression()
                 }
             },
             Some(Token::True) => {
                 self.advance();
-                Ok(Value::const_int(ty.clone(), 1, None))
+                if ty.is_integer() {
+                    Ok(Value::const_int(ty.clone(), 1, None))
+                } else {
+                    Ok(Value::const_int(self.context.bool_type(), 1, None))
+                }
             },
             Some(Token::False) => {
                 self.advance();
-                Ok(Value::const_int(ty.clone(), 0, None))
+                if ty.is_integer() {
+                    Ok(Value::const_int(ty.clone(), 0, None))
+                } else {
+                    Ok(Value::const_int(self.context.bool_type(), 0, None))
+                }
             },
             Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
                 // Complex aggregate constant - use constant expression parser
@@ -699,6 +785,11 @@ impl Parser {
             }
         }
 
+        // Don't return empty unnamed blocks (can happen after uselistorder directives)
+        if name.is_none() && bb.instructions().is_empty() {
+            return Ok(None);
+        }
+
         Ok(Some(bb))
     }
 
@@ -817,31 +908,52 @@ impl Parser {
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
 
-        // Skip metadata attachments after instructions (,!dbg !0, !prof !1, etc.)
-        while self.match_token(&Token::Comma) {
-            if self.is_metadata_token() {
-                // Skip metadata name like !dbg
+        // Skip metadata attachments after instructions
+        // Some instructions (like extractvalue) may consume a comma but leave metadata
+        // Handle both: ", !foo !0" and "!foo !0" (comma already consumed)
+        loop {
+            if self.match_token(&Token::Comma) {
+                // Comma-prefixed metadata: , !dbg !0
+                if self.is_metadata_token() {
+                    self.skip_metadata();
+                    if self.is_metadata_token() {
+                        self.skip_metadata();
+                    }
+                } else {
+                    // Not metadata, put comma back and stop
+                    self.current -= 1;
+                    break;
+                }
+            } else if self.is_metadata_token() {
+                // Direct metadata (comma was consumed by operand parsing)
                 self.skip_metadata();
-                // Skip metadata value like !0
                 if self.is_metadata_token() {
                     self.skip_metadata();
                 }
             } else {
-                // Not metadata, put comma back and stop
-                self.current -= 1;
+                // No more metadata
                 break;
             }
         }
 
-        // Create result value if there's a result name
-        let result = result_name.map(|name| {
-            // Use the result type from instruction parsing, or void if not determined
+        // Create result value if there's a result name OR if instruction produces a non-void result
+        let result = if let Some(name) = result_name {
+            // Named result
             let ty = result_type.unwrap_or_else(|| self.context.void_type());
             let value = Value::instruction(ty, opcode, Some(name.clone()));
             // Add to symbol table for lookup
             self.symbol_table.insert(name, value.clone());
-            value
-        });
+            Some(value)
+        } else if let Some(ty) = result_type {
+            // Unnamed result but non-void type (e.g., call that returns value but result unused)
+            if !ty.is_void() {
+                Some(Value::instruction(ty, opcode, None))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         Ok(Some(Instruction::new(opcode, operands, result)))
     }
@@ -1079,11 +1191,11 @@ impl Parser {
                 // Binary ops: op [flags] type op1, op2
                 self.skip_instruction_flags();
                 let ty = self.parse_type()?;
-                result_type = Some(ty);  // Binary op result has same type as operands
-                let op1 = self.parse_value()?;
+                result_type = Some(ty.clone());  // Binary op result has same type as operands
+                let op1 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
-                let op2 = self.parse_value()?;
+                let op2 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op2);
             }
             Opcode::Alloca => {
@@ -1101,6 +1213,9 @@ impl Parser {
                         position: self.current,
                     });
                 }
+
+                // Alloca returns a pointer to the allocated type
+                result_type = Some(self.context.ptr_type(alloca_ty));
 
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
@@ -1193,10 +1308,22 @@ impl Parser {
                 self.skip_instruction_flags(); // Skip inbounds, nuw, nusw, etc.
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
-                let _ptr_ty = self.parse_type()?;
-                let ptr = self.parse_value()?;
+                let ptr_ty = self.parse_type()?;
+                let ptr = self.parse_value_with_type(Some(&ptr_ty))?;
                 operands.push(ptr);
-                // Parse indices (each can have optional inrange qualifier)
+
+                // GEP result type determination:
+                // - If base is <N x ptr>, result is <N x ptr>
+                // - If any index is <N x iXX>, result is <N x ptr>
+                // - Otherwise, result is ptr
+                let mut vector_size = None;
+
+                // Check if base is a vector
+                if ptr_ty.is_vector() {
+                    vector_size = ptr_ty.vector_info().map(|(_, size)| size);
+                }
+
+                // Parse indices and check if any are vectors
                 while self.match_token(&Token::Comma) {
                     // Check if this comma is followed by metadata (e.g., !dbg !23)
                     if self.is_metadata_token() {
@@ -1205,17 +1332,43 @@ impl Parser {
                         break;
                     }
                     self.match_token(&Token::Inrange); // Skip optional inrange
-                    let _idx_ty = self.parse_type()?;
-                    let idx = self.parse_value()?;
+                    let idx_ty = self.parse_type()?;
+
+                    // Check if this index is a vector
+                    if idx_ty.is_vector() {
+                        vector_size = idx_ty.vector_info().map(|(_, size)| size);
+                    }
+
+                    let idx = self.parse_value_with_type(Some(&idx_ty))?;
                     operands.push(idx);
                 }
+
+                // Set result type based on whether we found a vector
+                result_type = if let Some(size) = vector_size {
+                    Some(self.context.vector_type(
+                        self.context.ptr_type(self.context.int8_type()),
+                        size
+                    ))
+                } else {
+                    Some(self.context.ptr_type(self.context.int8_type()))
+                };
             }
             Opcode::ICmp | Opcode::FCmp => {
                 // icmp/fcmp [samesign] predicate type op1, op2
                 self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
                 let ty = self.parse_type()?;
-                result_type = Some(self.context.bool_type());  // Comparison result is i1
+                // Comparison result is i1 for scalars, <N x i1> for vectors
+                let cmp_result_ty = if ty.is_vector() {
+                    if let Some((_, size)) = ty.vector_info() {
+                        self.context.vector_type(self.context.bool_type(), size)
+                    } else {
+                        self.context.bool_type()
+                    }
+                } else {
+                    self.context.bool_type()
+                };
+                result_type = Some(cmp_result_ty);
                 let op1 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
@@ -1320,13 +1473,21 @@ impl Parser {
                 self.consume(&Token::Comma)?;
 
                 // Parse compare type and value
-                let _cmp_ty = self.parse_type()?;
+                let cmp_ty = self.parse_type()?;
                 let _cmp = self.parse_value()?;
                 self.consume(&Token::Comma)?;
 
                 // Parse new type and value
                 let _new_ty = self.parse_type()?;
                 let _new = self.parse_value()?;
+
+                // cmpxchg returns { type, i1 } - old value and success flag
+                let struct_ty = crate::types::Type::struct_type(
+                    &self.context,
+                    vec![cmp_ty, self.context.bool_type()],
+                    None
+                );
+                result_type = Some(struct_ty);
 
                 // Skip syncscope if present
                 self.skip_syncscope();
@@ -1375,8 +1536,11 @@ impl Parser {
                 self.consume(&Token::Comma)?;
 
                 // Parse value type and value
-                let _val_ty = self.parse_type()?;
+                let val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
+
+                // atomicrmw returns the old value, same type as the value parameter
+                result_type = Some(val_ty);
 
                 // Skip syncscope if present
                 self.skip_syncscope();
@@ -1522,12 +1686,27 @@ impl Parser {
                 let agg = self.parse_value_with_type(Some(&agg_ty))?;
                 operands.push(agg);
 
-                // Parse indices
+                // Parse indices and compute result type
+                let mut current_ty = agg_ty.clone();
+                let mut indices = Vec::new();
+
                 while self.match_token(&Token::Comma) {
                     if let Some(Token::Integer(idx)) = self.peek() {
+                        let idx = *idx as usize;
+                        indices.push(idx);
+
+                        // Navigate to the indexed element type
+                        if let Some(fields) = current_ty.struct_fields() {
+                            if idx < fields.len() {
+                                current_ty = fields[idx].clone();
+                            }
+                        } else if let Some((elem_ty, _size)) = current_ty.array_info() {
+                            current_ty = elem_ty.clone();
+                        }
+
                         let idx_val = Value::new(
                             self.context.int_type(32),
-                            crate::value::ValueKind::ConstantInt { value: *idx as i64 },
+                            crate::value::ValueKind::ConstantInt { value: idx as i64 },
                             Some(idx.to_string())
                         );
                         operands.push(idx_val);
@@ -1537,8 +1716,8 @@ impl Parser {
                     }
                 }
 
-                // Result type is the extracted element type (simplified - use i32)
-                result_type = Some(self.context.int32_type());
+                // Result type is the final type after following all indices
+                result_type = Some(current_ty);
             }
             Opcode::InsertValue => {
                 // insertvalue <aggregate type> %agg, <element type> %val, <idx>...
@@ -1800,6 +1979,8 @@ impl Parser {
             // Handle metadata arguments specially: metadata i32 0 or metadata !{}
             if self.match_token(&Token::Metadata) {
                 // Check for various metadata forms
+                let metadata_ty;
+                let metadata_val;
                 if let Some(Token::MetadataIdent(_)) = self.peek() {
                     // metadata !DIExpression() or !0
                     self.advance(); // consume the metadata ident
@@ -1816,14 +1997,22 @@ impl Parser {
                             self.advance();
                         }
                     }
+                    metadata_ty = self.context.metadata_type();
+                    metadata_val = Value::undef(metadata_ty.clone());
                 } else if self.check(&Token::Exclaim) {
                     // metadata !{} - literal metadata
                     self.skip_metadata();
+                    metadata_ty = self.context.metadata_type();
+                    metadata_val = Value::undef(metadata_ty.clone());
                 } else {
                     // metadata i32 0 - parse type and value
+                    metadata_ty = self.context.metadata_type();
                     let _ty = self.parse_type()?;
                     let _val = self.parse_value()?;
+                    metadata_val = Value::undef(metadata_ty.clone());
                 }
+                // Add metadata as an argument so verifier sees correct arg count
+                args.push((metadata_ty, metadata_val));
                 if !self.match_token(&Token::Comma) {
                     break;
                 }
@@ -2115,11 +2304,17 @@ impl Parser {
                     Ok(self.context.vector_type(elem_ty, size as usize))
                 }
             }
-            Token::LocalIdent(_) => {
-                // Type reference like %TypeName
+            Token::LocalIdent(name) => {
+                // Type reference like %TypeName or %0
+                let name = name.clone();
                 self.advance();
-                // Treat as opaque type placeholder (use i8 to ensure it's sized for alloca)
-                Ok(self.context.int8_type())
+                // Look up in type table
+                if let Some(ty) = self.type_table.get(&name) {
+                    Ok(ty.clone())
+                } else {
+                    // Type not found - treat as opaque type placeholder (use i8 to ensure it's sized for alloca)
+                    Ok(self.context.int8_type())
+                }
             }
             Token::Ellipsis => {
                 // Ellipsis for varargs - should be caught before parse_type() is called
@@ -2233,13 +2428,27 @@ impl Parser {
             }
             Token::Identifier(id) if id == "splat" => {
                 // Vector splat: splat (type value)
+                // Expected type should be a vector type like <4 x i32>
                 self.advance(); // consume 'splat'
                 self.consume(&Token::LParen)?;
-                let _ty = self.parse_type()?;
-                let _val = self.parse_value()?;
+                let elem_ty = self.parse_type()?;
+                let elem_val = self.parse_value_with_type(Some(&elem_ty))?;
                 self.consume(&Token::RParen)?;
-                // Return placeholder splat value
-                Ok(Value::zero_initializer(self.context.void_type()))
+
+                // Use expected_type to determine vector size
+                if let Some(vec_ty) = expected_type {
+                    if vec_ty.is_vector() {
+                        // Create vector constant with all elements set to elem_val
+                        // For now, return a vector constant (implementation depends on Value API)
+                        Ok(Value::vector_splat(vec_ty.clone(), elem_val))
+                    } else {
+                        // Expected type is not a vector - return the element value
+                        Ok(elem_val)
+                    }
+                } else {
+                    // No expected type - use void as fallback (should not happen in valid IR)
+                    Ok(Value::zero_initializer(self.context.void_type()))
+                }
             }
             Token::Identifier(id) if id == "dso_local_equivalent" => {
                 // DSO local equivalent: dso_local_equivalent @func
@@ -2257,13 +2466,15 @@ impl Parser {
             }
             Token::Identifier(id) if id == "blockaddress" => {
                 // Block address: blockaddress(@func, %block)
+                // Returns a pointer to a basic block
                 self.advance(); // consume 'blockaddress'
                 self.consume(&Token::LParen)?;
-                let _func = self.parse_value()?; // @func
+                let func = self.parse_value()?; // @func
                 self.consume(&Token::Comma)?;
-                let _block = self.parse_value()?; // %block
+                let block = self.parse_value()?; // %block
                 self.consume(&Token::RParen)?;
-                Ok(Value::zero_initializer(self.context.void_type()))
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.ptr_type(self.context.int8_type()));
+                Ok(Value::block_address(ty, func, block))
             }
             Token::LocalIdent(name) => {
                 let name = name.clone();
@@ -2273,37 +2484,55 @@ impl Parser {
                     Ok(value.clone())
                 } else {
                     // If not found, create a placeholder instruction value for local variables
-                    // This can happen for forward references or undefined values
-                    Ok(Value::instruction(self.context.void_type(), Opcode::Add, Some(name)))
+                    // This can happen for forward references (e.g., phi nodes that reference themselves)
+                    // Use expected_type if provided, otherwise default to void
+                    let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                    Ok(Value::instruction(ty, Opcode::Add, Some(name)))
                 }
             }
             Token::GlobalIdent(name) => {
                 let name = name.clone();
                 self.advance();
-                // Use expected type if provided, otherwise look up function declaration, otherwise default to void
+                // Use expected type if provided, otherwise look up function declaration, otherwise default to ptr
                 let ty = if let Some(expected) = expected_type {
                     expected.clone()
                 } else if let Some(fn_type) = self.function_decls.get(&name) {
-                    fn_type.clone()
+                    // Function references are pointers to functions
+                    if fn_type.is_function() {
+                        self.context.ptr_type(fn_type.clone())
+                    } else {
+                        fn_type.clone()
+                    }
                 } else {
-                    self.context.void_type()
+                    // Global variable reference - default to ptr in opaque pointer mode
+                    self.context.ptr_type(self.context.int8_type())
                 };
                 Ok(Value::new(ty, crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
             }
             Token::Integer(n) => {
                 let n = *n;
                 self.advance();
-                // Use expected type if provided and it's an integer type
-                let ty = if let Some(expected) = expected_type {
-                    if expected.is_integer() {
-                        expected.clone()
-                    } else {
-                        self.context.int32_type()
+                // Check if expected type is float - hex integer constants can be float representations
+                if let Some(expected) = expected_type {
+                    if expected.is_float() {
+                        // Hex integer constant used as float (e.g., 0x427F4000 for double)
+                        // Convert the hex bits to a float based on the float size
+                        // Check the expected type's format string to determine float width
+                        let expected_str = format!("{}", expected);
+                        let float_val = if expected_str == "double" || expected_str.starts_with("fp128") {
+                            // 64-bit double from i64 bits
+                            f64::from_bits(n as u64)
+                        } else {
+                            // 32-bit float or half from i32 bits
+                            f32::from_bits(n as u32) as f64
+                        };
+                        return Ok(Value::const_float(expected.clone(), float_val, None));
+                    } else if expected.is_integer() {
+                        return Ok(Value::const_int(expected.clone(), n as i64, None));
                     }
-                } else {
-                    self.context.int32_type()
-                };
-                Ok(Value::const_int(ty, n as i64, None))
+                }
+                // Default: integer type
+                Ok(Value::const_int(self.context.int32_type(), n as i64, None))
             }
             Token::Float64(f) => {
                 let f = *f;
@@ -2339,15 +2568,18 @@ impl Parser {
             }
             Token::Undef => {
                 self.advance();
-                Ok(Value::undef(self.context.void_type()))
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::undef(ty))
             }
             Token::Poison => {
                 self.advance();
-                Ok(Value::undef(self.context.void_type())) // Treat poison like undef for now
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::undef(ty)) // Treat poison like undef for now
             }
             Token::Zeroinitializer => {
                 self.advance();
-                Ok(Value::zero_initializer(self.context.void_type()))
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::zero_initializer(ty))
             }
             Token::LAngle => {
                 // Could be:
@@ -2517,14 +2749,38 @@ impl Parser {
             let _base_ty = self.parse_type()?;
             self.consume(&Token::Comma)?;
             let ptr_ty = self.parse_type()?;
-            result_type = Some(ptr_ty);  // GEP result is pointer type
             let _ptr_val = self.parse_value()?;
-            // Parse remaining indices (each can have optional inrange qualifier)
+
+            // Determine result type: ptr or <N x ptr> if any index is a vector
+            let mut vector_size = None;
+
+            // Check if base is a vector
+            if ptr_ty.is_vector() {
+                vector_size = ptr_ty.vector_info().map(|(_, size)| size);
+            }
+
+            // Parse remaining indices and check for vectors
             while self.match_token(&Token::Comma) {
                 self.match_token(&Token::Inrange); // Skip optional inrange
-                let _idx_ty = self.parse_type()?;
+                let idx_ty = self.parse_type()?;
+
+                // Check if this index is a vector
+                if idx_ty.is_vector() {
+                    vector_size = idx_ty.vector_info().map(|(_, size)| size);
+                }
+
                 let _idx_val = self.parse_value()?;
             }
+
+            // Set result type based on whether we found a vector
+            result_type = if let Some(size) = vector_size {
+                Some(self.context.vector_type(
+                    self.context.ptr_type(self.context.int8_type()),
+                    size
+                ))
+            } else {
+                Some(self.context.ptr_type(self.context.int8_type()))
+            };
         } else {
             // Simplified parsing - just parse type and value, skip to closing paren
             // This allows the constant expression to be recognized without full semantic support

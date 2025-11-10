@@ -141,6 +141,17 @@ impl Value {
         Self::new(ty, ValueKind::ConstantVector { elements }, None)
     }
 
+    /// Create a vector splat (all elements have the same value)
+    pub fn vector_splat(ty: Type, element: Value) -> Self {
+        assert!(ty.is_vector(), "vector_splat requires a vector type");
+        if let Some((_, size)) = ty.vector_info() {
+            let elements = vec![element; size];
+            Self::new(ty, ValueKind::ConstantVector { elements }, None)
+        } else {
+            panic!("vector_splat: invalid vector type");
+        }
+    }
+
     /// Create a zero initializer
     pub fn zero_initializer(ty: Type) -> Self {
         Self::new(ty, ValueKind::ZeroInitializer, None)
