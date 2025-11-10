@@ -1219,6 +1219,195 @@ impl Parser {
                 let result_ty = self.parse_type()?;
                 result_type = Some(result_ty);  // va_arg result is the specified type
             }
+            Opcode::Invoke => {
+                // invoke [cc] [attrs] type @func(args...) to label %normal unwind label %exception
+                self.skip_linkage_and_visibility();
+                self.skip_attributes();
+
+                let ret_ty = self.parse_type()?;
+                result_type = Some(ret_ty);
+
+                // Check for optional function signature
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        if self.match_token(&Token::Ellipsis) {
+                            break;
+                        }
+                        self.parse_type()?;
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.consume(&Token::RParen)?;
+                }
+
+                // Parse function and arguments
+                let func = self.parse_value()?;
+                operands.push(func);
+                self.consume(&Token::LParen)?;
+                let args = self.parse_call_arguments()?;
+                for (_, value) in args {
+                    operands.push(value);
+                }
+                self.consume(&Token::RParen)?;
+
+                // Parse destination labels
+                self.consume(&Token::To)?;
+                self.consume(&Token::Label)?;
+                let normal_dest = self.expect_local_ident()?;
+                operands.push(Value::new(
+                    self.context.label_type(),
+                    crate::value::ValueKind::BasicBlock,
+                    Some(normal_dest)
+                ));
+
+                // Parse 'unwind' keyword (as identifier)
+                if let Some(Token::Identifier(id)) = self.peek() {
+                    if id == "unwind" {
+                        self.advance();
+                    }
+                }
+                self.consume(&Token::Label)?;
+                let exception_dest = self.expect_local_ident()?;
+                operands.push(Value::new(
+                    self.context.label_type(),
+                    crate::value::ValueKind::BasicBlock,
+                    Some(exception_dest)
+                ));
+
+                // Handle optional operand bundles
+                if self.check(&Token::LBracket) {
+                    self.advance();
+                    while !self.check(&Token::RBracket) && !self.is_at_end() {
+                        if let Some(Token::StringLit(_)) = self.peek() {
+                            self.advance();
+                        }
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            let mut depth = 1;
+                            while depth > 0 && !self.is_at_end() {
+                                if self.check(&Token::LParen) {
+                                    depth += 1;
+                                } else if self.check(&Token::RParen) {
+                                    depth -= 1;
+                                }
+                                self.advance();
+                            }
+                        }
+                        if !self.match_token(&Token::Comma) {
+                            break;
+                        }
+                    }
+                    self.match_token(&Token::RBracket);
+                }
+
+                self.skip_function_attributes();
+            }
+            Opcode::FNeg | Opcode::Freeze => {
+                // Unary operations: fneg/freeze type value
+                self.skip_instruction_flags();
+                let ty = self.parse_type()?;
+                result_type = Some(ty);
+                let val = self.parse_value()?;
+                operands.push(val);
+            }
+            Opcode::ShuffleVector => {
+                // shufflevector <vec1>, <vec2>, <mask>
+                let vec1_ty = self.parse_type()?;
+                let vec1 = self.parse_value_with_type(Some(&vec1_ty))?;
+                operands.push(vec1);
+                self.consume(&Token::Comma)?;
+
+                let vec2_ty = self.parse_type()?;
+                let vec2 = self.parse_value_with_type(Some(&vec2_ty))?;
+                operands.push(vec2);
+                self.consume(&Token::Comma)?;
+
+                let mask_ty = self.parse_type()?;
+                let mask = self.parse_value_with_type(Some(&mask_ty))?;
+                operands.push(mask);
+
+                // Result type is same as first vector type
+                result_type = Some(vec1_ty);
+            }
+            Opcode::ExtractValue => {
+                // extractvalue <aggregate type> %agg, <idx>...
+                let agg_ty = self.parse_type()?;
+                let agg = self.parse_value_with_type(Some(&agg_ty))?;
+                operands.push(agg);
+
+                // Parse indices
+                while self.match_token(&Token::Comma) {
+                    if let Some(Token::Integer(idx)) = self.peek() {
+                        let idx_val = Value::new(
+                            self.context.int_type(32),
+                            crate::value::ValueKind::ConstantInt { value: *idx as i64 },
+                            Some(idx.to_string())
+                        );
+                        operands.push(idx_val);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Result type is the extracted element type (simplified - use i32)
+                result_type = Some(self.context.int32_type());
+            }
+            Opcode::InsertValue => {
+                // insertvalue <aggregate type> %agg, <element type> %val, <idx>...
+                let agg_ty = self.parse_type()?;
+                let agg = self.parse_value_with_type(Some(&agg_ty))?;
+                operands.push(agg);
+                self.consume(&Token::Comma)?;
+
+                let elem_ty = self.parse_type()?;
+                let elem = self.parse_value_with_type(Some(&elem_ty))?;
+                operands.push(elem);
+
+                // Parse indices
+                while self.match_token(&Token::Comma) {
+                    if let Some(Token::Integer(idx)) = self.peek() {
+                        let idx_val = Value::new(
+                            self.context.int_type(32),
+                            crate::value::ValueKind::ConstantInt { value: *idx as i64 },
+                            Some(idx.to_string())
+                        );
+                        operands.push(idx_val);
+                        self.advance();
+                    } else {
+                        break;
+                    }
+                }
+
+                // Result type is same as aggregate type
+                result_type = Some(agg_ty);
+            }
+            Opcode::IndirectBr => {
+                // indirectbr <ptr type> <address>, [ label <dest1>, label <dest2>, ... ]
+                let addr_ty = self.parse_type()?;
+                let addr = self.parse_value_with_type(Some(&addr_ty))?;
+                operands.push(addr);
+                self.consume(&Token::Comma)?;
+
+                // Parse possible destinations
+                self.consume(&Token::LBracket)?;
+                while !self.check(&Token::RBracket) && !self.is_at_end() {
+                    self.consume(&Token::Label)?;
+                    let dest = self.expect_local_ident()?;
+                    operands.push(Value::new(
+                        self.context.label_type(),
+                        crate::value::ValueKind::BasicBlock,
+                        Some(dest)
+                    ));
+
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RBracket)?;
+            }
             Opcode::Switch => {
                 // switch <intty> <value>, label <defaultdest> [ <intty> <val>, label <dest> ]*
                 // Parse condition type and value

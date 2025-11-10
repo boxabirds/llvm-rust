@@ -276,6 +276,89 @@ impl Verifier {
                     }
                 }
             }
+            Opcode::PHI => {
+                // PHI: all incoming values must have same type as result
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+                    let operands = inst.operands();
+                    // PHI operands are pairs: [value1, block1, value2, block2, ...]
+                    let mut i = 0;
+                    while i < operands.len() {
+                        if i % 2 == 0 {
+                            // Even indices are values
+                            let value_type = operands[i].get_type();
+                            // Allow pointer type equivalence
+                            let types_match = if value_type.is_pointer() && result_type.is_pointer() {
+                                true
+                            } else {
+                                *value_type == *result_type
+                            };
+                            if !types_match {
+                                self.errors.push(VerificationError::TypeMismatch {
+                                    expected: format!("{:?}", result_type),
+                                    found: format!("{:?}", value_type),
+                                    location: format!("phi incoming value {}", i / 2),
+                                });
+                            }
+                        }
+                        i += 1;
+                    }
+                }
+            }
+            Opcode::ShuffleVector => {
+                // ShuffleVector: vec1 and vec2 must be same type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let vec1_type = operands[0].get_type();
+                    let vec2_type = operands[1].get_type();
+                    if *vec1_type != *vec2_type {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", vec1_type),
+                            found: format!("{:?}", vec2_type),
+                            location: "shufflevector second vector".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
+            Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
+            Opcode::And | Opcode::Or | Opcode::Xor |
+            Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
+                // Binary operations: both operands must have same type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let op1_type = operands[0].get_type();
+                    let op2_type = operands[1].get_type();
+                    if *op1_type != *op2_type {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", op1_type),
+                            found: format!("{:?}", op2_type),
+                            location: format!("{:?} instruction", inst.opcode()),
+                        });
+                    }
+                }
+            }
+            Opcode::ICmp | Opcode::FCmp => {
+                // Comparison: both operands must have same type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let op1_type = operands[0].get_type();
+                    let op2_type = operands[1].get_type();
+                    // Allow pointer type equivalence for comparisons
+                    let types_match = if op1_type.is_pointer() && op2_type.is_pointer() {
+                        true
+                    } else {
+                        *op1_type == *op2_type
+                    };
+                    if !types_match {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", op1_type),
+                            found: format!("{:?}", op2_type),
+                            location: "comparison operands".to_string(),
+                        });
+                    }
+                }
+            }
             _ => {
                 // Other opcodes: no special validation yet
             }
