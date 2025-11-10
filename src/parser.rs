@@ -38,6 +38,8 @@ pub struct Parser {
     current: usize,
     /// Symbol table for tracking local values within a function
     symbol_table: std::collections::HashMap<String, Value>,
+    /// Function declarations table for tracking global function types
+    function_decls: std::collections::HashMap<String, Type>,
 }
 
 impl Parser {
@@ -47,6 +49,7 @@ impl Parser {
             tokens: Vec::new(),
             current: 0,
             symbol_table: std::collections::HashMap::new(),
+            function_decls: std::collections::HashMap::new(),
         }
     }
 
@@ -159,6 +162,8 @@ impl Parser {
             // Parse function declarations
             if self.match_token(&Token::Declare) {
                 let function = self.parse_function_declaration()?;
+                // Track function type for call validation
+                self.function_decls.insert(function.name().to_string(), function.get_type());
                 module.add_function(function);
                 continue;
             }
@@ -166,6 +171,8 @@ impl Parser {
             // Parse function definitions
             if self.match_token(&Token::Define) {
                 let function = self.parse_function_definition()?;
+                // Track function type for call validation
+                self.function_decls.insert(function.name().to_string(), function.get_type());
                 module.add_function(function);
                 continue;
             }
@@ -303,13 +310,13 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let param_types = self.parse_parameter_types()?;
+        let (param_types, is_vararg) = self.parse_parameter_types()?;
         self.consume(&Token::RParen)?;
 
         // Skip function attributes
         self.skip_function_attributes();
 
-        let fn_type = self.context.function_type(return_type, param_types, false);
+        let fn_type = self.context.function_type(return_type, param_types, is_vararg);
         Ok(Function::new(name, fn_type))
     }
 
@@ -841,26 +848,28 @@ impl Parser {
                 self.skip_attributes();
 
                 let ret_ty = self.parse_type()?;
-                result_type = Some(ret_ty);  // Call result type is the return type
 
-                // Check for optional function signature: (param_types...)
-                if self.check(&Token::LParen) {
-                    self.advance(); // consume '('
-                    // Parse parameter types for function pointer
-                    while !self.check(&Token::RParen) && !self.is_at_end() {
-                        if self.match_token(&Token::Ellipsis) {
-                            break; // varargs
-                        }
-                        self.parse_type()?;
-                        if !self.match_token(&Token::Comma) {
-                            break;
-                        }
+                // If parse_type returned a function type (e.g., i32 (i8*, ...)), extract components
+                let (return_type, explicit_fn_type) = if ret_ty.is_function() {
+                    // parse_type already parsed the full function signature
+                    if let Some((ret, _, _)) = ret_ty.function_info() {
+                        (ret, Some(ret_ty.clone()))
+                    } else {
+                        (ret_ty.clone(), None)
                     }
-                    self.consume(&Token::RParen)?;
-                }
+                } else {
+                    // Just a return type, no explicit function signature
+                    (ret_ty.clone(), None)
+                };
+
+                result_type = Some(return_type);  // Call result type is the return type
 
                 // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
-                let func = self.parse_value()?;
+                let func = if let Some(fn_ty) = explicit_fn_type {
+                    self.parse_value_with_type(Some(&fn_ty))?
+                } else {
+                    self.parse_value()?
+                };
                 operands.push(func);
                 self.consume(&Token::LParen)?;
                 let args = self.parse_call_arguments()?;
@@ -1973,10 +1982,12 @@ impl Parser {
             self.advance(); // consume '('
 
             let mut param_types = Vec::new();
+            let mut is_vararg = false;
             while !self.check(&Token::RParen) && !self.is_at_end() {
                 // Check for varargs
                 if self.check(&Token::Ellipsis) {
                     self.advance();
+                    is_vararg = true;
                     break;
                 }
                 let param_ty = self.parse_type()?;
@@ -1988,7 +1999,7 @@ impl Parser {
             self.consume(&Token::RParen)?;
 
             // base_type is the return type, create function type
-            let mut func_type = self.context.function_type(base_type, param_types, false);
+            let mut func_type = self.context.function_type(base_type, param_types, is_vararg);
 
             // Check for stars to make function pointer: void ()* or void ()**
             while self.check(&Token::Star) {
@@ -2111,8 +2122,14 @@ impl Parser {
             Token::GlobalIdent(name) => {
                 let name = name.clone();
                 self.advance();
-                // Create a global variable value with expected type if available
-                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                // Use expected type if provided, otherwise look up function declaration, otherwise default to void
+                let ty = if let Some(expected) = expected_type {
+                    expected.clone()
+                } else if let Some(fn_type) = self.function_decls.get(&name) {
+                    fn_type.clone()
+                } else {
+                    self.context.void_type()
+                };
                 Ok(Value::new(ty, crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
             }
             Token::Integer(n) => {
@@ -2133,7 +2150,17 @@ impl Parser {
             Token::Float64(f) => {
                 let f = *f;
                 self.advance();
-                Ok(Value::const_float(self.context.double_type(), f, None))
+                // Use expected type if provided and it's a floating point type
+                let ty = if let Some(expected) = expected_type {
+                    if expected.is_float() {
+                        expected.clone()
+                    } else {
+                        self.context.double_type()
+                    }
+                } else {
+                    self.context.double_type()
+                };
+                Ok(Value::const_float(ty, f, None))
             }
             Token::True => {
                 self.advance();
@@ -2445,13 +2472,15 @@ impl Parser {
         Ok(params)
     }
 
-    fn parse_parameter_types(&mut self) -> ParseResult<Vec<Type>> {
+    fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, bool)> {
         let mut types = Vec::new();
+        let mut is_vararg = false;
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             // Check for varargs
             if self.check(&Token::Ellipsis) {
                 self.advance();
+                is_vararg = true;
                 break;
             }
 
@@ -2471,7 +2500,7 @@ impl Parser {
             }
         }
 
-        Ok(types)
+        Ok((types, is_vararg))
     }
 
     // Helper methods
