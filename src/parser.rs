@@ -712,6 +712,11 @@ impl Parser {
             }
         }
 
+        // Don't return empty unnamed blocks (can happen after uselistorder directives)
+        if name.is_none() && bb.instructions().is_empty() {
+            return Ok(None);
+        }
+
         Ok(Some(bb))
     }
 
