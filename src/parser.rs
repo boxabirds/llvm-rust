@@ -249,6 +249,17 @@ impl Parser {
             }
         }
 
+        // Skip addrspace modifier if present: addrspace(N)
+        if self.match_token(&Token::Addrspace) {
+            if self.match_token(&Token::LParen) {
+                // Parse address space number or symbolic string
+                if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
+                    self.advance();
+                }
+                self.match_token(&Token::RParen);
+            }
+        }
+
         let is_constant = if self.match_token(&Token::Constant) {
             true
         } else if self.match_token(&Token::Global) {
@@ -1722,21 +1733,26 @@ impl Parser {
         }
 
         // Check for old-style typed pointer syntax: type addrspace(n)* or type*
-        // Skip optional addrspace modifier
-        if self.check(&Token::Addrspace) {
-            self.advance(); // consume 'addrspace'
-            self.consume(&Token::LParen)?;
-            if let Some(Token::Integer(_)) = self.peek() {
-                self.advance();
-            }
-            self.consume(&Token::RParen)?;
-        }
-
-        // Check for * to make it a pointer (handle multiple stars for i8**, i8***, etc.)
+        // Handle patterns like: i8*, i8 addrspace(4)*, i8 addrspace(4)* addrspace(4)*
         let mut result_type = base_type;
-        while self.check(&Token::Star) {
-            self.advance(); // consume '*'
-            result_type = self.context.ptr_type(result_type);
+        loop {
+            // Skip optional addrspace modifier before each star
+            if self.check(&Token::Addrspace) {
+                self.advance(); // consume 'addrspace'
+                self.consume(&Token::LParen)?;
+                if let Some(Token::Integer(_)) = self.peek() {
+                    self.advance();
+                }
+                self.consume(&Token::RParen)?;
+            }
+
+            // Check for * to make it a pointer
+            if self.check(&Token::Star) {
+                self.advance(); // consume '*'
+                result_type = self.context.ptr_type(result_type);
+            } else {
+                break; // No more stars, we're done
+            }
         }
 
         Ok(result_type)
