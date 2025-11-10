@@ -605,7 +605,7 @@ impl Parser {
         }
 
         // Check for result assignment: %name = ...
-        let _result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
+        let result_name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
             if self.peek_ahead(1) == Some(&Token::Equal) {
                 self.advance(); // consume ident
                 self.advance(); // consume =
@@ -646,7 +646,14 @@ impl Parser {
             }
         }
 
-        Ok(Some(Instruction::new(opcode, operands, None)))
+        // Create result value if there's a result name
+        let result = result_name.map(|name| {
+            // Create an instruction value with void type for now
+            // The type should ideally be inferred from the instruction
+            Value::instruction(self.context.void_type(), opcode, Some(name))
+        });
+
+        Ok(Some(Instruction::new(opcode, operands, result)))
     }
 
     fn parse_opcode(&mut self) -> ParseResult<Option<Opcode>> {
