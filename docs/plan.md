@@ -14,7 +14,7 @@ This document provides **exhaustive, step-by-step tracking** for implementing a 
 
 ---
 
-## 📊 Current Status Summary (Accurate as of 2025-11-09)
+## 📊 Current Status Summary (Accurate as of 2025-11-10)
 
 | Level | Name | Test Directory | Steps Complete | Total Steps | % Complete | Status |
 |-------|------|----------------|----------------|-------------|------------|--------|
@@ -22,14 +22,14 @@ This document provides **exhaustive, step-by-step tracking** for implementing a 
 | 2 | Type System | test/Assembler (types) | 14 | 15 | 93% | ✅ Strong |
 | 3 | All Instructions | test/Assembler (full) | 18 | 18 | 100% | ✅ Complete |
 | 4 | Verification | test/Verifier | 111 | 129 | 86% | ✅ Strong |
-| 5 | Simple Optimizations | test/Transforms/InstCombine | 1 | 10 | 10% | ⚠️ Stubs Only |
+| 5 | Simple Optimizations | test/Transforms/InstCombine | 5 | 10 | 50% | 🔄 In Progress |
 | 6 | Control Flow & SSA | test/Transforms/Mem2Reg | 2 | 11 | 18% | ⚠️ Framework Only |
 | 7 | x86-64 Codegen | test/CodeGen/X86 | 0 | 15 | 0% | ❌ Not Started |
 | 8 | Executable Output | test/tools/llvm-link | 0 | 10 | 0% | ❌ Not Started |
 | 9 | Standard Library | test/ExecutionEngine | 0 | 8 | 0% | ❌ Not Started |
-| **TOTAL** | | | **158** | **204** | **77%** | ✅ **Verified IR Library** |
+| **TOTAL** | | | **162** | **204** | **79%** | ✅ **Verified IR Library** |
 
-**Reality Check:** This is a comprehensive IR manipulation library with strong verification at ~77% completion toward becoming a full compiler. It can parse, build, and verify IR with 86% test coverage but cannot optimize thoroughly or generate executable code.
+**Reality Check:** This is a comprehensive IR manipulation and optimization library at 79% completion toward becoming a full compiler. It can parse, build, verify, and perform basic constant folding optimizations on IR. Cannot yet perform full optimizations or generate executable code.
 
 ---
 
@@ -386,26 +386,26 @@ This document provides **exhaustive, step-by-step tracking** for implementing a 
 **Goal:** Implement basic optimization passes
 **Test Directory:** `llvm/test/Transforms/InstCombine`, `llvm/test/Transforms/ConstProp`
 **Target Success Rate:** Match LLVM behavior on basic patterns
-**Current Status:** 10% (1/10 steps complete)
+**Current Status:** 50% (5/10 steps complete)
 
 ### Step-by-Step Tracking
 
 #### 5.1 Pass Infrastructure
 - [x] **5.1.1** Define Pass trait - `src/passes.rs:1-50`
-- [ ] **5.1.2** Implement PassManager for running passes - STUB ONLY
+- [x] **5.1.2** Implement PassManager for running passes - `src/passes.rs:66-112`
 - [ ] **5.1.3** Add pass registration system - NOT IMPLEMENTED
 - [ ] **5.1.4** Implement pass ordering and dependencies - NOT IMPLEMENTED
 
-**Status:** ⚠️ Minimal (1/4 steps)
+**Status:** ⚠️ Partial (2/4 steps)
 
 #### 5.2 Constant Folding
-- [ ] **5.2.1** Fold constant arithmetic (2+3 -> 5) - NOT IMPLEMENTED
-- [ ] **5.2.2** Fold constant comparisons (5 > 3 -> true) - NOT IMPLEMENTED
-- [ ] **5.2.3** Fold constant boolean logic - NOT IMPLEMENTED
+- [x] **5.2.1** Fold constant arithmetic (2+3 -> 5) - `src/transforms.rs:128-231`
+- [ ] **5.2.2** Fold constant comparisons (5 > 3 -> true) - PARTIAL (structure exists, needs predicates)
+- [x] **5.2.3** Fold constant boolean logic - `src/transforms.rs:169-175`
 - [ ] **5.2.4** Fold constant casts - NOT IMPLEMENTED
-- [ ] **5.2.5** Test constant folding pass - NOT TESTED
+- [x] **5.2.5** Test constant folding pass - `tests/constant_folding_tests.rs` (11 tests passing)
 
-**Status:** ❌ Not Started (0/5 steps)
+**Status:** ✅ Mostly Complete (3/5 steps)
 
 #### 5.3 Dead Code Elimination
 - [ ] **5.3.1** Identify dead instructions (unused results) - NOT IMPLEMENTED
@@ -713,7 +713,7 @@ If Option A chosen in Phase 4, then add code generation for native compilation
 
 ## 📈 Honest Progress Assessment
 
-### What Has Been Accomplished (77% overall)
+### What Has Been Accomplished (79% overall)
 - ✅ **Strong IR Construction Library**
   - Complete type system
   - All instruction types defined
@@ -738,23 +738,32 @@ If Option A chosen in Phase 4, then add code generation for native compilation
   - 10 error categories with clear messages
   - Documented in `docs/validation_rules.md`
 
-- ⚠️ **Framework for Optimization & Analysis**
-  - Pass infrastructure exists
-  - Data structures defined
-  - But implementations are stubs
+- 🔄 **Basic Optimization Capabilities** (NEW)
+  - Pass infrastructure implemented (PassManager, FunctionPass)
+  - Constant folding for integer arithmetic (add, sub, mul, div, rem)
+  - Constant folding for floating point operations
+  - Constant folding for bitwise operations (and, or, xor, shl, lshr, ashr)
+  - 11 optimization tests passing
+  - Proper handling of edge cases (division by zero, etc.)
 
-### What Is Missing (23% remaining)
+### What Is Missing (21% remaining)
 - ⚠️ **Verification Gaps** (Level 4 - 14% remaining)
   - 2 tests need function declaration tracking
   - 9 tests need metadata preservation in parser
   - 7 tests need CFG edge preservation in parser
   - These are parser features, not verifier logic issues
 
-- ❌ **No Optimization or Analysis** (Levels 5-6)
-  - Cannot transform IR
-  - Cannot optimize code
+- ⚠️ **Partial Optimization** (Level 5 - 50% complete)
+  - ✅ Basic constant folding works (arithmetic, boolean logic)
+  - ❌ No constant comparison folding (needs predicates)
+  - ❌ No constant cast folding
+  - ❌ No dead code elimination
+  - ❌ No instruction combining (x+0->x, x*1->x, etc.)
+
+- ❌ **No Advanced Analysis** (Level 6)
   - Cannot analyze CFG or data flow
-  - Severely limits practical utility
+  - Cannot perform SSA transformations
+  - Limits practical utility
 
 - ❌ **No Code Generation** (Levels 7-9)
   - Cannot compile to machine code
@@ -763,12 +772,13 @@ If Option A chosen in Phase 4, then add code generation for native compilation
   - This is what makes a compiler vs. an IR library
 
 ### Current Capability
-**This is an LLVM IR manipulation and verification library:**
+**This is an LLVM IR manipulation, verification, and basic optimization library:**
 - ✅ Can build IR programmatically
 - ✅ Can parse IR from text (97.3% of LLVM tests)
 - ✅ Can print IR to text
 - ✅ Can verify IR is valid (86% test coverage, 97% type checking)
-- ❌ Cannot optimize IR
+- ✅ Can perform basic constant folding (arithmetic, bitwise, floating point)
+- ⚠️ Limited optimization capabilities (constant folding only)
 - ❌ Cannot execute IR
 - ❌ Cannot compile to machine code
 
@@ -828,7 +838,21 @@ Based on LLVM 17 test suite:
 
 ## 🔄 Change Log
 
-**2025-11-10:** Major Level 4 update - Verification system complete at 86%
+**2025-11-10 (Part 2):** Level 5 Constant Folding Implementation - 50% complete
+- Implemented constant folding pass for basic optimizations
+- Added helper methods to Value class (as_const_int, as_const_float, is_zero, is_one, etc.)
+- Added instruction transformation APIs to BasicBlock
+- Implemented constant folding for:
+  - Integer arithmetic (add, sub, mul, div, rem)
+  - Floating point operations (fadd, fsub, fmul, fdiv, frem)
+  - Bitwise operations (and, or, xor, shl, lshr, ashr)
+- Created comprehensive test suite with 11 tests passing
+- Proper handling of edge cases (division by zero, non-constants)
+- Updated Level 5 from 10% to 50% complete
+- Updated overall project completion from 77% to 79%
+- Updated project status to "IR manipulation, verification, and basic optimization library"
+
+**2025-11-10 (Part 1):** Major Level 4 update - Verification system complete at 86%
 - Updated Level 4 from 50% (framework only) to 86% (comprehensive verification)
 - Documented 55+ validation rules across type checking, metadata, and CFG
 - Test results: 111/129 tests passing (86% overall)

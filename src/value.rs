@@ -168,6 +168,71 @@ impl Value {
     pub(crate) fn instruction(ty: Type, opcode: crate::instruction::Opcode, name: Option<String>) -> Self {
         Self::new(ty, ValueKind::Instruction { opcode }, name)
     }
+
+    // Constant value extraction methods
+
+    /// Try to extract this value as a constant integer
+    pub fn as_const_int(&self) -> Option<i64> {
+        match &self.data.kind {
+            ValueKind::ConstantInt { value } => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Try to extract this value as a constant float
+    pub fn as_const_float(&self) -> Option<f64> {
+        match &self.data.kind {
+            ValueKind::ConstantFloat { value } => Some(*value),
+            _ => None,
+        }
+    }
+
+    /// Check if this is a constant integer with a specific value
+    pub fn is_const_int_value(&self, expected: i64) -> bool {
+        self.as_const_int() == Some(expected)
+    }
+
+    /// Check if this value is null
+    pub fn is_null(&self) -> bool {
+        matches!(&self.data.kind, ValueKind::ConstantNull)
+    }
+
+    /// Check if this value is undef
+    pub fn is_undef(&self) -> bool {
+        matches!(&self.data.kind, ValueKind::Undef)
+    }
+
+    /// Check if this value is poison
+    pub fn is_poison(&self) -> bool {
+        matches!(&self.data.kind, ValueKind::Poison)
+    }
+
+    /// Check if this value is a zero value (zero initializer or const 0)
+    pub fn is_zero(&self) -> bool {
+        match &self.data.kind {
+            ValueKind::ZeroInitializer => true,
+            ValueKind::ConstantInt { value } => *value == 0,
+            ValueKind::ConstantFloat { value } => *value == 0.0,
+            _ => false,
+        }
+    }
+
+    /// Check if this value is a one value (const 1)
+    pub fn is_one(&self) -> bool {
+        match &self.data.kind {
+            ValueKind::ConstantInt { value } => *value == 1,
+            ValueKind::ConstantFloat { value } => *value == 1.0,
+            _ => false,
+        }
+    }
+
+    /// Check if this value is an all-ones value (const -1 for integers)
+    pub fn is_all_ones(&self) -> bool {
+        match &self.data.kind {
+            ValueKind::ConstantInt { value } => *value == -1,
+            _ => false,
+        }
+    }
 }
 
 impl fmt::Display for Value {

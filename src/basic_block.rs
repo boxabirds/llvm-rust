@@ -72,6 +72,35 @@ impl BasicBlock {
     pub fn instruction_count(&self) -> usize {
         self.data.read().unwrap().instructions.len()
     }
+
+    /// Replace an instruction at a given index
+    pub fn replace_instruction(&self, index: usize, new_inst: Instruction) {
+        let mut data = self.data.write().unwrap();
+        if index < data.instructions.len() {
+            let old_is_terminator = data.instructions[index].is_terminator();
+            let new_is_terminator = new_inst.is_terminator();
+
+            data.instructions[index] = new_inst;
+
+            // Update terminated status if needed
+            if old_is_terminator != new_is_terminator {
+                data.terminated = new_is_terminator ||
+                    data.instructions.iter().any(|i| i.is_terminator());
+            }
+        }
+    }
+
+    /// Get mutable access to instructions for transformation passes
+    pub fn transform_instructions<F>(&self, f: F)
+    where
+        F: FnOnce(&mut Vec<Instruction>)
+    {
+        let mut data = self.data.write().unwrap();
+        f(&mut data.instructions);
+
+        // Update terminated status
+        data.terminated = data.instructions.iter().any(|i| i.is_terminator());
+    }
 }
 
 impl fmt::Display for BasicBlock {
