@@ -768,39 +768,19 @@ impl Parser {
                 if !self.is_at_end() && !self.check(&Token::RBrace) &&
                    self.peek_ahead(1) != Some(&Token::Colon) {
                     let ty = self.parse_type()?;
-                    // After parsing type, check if there's a value
-                    // Skip parsing value if next token is a label (identifier followed by colon)
-                    if self.peek_ahead(1) == Some(&Token::Colon) {
-                        // Next token is a label definition, not a value - stop here
-                        return Ok((operands, result_type));
-                    }
-                    // Skip parsing value if next token is followed by =, that's a new instruction assignment
-                    if self.peek_ahead(1) == Some(&Token::Equal) {
-                        // Next token is a new instruction, not a return value - stop here
-                        return Ok((operands, result_type));
-                    }
-                    // If we see a value token (including constant expressions), parse it
-                    if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
-                                             Some(Token::Integer(_)) | Some(Token::Float64(_)) |
-                                             Some(Token::Null) | Some(Token::Undef) | Some(Token::Poison) |
-                                             Some(Token::True) | Some(Token::False) | Some(Token::Zeroinitializer) |
-                                             Some(Token::LBrace) | Some(Token::LAngle) | Some(Token::LBracket) |
-                                             Some(Token::Identifier(_)) |
-                                             // Constant expression tokens
-                                             Some(Token::PtrToInt) | Some(Token::IntToPtr) | Some(Token::PtrToAddr) | Some(Token::AddrToPtr) |
-                                             Some(Token::BitCast) | Some(Token::AddrSpaceCast) |
-                                             Some(Token::Trunc) | Some(Token::ZExt) | Some(Token::SExt) |
-                                             Some(Token::FPTrunc) | Some(Token::FPExt) | Some(Token::FPToUI) | Some(Token::FPToSI) |
-                                             Some(Token::UIToFP) | Some(Token::SIToFP) |
-                                             Some(Token::GetElementPtr) | Some(Token::Sub) | Some(Token::Add) | Some(Token::Mul) |
-                                             Some(Token::FNeg) | Some(Token::UDiv) | Some(Token::SDiv) | Some(Token::URem) | Some(Token::SRem) |
-                                             Some(Token::Shl) | Some(Token::LShr) | Some(Token::AShr) |
-                                             Some(Token::And) | Some(Token::Or) | Some(Token::Xor) |
-                                             Some(Token::ICmp) | Some(Token::FCmp) | Some(Token::Select) |
-                                             Some(Token::ExtractValue) | Some(Token::ExtractElement) |
-                                             Some(Token::InsertElement) | Some(Token::ShuffleVector)) {
-                        let val = self.parse_value_with_type(Some(&ty))?;
-                        operands.push(val);
+                    // After parsing type, try to parse a value if present
+                    // Don't parse if we're at end of block or the next token looks like a label
+                    if !self.is_at_end() && !self.check(&Token::RBrace) {
+                        // Check if current token is followed by colon (label definition)
+                        if self.peek_ahead(1) == Some(&Token::Colon) {
+                            // This is a label, not a return value
+                            return Ok((operands, result_type));
+                        }
+                        // Try to parse a value - if the type is void, there might not be one
+                        if !ty.is_void() {
+                            let val = self.parse_value_with_type(Some(&ty))?;
+                            operands.push(val);
+                        }
                     }
                 }
             }
