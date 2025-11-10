@@ -5,7 +5,7 @@ use std::time::Instant;
 
 #[test]
 fn test_parse_instcombine_tests() {
-    let test_dir = Path::new("/home/user/llvm-rust/llvm-tests/llvm-project/test/Transforms/InstCombine");
+    let test_dir = Path::new("/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Transforms/InstCombine");
 
     if !test_dir.exists() {
         eprintln!("Test directory doesn't exist, skipping");
