@@ -468,11 +468,13 @@ impl Parser {
         let (param_types, is_vararg) = self.parse_parameter_types()?;
         self.consume(&Token::RParen)?;
 
-        // Skip function attributes
-        self.skip_function_attributes();
+        // Parse function attributes
+        let attrs = self.parse_function_attributes();
 
         let fn_type = self.context.function_type(return_type, param_types, is_vararg);
-        Ok(Function::new(name, fn_type))
+        let function = Function::new(name, fn_type);
+        function.set_attributes(attrs);
+        Ok(function)
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
@@ -492,13 +494,14 @@ impl Parser {
         let params = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
 
-        // Skip function attributes
-        self.skip_function_attributes();
+        // Parse function attributes
+        let attrs = self.parse_function_attributes();
 
         // Create function
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
         let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+        function.set_attributes(attrs);
 
         // Set arguments
         let args: Vec<Value> = params.iter().enumerate().map(|(idx, (ty, name))| {
@@ -2940,6 +2943,122 @@ impl Parser {
             self.advance();
             skip_count += 1;
         }
+    }
+
+    fn parse_function_attributes(&mut self) -> crate::function::FunctionAttributes {
+        use crate::function::FunctionAttributes;
+        let mut attrs = FunctionAttributes::default();
+
+        // Parse function attributes
+        while !self.is_at_end() && !self.check(&Token::LBrace) {
+            // Handle attribute groups: #0, #1, etc.
+            if self.check(&Token::Hash) {
+                self.advance();
+                if let Some(Token::Integer(n)) = self.peek() {
+                    attrs.attribute_groups.push(format!("#{}", n));
+                    self.advance();
+                }
+                continue;
+            }
+
+            // Parse structured function attributes
+            match self.peek() {
+                Some(Token::Noreturn) => { self.advance(); attrs.noreturn = true; },
+                Some(Token::Noinline) => { self.advance(); attrs.noinline = true; },
+                Some(Token::Alwaysinline) => { self.advance(); attrs.alwaysinline = true; },
+                Some(Token::Inlinehint) => { self.advance(); attrs.inlinehint = true; },
+                Some(Token::Optsize) => { self.advance(); attrs.optsize = true; },
+                Some(Token::Optnone) => { self.advance(); attrs.optnone = true; },
+                Some(Token::Minsize) => { self.advance(); attrs.minsize = true; },
+                Some(Token::Nounwind) => { self.advance(); attrs.nounwind = true; },
+                Some(Token::Norecurse) => { self.advance(); attrs.norecurse = true; },
+                Some(Token::Willreturn) => { self.advance(); attrs.willreturn = true; },
+                Some(Token::Nosync) => { self.advance(); attrs.nosync = true; },
+                Some(Token::Readnone) => { self.advance(); attrs.readnone = true; },
+                Some(Token::Readonly) => { self.advance(); attrs.readonly = true; },
+                Some(Token::Writeonly) => { self.advance(); attrs.writeonly = true; },
+                Some(Token::Argmemonly) => { self.advance(); attrs.argmemonly = true; },
+                Some(Token::Speculatable) => { self.advance(); attrs.speculatable = true; },
+                Some(Token::Returns_twice) => { self.advance(); attrs.returns_twice = true; },
+                Some(Token::Ssp) => { self.advance(); attrs.ssp = true; },
+                Some(Token::Sspreq) => { self.advance(); attrs.sspreq = true; },
+                Some(Token::Sspstrong) => { self.advance(); attrs.sspstrong = true; },
+                Some(Token::Uwtable) => { self.advance(); attrs.uwtable = true; },
+                Some(Token::Cold) => { self.advance(); attrs.cold = true; },
+                Some(Token::Hot) => { self.advance(); attrs.hot = true; },
+                Some(Token::Naked) => { self.advance(); attrs.naked = true; },
+                Some(Token::Builtin) => { self.advance(); attrs.builtin = true; },
+                _ => {
+                    // Handle other attributes and unrecognized ones
+                    if self.match_token(&Token::Inaccessiblememonly) ||
+                       self.match_token(&Token::Inaccessiblemem_or_argmemonly) ||
+                       self.match_token(&Token::Sanitize_address) ||
+                       self.match_token(&Token::Sanitize_thread) ||
+                       self.match_token(&Token::Sanitize_memory) ||
+                       self.match_token(&Token::Sanitize_hwaddress) ||
+                       self.match_token(&Token::Safestack) ||
+                       self.match_token(&Token::Nocf_check) ||
+                       self.match_token(&Token::Shadowcallstack) ||
+                       self.match_token(&Token::Mustprogress) ||
+                       self.match_token(&Token::Strictfp) ||
+                       self.match_token(&Token::Nobuiltin) ||
+                       self.match_token(&Token::Noduplicate) ||
+                       self.match_token(&Token::Noimplicitfloat) ||
+                       self.match_token(&Token::Nomerge) ||
+                       self.match_token(&Token::Nonlazybind) ||
+                       self.match_token(&Token::Noredzone) ||
+                       self.match_token(&Token::Null_pointer_is_valid) ||
+                       self.match_token(&Token::Optforfuzzing) ||
+                       self.match_token(&Token::Thunk) {
+                        // These are stored but not in structured form yet
+                        continue;
+                    }
+
+                    // Handle metadata
+                    if self.is_metadata_token() {
+                        self.skip_metadata();
+                        continue;
+                    }
+
+                    // Handle attributes with parameters
+                    if self.match_token(&Token::Preallocated) || self.match_token(&Token::Vscale_range) {
+                        if self.check(&Token::LParen) {
+                            self.advance();
+                            while !self.check(&Token::RParen) && !self.is_at_end() {
+                                self.advance();
+                            }
+                            self.match_token(&Token::RParen);
+                        }
+                        continue;
+                    }
+
+                    // Handle identifier-based attributes
+                    if let Some(Token::Identifier(attr)) = self.peek() {
+                        if matches!(attr.as_str(), "memory" | "convergent" | "inaccessiblememonly" |
+                                                  "null_pointer_is_valid" | "optforfuzzing" | "presplitcoroutine" |
+                                                  "sanitize_address_dyninit" | "allockind" | "allocptr" |
+                                                  "alloc-family" | "fn_ret_thunk_extern") {
+                            attrs.other_attributes.push(attr.clone());
+                            self.advance();
+                            // Some have parameters
+                            if self.check(&Token::LParen) {
+                                self.advance();
+                                while !self.check(&Token::RParen) && !self.is_at_end() {
+                                    self.advance();
+                                }
+                                self.match_token(&Token::RParen);
+                            }
+                            continue;
+                        }
+                    }
+
+                    // Exit loop if we don't recognize the token as an attribute
+                    break;
+                }
+            }
+        }
+
+        attrs
     }
 
     fn skip_function_attributes(&mut self) {
