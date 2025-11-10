@@ -359,6 +359,104 @@ impl Verifier {
                     }
                 }
             }
+            Opcode::Store => {
+                // Store: value type must be sized
+                // Skip validation if types are void (indicates parser limitations)
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let value_type = operands[0].get_type();
+                    let ptr_type = operands[1].get_type();
+
+                    // Skip validation if either type is void (parser limitation)
+                    if value_type.is_void() || ptr_type.is_void() {
+                        return;
+                    }
+
+                    // Validate pointer operand is actually a pointer
+                    if !ptr_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("store pointer operand must be a pointer type, got {:?}", ptr_type),
+                            location: "store instruction".to_string(),
+                        });
+                    }
+
+                    // Value must be sized (structs are sized in LLVM)
+                    if !value_type.is_sized() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("store value must be sized type, got {:?}", value_type),
+                            location: "store instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Load => {
+                // Load: pointer must be pointer type, result must be sized
+                // Skip validation if types are void (indicates parser limitations)
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let ptr_type = operands[0].get_type();
+
+                    // Skip if void (parser limitation)
+                    if ptr_type.is_void() {
+                        return;
+                    }
+
+                    if !ptr_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("load operand must be a pointer type, got {:?}", ptr_type),
+                            location: "load instruction".to_string(),
+                        });
+                    }
+                }
+
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+                    // Skip if void (parser may not preserve full type info)
+                    if result_type.is_void() {
+                        return;
+                    }
+
+                    if !result_type.is_sized() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("load result must be sized type, got {:?}", result_type),
+                            location: "load instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Select => {
+                // Select: condition must be i1 or vector of i1, both values must match type
+                let operands = inst.operands();
+                if operands.len() >= 3 {
+                    let cond_type = operands[0].get_type();
+                    let true_type = operands[1].get_type();
+                    let false_type = operands[2].get_type();
+
+                    // Allow pointer type equivalence
+                    let types_match = if true_type.is_pointer() && false_type.is_pointer() {
+                        true
+                    } else {
+                        *true_type == *false_type
+                    };
+
+                    if !types_match {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", true_type),
+                            found: format!("{:?}", false_type),
+                            location: "select true/false values".to_string(),
+                        });
+                    }
+
+                    // Condition should be i1 (or vector of i1)
+                    if !cond_type.is_integer() && !cond_type.is_vector() {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: "i1 or vector of i1".to_string(),
+                            found: format!("{:?}", cond_type),
+                            location: "select condition".to_string(),
+                        });
+                    }
+                }
+            }
             _ => {
                 // Other opcodes: no special validation yet
             }
