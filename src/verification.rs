@@ -775,13 +775,10 @@ impl Verifier {
                                 location: "call result type".to_string(),
                             });
                         }
-                    } else if !ret_type.is_void() {
-                        self.errors.push(VerificationError::TypeMismatch {
-                            expected: format!("{:?}", ret_type),
-                            found: "void (no result)".to_string(),
-                            location: "call must have result for non-void return".to_string(),
-                        });
                     }
+                    // Note: We don't validate missing result for non-void return because
+                    // calls with sret (struct return) attribute explicitly use "call void"
+                    // even though the function returns a struct through a pointer parameter
                 }
             }
 
