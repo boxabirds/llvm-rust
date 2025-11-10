@@ -8,6 +8,7 @@ use crate::module::Module;
 use crate::function::Function;
 use crate::basic_block::BasicBlock;
 use crate::instruction::{Instruction, Opcode};
+use crate::types::Type;
 
 /// Verification errors
 #[derive(Debug, Clone)]
@@ -120,6 +121,18 @@ impl Verifier {
         Self {
             errors: Vec::new(),
         }
+    }
+
+    /// Check if type is integer or vector of integers
+    fn is_integer_or_vector_of_integers(&self, ty: &Type) -> bool {
+        ty.is_integer() ||
+            (ty.is_vector() && ty.vector_info().map_or(false, |(elem, _)| elem.is_integer()))
+    }
+
+    /// Check if type is float or vector of floats
+    fn is_float_or_vector_of_floats(&self, ty: &Type) -> bool {
+        ty.is_float() ||
+            (ty.is_vector() && ty.vector_info().map_or(false, |(elem, _)| elem.is_float()))
     }
 
     /// Verify a module
@@ -294,25 +307,25 @@ impl Verifier {
         match inst.opcode() {
             // === CAST OPERATIONS ===
             Opcode::Trunc => {
-                // Trunc: operand must be integer, result must be smaller integer
+                // Trunc: operand must be integer or vector of integers
                 let operands = inst.operands();
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_integer() {
+                    if !self.is_integer_or_vector_of_integers(&src_type) {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "integer".to_string(),
-                            reason: "trunc operand must be integer type".to_string(),
+                            reason: "trunc operand must be integer or vector of integers".to_string(),
                             location: "trunc instruction".to_string(),
                         });
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_integer() {
+                        if !self.is_integer_or_vector_of_integers(&dst_type) {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
-                                reason: "trunc result must be integer type".to_string(),
+                                reason: "trunc result must be integer or vector of integers".to_string(),
                                 location: "trunc instruction".to_string(),
                             });
                         } else if let (Some(src_bits), Some(dst_bits)) = (src_type.int_width(), dst_type.int_width()) {
@@ -329,26 +342,26 @@ impl Verifier {
                 }
             }
             Opcode::ZExt | Opcode::SExt => {
-                // ZExt/SExt: operand must be integer, result must be larger integer
+                // ZExt/SExt: operand must be integer or vector of integers
                 let operands = inst.operands();
                 let opcode_name = if inst.opcode() == Opcode::ZExt { "zext" } else { "sext" };
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_integer() {
+                    if !self.is_integer_or_vector_of_integers(&src_type) {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "integer".to_string(),
-                            reason: format!("{} operand must be integer type", opcode_name),
+                            reason: format!("{} operand must be integer or vector of integers", opcode_name),
                             location: format!("{} instruction", opcode_name),
                         });
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_integer() {
+                        if !self.is_integer_or_vector_of_integers(&dst_type) {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
-                                reason: format!("{} result must be integer type", opcode_name),
+                                reason: format!("{} result must be integer or vector of integers", opcode_name),
                                 location: format!("{} instruction", opcode_name),
                             });
                         } else if let (Some(src_bits), Some(dst_bits)) = (src_type.int_width(), dst_type.int_width()) {
@@ -365,25 +378,25 @@ impl Verifier {
                 }
             }
             Opcode::FPTrunc => {
-                // FPTrunc: operand must be float, result must be smaller float
+                // FPTrunc: operand must be float or vector of floats
                 let operands = inst.operands();
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_float() {
+                    if !self.is_float_or_vector_of_floats(&src_type) {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "float".to_string(),
-                            reason: "fptrunc operand must be floating point type".to_string(),
+                            reason: "fptrunc operand must be floating point or vector of floats".to_string(),
                             location: "fptrunc instruction".to_string(),
                         });
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_float() {
+                        if !self.is_float_or_vector_of_floats(&dst_type) {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
-                                reason: "fptrunc result must be floating point type".to_string(),
+                                reason: "fptrunc result must be floating point or vector of floats".to_string(),
                                 location: "fptrunc instruction".to_string(),
                             });
                         }
@@ -391,25 +404,25 @@ impl Verifier {
                 }
             }
             Opcode::FPExt => {
-                // FPExt: operand must be float, result must be larger float
+                // FPExt: operand must be float or vector of floats
                 let operands = inst.operands();
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_float() {
+                    if !self.is_float_or_vector_of_floats(&src_type) {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "float".to_string(),
-                            reason: "fpext operand must be floating point type".to_string(),
+                            reason: "fpext operand must be floating point or vector of floats".to_string(),
                             location: "fpext instruction".to_string(),
                         });
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_float() {
+                        if !self.is_float_or_vector_of_floats(&dst_type) {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
-                                reason: "fpext result must be floating point type".to_string(),
+                                reason: "fpext result must be floating point or vector of floats".to_string(),
                                 location: "fpext instruction".to_string(),
                             });
                         }
@@ -649,22 +662,30 @@ impl Verifier {
                 }
             }
             Opcode::GetElementPtr => {
-                // GetElementPtr: base must be pointer
+                // GetElementPtr: base must be pointer or vector of pointers
                 let operands = inst.operands();
                 if operands.len() >= 1 {
                     let base_type = operands[0].get_type();
-                    if !base_type.is_pointer() {
+                    // Check if base is pointer or vector of pointers
+                    let is_valid_base = base_type.is_pointer() ||
+                        (base_type.is_vector() && base_type.vector_info().map_or(false, |(elem, _)| elem.is_pointer()));
+
+                    if !is_valid_base {
                         self.errors.push(VerificationError::InvalidInstruction {
-                            reason: format!("getelementptr base must be pointer type, got {:?}", base_type),
+                            reason: format!("getelementptr base must be pointer or vector of pointers, got {:?}", base_type),
                             location: "getelementptr instruction".to_string(),
                         });
                     }
-                    // All index operands must be integers
+
+                    // All index operands must be integers or vectors of integers
                     for (i, operand) in operands.iter().enumerate().skip(1) {
                         let idx_type = operand.get_type();
-                        if !idx_type.is_integer() {
+                        let is_valid_index = idx_type.is_integer() ||
+                            (idx_type.is_vector() && idx_type.vector_info().map_or(false, |(elem, _)| elem.is_integer()));
+
+                        if !is_valid_index {
                             self.errors.push(VerificationError::InvalidInstruction {
-                                reason: format!("getelementptr index {} must be integer type, got {:?}", i-1, idx_type),
+                                reason: format!("getelementptr index {} must be integer or vector of integers, got {:?}", i-1, idx_type),
                                 location: "getelementptr instruction".to_string(),
                             });
                         }

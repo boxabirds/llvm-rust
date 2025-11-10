@@ -1219,8 +1219,21 @@ impl Parser {
                 let ptr = self.parse_value_with_type(Some(&ptr_ty))?;
                 operands.push(ptr);
 
-                // GEP result is always a pointer type (opaque ptr in modern LLVM)
-                result_type = Some(self.context.ptr_type(self.context.int8_type()));
+                // GEP result type depends on base type:
+                // - If base is ptr, result is ptr
+                // - If base is <N x ptr>, result is <N x ptr>
+                if ptr_ty.is_vector() {
+                    if let Some((_, size)) = ptr_ty.vector_info() {
+                        result_type = Some(self.context.vector_type(
+                            self.context.ptr_type(self.context.int8_type()),
+                            size
+                        ));
+                    } else {
+                        result_type = Some(self.context.ptr_type(self.context.int8_type()));
+                    }
+                } else {
+                    result_type = Some(self.context.ptr_type(self.context.int8_type()));
+                }
 
                 // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
@@ -2280,13 +2293,27 @@ impl Parser {
             }
             Token::Identifier(id) if id == "splat" => {
                 // Vector splat: splat (type value)
+                // Expected type should be a vector type like <4 x i32>
                 self.advance(); // consume 'splat'
                 self.consume(&Token::LParen)?;
-                let _ty = self.parse_type()?;
-                let _val = self.parse_value()?;
+                let elem_ty = self.parse_type()?;
+                let elem_val = self.parse_value_with_type(Some(&elem_ty))?;
                 self.consume(&Token::RParen)?;
-                // Return placeholder splat value
-                Ok(Value::zero_initializer(self.context.void_type()))
+
+                // Use expected_type to determine vector size
+                if let Some(vec_ty) = expected_type {
+                    if vec_ty.is_vector() {
+                        // Create vector constant with all elements set to elem_val
+                        // For now, return a vector constant (implementation depends on Value API)
+                        Ok(Value::vector_splat(vec_ty.clone(), elem_val))
+                    } else {
+                        // Expected type is not a vector - return the element value
+                        Ok(elem_val)
+                    }
+                } else {
+                    // No expected type - use void as fallback (should not happen in valid IR)
+                    Ok(Value::zero_initializer(self.context.void_type()))
+                }
             }
             Token::Identifier(id) if id == "dso_local_equivalent" => {
                 // DSO local equivalent: dso_local_equivalent @func
