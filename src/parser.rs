@@ -1889,6 +1889,8 @@ impl Parser {
             // Handle metadata arguments specially: metadata i32 0 or metadata !{}
             if self.match_token(&Token::Metadata) {
                 // Check for various metadata forms
+                let metadata_ty;
+                let metadata_val;
                 if let Some(Token::MetadataIdent(_)) = self.peek() {
                     // metadata !DIExpression() or !0
                     self.advance(); // consume the metadata ident
@@ -1905,14 +1907,22 @@ impl Parser {
                             self.advance();
                         }
                     }
+                    metadata_ty = self.context.metadata_type();
+                    metadata_val = Value::undef(metadata_ty.clone());
                 } else if self.check(&Token::Exclaim) {
                     // metadata !{} - literal metadata
                     self.skip_metadata();
+                    metadata_ty = self.context.metadata_type();
+                    metadata_val = Value::undef(metadata_ty.clone());
                 } else {
                     // metadata i32 0 - parse type and value
+                    metadata_ty = self.context.metadata_type();
                     let _ty = self.parse_type()?;
                     let _val = self.parse_value()?;
+                    metadata_val = Value::undef(metadata_ty.clone());
                 }
+                // Add metadata as an argument so verifier sees correct arg count
+                args.push((metadata_ty, metadata_val));
                 if !self.match_token(&Token::Comma) {
                     break;
                 }

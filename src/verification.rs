@@ -743,8 +743,10 @@ impl Verifier {
                     // Check argument types match parameter types
                     for (i, (arg, param_type)) in args.iter().zip(param_types.iter()).enumerate() {
                         let arg_type = arg.get_type();
-                        // Allow pointer type equivalence
+                        // Allow pointer type equivalence and metadata type equivalence
                         let types_match = if arg_type.is_pointer() && param_type.is_pointer() {
+                            true
+                        } else if arg_type.is_metadata() && param_type.is_metadata() {
                             true
                         } else {
                             *arg_type == *param_type
