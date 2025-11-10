@@ -233,6 +233,14 @@ impl Type {
         }
     }
 
+    /// Get the fields of a struct type
+    pub fn struct_fields(&self) -> Option<Vec<Type>> {
+        match &*self.data {
+            TypeData::Struct { fields, .. } => Some(fields.clone()),
+            _ => None,
+        }
+    }
+
     /// Get the element type and size of a vector
     pub fn vector_info(&self) -> Option<(&Type, usize)> {
         match &*self.data {

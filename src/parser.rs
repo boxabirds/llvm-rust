@@ -1593,12 +1593,27 @@ impl Parser {
                 let agg = self.parse_value_with_type(Some(&agg_ty))?;
                 operands.push(agg);
 
-                // Parse indices
+                // Parse indices and compute result type
+                let mut current_ty = agg_ty.clone();
+                let mut indices = Vec::new();
+
                 while self.match_token(&Token::Comma) {
                     if let Some(Token::Integer(idx)) = self.peek() {
+                        let idx = *idx as usize;
+                        indices.push(idx);
+
+                        // Navigate to the indexed element type
+                        if let Some(fields) = current_ty.struct_fields() {
+                            if idx < fields.len() {
+                                current_ty = fields[idx].clone();
+                            }
+                        } else if let Some((elem_ty, _size)) = current_ty.array_info() {
+                            current_ty = elem_ty.clone();
+                        }
+
                         let idx_val = Value::new(
                             self.context.int_type(32),
-                            crate::value::ValueKind::ConstantInt { value: *idx as i64 },
+                            crate::value::ValueKind::ConstantInt { value: idx as i64 },
                             Some(idx.to_string())
                         );
                         operands.push(idx_val);
@@ -1608,8 +1623,8 @@ impl Parser {
                     }
                 }
 
-                // Result type is the extracted element type (simplified - use i32)
-                result_type = Some(self.context.int32_type());
+                // Result type is the final type after following all indices
+                result_type = Some(current_ty);
             }
             Opcode::InsertValue => {
                 // insertvalue <aggregate type> %agg, <element type> %val, <idx>...
