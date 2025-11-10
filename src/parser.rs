@@ -1219,23 +1219,18 @@ impl Parser {
                 let ptr = self.parse_value_with_type(Some(&ptr_ty))?;
                 operands.push(ptr);
 
-                // GEP result type depends on base type:
-                // - If base is ptr, result is ptr
+                // GEP result type determination:
                 // - If base is <N x ptr>, result is <N x ptr>
+                // - If any index is <N x iXX>, result is <N x ptr>
+                // - Otherwise, result is ptr
+                let mut vector_size = None;
+
+                // Check if base is a vector
                 if ptr_ty.is_vector() {
-                    if let Some((_, size)) = ptr_ty.vector_info() {
-                        result_type = Some(self.context.vector_type(
-                            self.context.ptr_type(self.context.int8_type()),
-                            size
-                        ));
-                    } else {
-                        result_type = Some(self.context.ptr_type(self.context.int8_type()));
-                    }
-                } else {
-                    result_type = Some(self.context.ptr_type(self.context.int8_type()));
+                    vector_size = ptr_ty.vector_info().map(|(_, size)| size);
                 }
 
-                // Parse indices (each can have optional inrange qualifier)
+                // Parse indices and check if any are vectors
                 while self.match_token(&Token::Comma) {
                     // Check if this comma is followed by metadata (e.g., !dbg !23)
                     if self.is_metadata_token() {
@@ -1245,9 +1240,25 @@ impl Parser {
                     }
                     self.match_token(&Token::Inrange); // Skip optional inrange
                     let idx_ty = self.parse_type()?;
+
+                    // Check if this index is a vector
+                    if idx_ty.is_vector() {
+                        vector_size = idx_ty.vector_info().map(|(_, size)| size);
+                    }
+
                     let idx = self.parse_value_with_type(Some(&idx_ty))?;
                     operands.push(idx);
                 }
+
+                // Set result type based on whether we found a vector
+                result_type = if let Some(size) = vector_size {
+                    Some(self.context.vector_type(
+                        self.context.ptr_type(self.context.int8_type()),
+                        size
+                    ))
+                } else {
+                    Some(self.context.ptr_type(self.context.int8_type()))
+                };
             }
             Opcode::ICmp | Opcode::FCmp => {
                 // icmp/fcmp [samesign] predicate type op1, op2
@@ -2606,14 +2617,38 @@ impl Parser {
             let _base_ty = self.parse_type()?;
             self.consume(&Token::Comma)?;
             let ptr_ty = self.parse_type()?;
-            result_type = Some(ptr_ty);  // GEP result is pointer type
             let _ptr_val = self.parse_value()?;
-            // Parse remaining indices (each can have optional inrange qualifier)
+
+            // Determine result type: ptr or <N x ptr> if any index is a vector
+            let mut vector_size = None;
+
+            // Check if base is a vector
+            if ptr_ty.is_vector() {
+                vector_size = ptr_ty.vector_info().map(|(_, size)| size);
+            }
+
+            // Parse remaining indices and check for vectors
             while self.match_token(&Token::Comma) {
                 self.match_token(&Token::Inrange); // Skip optional inrange
-                let _idx_ty = self.parse_type()?;
+                let idx_ty = self.parse_type()?;
+
+                // Check if this index is a vector
+                if idx_ty.is_vector() {
+                    vector_size = idx_ty.vector_info().map(|(_, size)| size);
+                }
+
                 let _idx_val = self.parse_value()?;
             }
+
+            // Set result type based on whether we found a vector
+            result_type = if let Some(size) = vector_size {
+                Some(self.context.vector_type(
+                    self.context.ptr_type(self.context.int8_type()),
+                    size
+                ))
+            } else {
+                Some(self.context.ptr_type(self.context.int8_type()))
+            };
         } else {
             // Simplified parsing - just parse type and value, skip to closing paren
             // This allows the constant expression to be recognized without full semantic support
