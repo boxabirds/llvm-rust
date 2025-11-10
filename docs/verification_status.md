@@ -2,18 +2,19 @@
 
 ## Summary
 
-**Current Verification Coverage: 79% (102/129 tests passing)**
+**Current Verification Coverage: 86% (111/129 tests passing)**
 
-The verification system has comprehensive validation rules implemented. Recent parser improvements have significantly increased test pass rates by preserving operand type information.
+The verification system has comprehensive validation rules implemented. Recent parser improvements have significantly increased test pass rates by preserving operand type information and fixing aggregate constant parsing.
 
-**Improvement**: From 64% (83/129) to 79% (102/129) - **19 additional tests now passing**
+**Improvement**: From 64% (83/129) to 86% (111/129) - **28 additional tests now passing**
 
 ## Test Results
 
 ### Type Checking Validation (Week 1-2)
-- **Before Parser Fix**: 44 passed, 30 failed (59%)
-- **After Parser Fix**: 63 passed, 11 failed (85%)
-- **Improvement**: +19 tests passing (+26%)
+- **Before Parser Fixes**: 44 passed, 30 failed (59%)
+- **After Initial Parser Fix**: 63 passed, 11 failed (85%)
+- **After Complete Parser Fix**: 72 passed, 2 failed (97%)
+- **Improvement**: +28 tests passing (+38%)
 - **Total Tests**: 74
 - **Validation Rules**: 30+ rules implemented
 
@@ -29,22 +30,23 @@ The verification system has comprehensive validation rules implemented. Recent p
 - Vector operations (ShuffleVector mask validation)
 - Select instruction validation
 
-**Fixed by Parser Improvements** (19 tests):
+**Fixed by Parser Improvements** (28 tests):
 Parser now preserves operand types for:
 - All cast operations (trunc, zext, sext, fptrunc, fpext, etc.)
 - Vector operations (extractelement, insertelement, shufflevector)
+- Aggregate constants (vectors, arrays, structs) now use expected_type
 - Select instructions
 - Call arguments
 - Comparison operations (icmp, fcmp)
 - PHI nodes
-- Most binary operations
+- Binary operations (add, sub, mul, div, rem, shl, lshr, ashr, and, or, xor)
+- Switch statements (fixed bracket parsing)
 
-**Still Blocked by Parser** (11 tests failing):
-Some edge cases with binary operation parsing when both operands have explicit types (e.g., `add i32 1, i32 2`). The parser encounters issues handling the second explicit type annotation. This affects:
-- Some valid binary operation tests (add, sub, mul, shift operations)
-- Some call argument validation tests
+**Still Blocked** (2 tests failing):
+- Call argument count validation requires function declaration tracking
+- Call argument type validation requires function declaration tracking
 
-These remaining issues require deeper parser restructuring to fully resolve.
+These tests expect the parser to track function declarations (`declare`) and use them for call site validation. This requires a symbol table for function signatures, which is a significant feature beyond type preservation.
 
 ### Metadata Validation (Week 3-4)
 - **Status**: 22 passed, 0 failed, 9 ignored (100% of testable cases)
@@ -104,21 +106,32 @@ The parser has been significantly improved to preserve operand type information:
 4. **Other Instructions**: Fixed Select, ICmp, FCmp, PHI
    - All now use `parse_value_with_type()` to preserve operand types
 
+5. **Aggregate Constants**: Fixed vector, array, and struct constants to use expected_type
+   - Before: `Ok(Value::zero_initializer(self.context.void_type()))`
+   - After: `let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type()); Ok(Value::zero_initializer(ty))`
+
+6. **Switch Parsing**: Fixed to use single bracket pair for all cases
+   - Before: Expected brackets around each case individually
+   - After: Parse all cases within one bracket pair
+
 ### Impact
-- **19 tests fixed**: Type checking improved from 59% to 85%
-- **Overall improvement**: 64% to 79% pass rate
-- **Verifier effectiveness**: Can now detect 19 more type mismatches
+- **28 tests fixed**: Type checking improved from 59% to 97%
+- **Overall improvement**: 64% to 86% pass rate
+- **Verifier effectiveness**: Can now detect 28 more type mismatches
 
 ## Remaining Parser Limitations
 
 The main barriers to 100% verification are:
 
-### 1. Type Information (affects 11 tests - down from 30)
-**MOSTLY FIXED**: Parser now preserves types for most operations (19 tests fixed).
+### 1. Function Declaration Tracking (affects 2 tests - down from 30)
+**ALMOST COMPLETELY FIXED**: Parser now preserves types for almost all operations (28 tests fixed).
 
-**Remaining issues**: Binary operations with explicit types on both operands (e.g., `add i32 1, i32 2`) still have parsing issues.
+**Remaining issues**: Call instruction validation requires function signature tracking. The parser needs to:
+- Store function declarations in a symbol table
+- Look up function signatures when validating calls
+- Match argument count and types against the declaration
 
-**Impact**: 11 tests still fail due to this limitation (down from 30).
+**Impact**: 2 tests still fail (down from 30). These are `test_invalid_call_wrong_arg_count` and `test_invalid_call_wrong_arg_type`.
 
 **Example validation code** (verification.rs:296-329):
 ```rust
@@ -218,10 +231,12 @@ The verifier is structured with multiple validation phases:
 
 To achieve complete verification, the parser needs enhancements in three areas:
 
-### Priority 1: Type Information Preservation
-**Impact**: Would enable 30 additional tests (40% improvement)
+### Priority 1: Function Declaration Tracking ✅ MOSTLY DONE
+**Impact**: Would enable 2 additional tests (already improved by 28 tests)
 
-The parser should preserve complete type information for all instruction operands. This is the highest impact improvement.
+~~The parser should preserve complete type information for all instruction operands.~~ **COMPLETED**
+
+**Remaining**: Add symbol table for function declarations to enable call validation.
 
 ### Priority 2: CFG Edge Preservation
 **Impact**: Would enable 7 additional tests (9% improvement)
@@ -244,10 +259,16 @@ The LLVM-Rust verifier has **comprehensive validation rules implemented** coveri
 - 10+ CFG and exception handling rules
 
 **Current Status:**
-- **79% overall pass rate** (102/129 tests)
-- **Recent improvement**: +19 tests passing after parser fixes (+15% improvement)
-- **Remaining issues**: 11 tests fail due to binary operation parsing edge cases, 16 tests ignored due to metadata/CFG limitations
+- **86% overall pass rate** (111/129 tests)
+- **Recent improvement**: +28 tests passing after parser fixes (+22% improvement)
+- **Breakdown**:
+  - Type checking: 72/74 (97%) - only 2 tests need function declaration tracking
+  - Metadata: 22/31 (71%) - 9 tests need metadata preservation
+  - CFG: 17/24 (71%) - 7 tests need CFG edge preservation
+- **Remaining issues**: 2 tests need function declarations, 16 tests ignored due to metadata/CFG limitations
 
-**Parser improvements have proven effective**: Fixing type preservation in the parser immediately enabled 19 more tests to pass, demonstrating that the verifier logic was correct all along - it just lacked the necessary type information from the parser.
+**Parser improvements have been highly effective**: Fixing type preservation and aggregate constants in the parser immediately enabled 28 more tests to pass, demonstrating that the verifier logic was correct all along - it just lacked the necessary type information from the parser.
+
+Type checking validation is now at 97%, proving the verification system works correctly when given proper type information.
 
 All validation rules are documented, implemented, and working where the parser provides sufficient information.
