@@ -1241,7 +1241,17 @@ impl Parser {
                 self.skip_instruction_flags(); // Skip flags like samesign
                 self.parse_comparison_predicate()?;
                 let ty = self.parse_type()?;
-                result_type = Some(self.context.bool_type());  // Comparison result is i1
+                // Comparison result is i1 for scalars, <N x i1> for vectors
+                let cmp_result_ty = if ty.is_vector() {
+                    if let Some((_, size)) = ty.vector_info() {
+                        self.context.vector_type(self.context.bool_type(), size)
+                    } else {
+                        self.context.bool_type()
+                    }
+                } else {
+                    self.context.bool_type()
+                };
+                result_type = Some(cmp_result_ty);
                 let op1 = self.parse_value_with_type(Some(&ty))?;
                 operands.push(op1);
                 self.consume(&Token::Comma)?;
@@ -1346,13 +1356,21 @@ impl Parser {
                 self.consume(&Token::Comma)?;
 
                 // Parse compare type and value
-                let _cmp_ty = self.parse_type()?;
+                let cmp_ty = self.parse_type()?;
                 let _cmp = self.parse_value()?;
                 self.consume(&Token::Comma)?;
 
                 // Parse new type and value
                 let _new_ty = self.parse_type()?;
                 let _new = self.parse_value()?;
+
+                // cmpxchg returns { type, i1 } - old value and success flag
+                let struct_ty = crate::types::Type::struct_type(
+                    &self.context,
+                    vec![cmp_ty, self.context.bool_type()],
+                    None
+                );
+                result_type = Some(struct_ty);
 
                 // Skip syncscope if present
                 self.skip_syncscope();
@@ -1401,8 +1419,11 @@ impl Parser {
                 self.consume(&Token::Comma)?;
 
                 // Parse value type and value
-                let _val_ty = self.parse_type()?;
+                let val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
+
+                // atomicrmw returns the old value, same type as the value parameter
+                result_type = Some(val_ty);
 
                 // Skip syncscope if present
                 self.skip_syncscope();
