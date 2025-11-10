@@ -240,6 +240,479 @@ impl Verifier {
         // Focus on semantic validation, not strict operand count checks
 
         match inst.opcode() {
+            // === CAST OPERATIONS ===
+            Opcode::Trunc => {
+                // Trunc: operand must be integer, result must be smaller integer
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "integer".to_string(),
+                            reason: "trunc operand must be integer type".to_string(),
+                            location: "trunc instruction".to_string(),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_integer() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "trunc result must be integer type".to_string(),
+                                location: "trunc instruction".to_string(),
+                            });
+                        } else if let (Some(src_bits), Some(dst_bits)) = (src_type.int_width(), dst_type.int_width()) {
+                            if dst_bits >= src_bits {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: format!("trunc result must be smaller (src: {} bits, dst: {} bits)", src_bits, dst_bits),
+                                    location: "trunc instruction".to_string(),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Opcode::ZExt | Opcode::SExt => {
+                // ZExt/SExt: operand must be integer, result must be larger integer
+                let operands = inst.operands();
+                let opcode_name = if inst.opcode() == Opcode::ZExt { "zext" } else { "sext" };
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "integer".to_string(),
+                            reason: format!("{} operand must be integer type", opcode_name),
+                            location: format!("{} instruction", opcode_name),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_integer() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: format!("{} result must be integer type", opcode_name),
+                                location: format!("{} instruction", opcode_name),
+                            });
+                        } else if let (Some(src_bits), Some(dst_bits)) = (src_type.int_width(), dst_type.int_width()) {
+                            if dst_bits <= src_bits {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: format!("{} result must be larger (src: {} bits, dst: {} bits)", opcode_name, src_bits, dst_bits),
+                                    location: format!("{} instruction", opcode_name),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+            Opcode::FPTrunc => {
+                // FPTrunc: operand must be float, result must be smaller float
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_float() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "float".to_string(),
+                            reason: "fptrunc operand must be floating point type".to_string(),
+                            location: "fptrunc instruction".to_string(),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_float() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "fptrunc result must be floating point type".to_string(),
+                                location: "fptrunc instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::FPExt => {
+                // FPExt: operand must be float, result must be larger float
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_float() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "float".to_string(),
+                            reason: "fpext operand must be floating point type".to_string(),
+                            location: "fpext instruction".to_string(),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_float() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "fpext result must be floating point type".to_string(),
+                                location: "fpext instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::FPToUI | Opcode::FPToSI => {
+                // FPToUI/FPToSI: operand must be float, result must be integer
+                let operands = inst.operands();
+                let opcode_name = if inst.opcode() == Opcode::FPToUI { "fptoui" } else { "fptosi" };
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_float() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "float".to_string(),
+                            reason: format!("{} operand must be floating point type", opcode_name),
+                            location: format!("{} instruction", opcode_name),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_integer() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: format!("{} result must be integer type", opcode_name),
+                                location: format!("{} instruction", opcode_name),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::UIToFP | Opcode::SIToFP => {
+                // UIToFP/SIToFP: operand must be integer, result must be float
+                let operands = inst.operands();
+                let opcode_name = if inst.opcode() == Opcode::UIToFP { "uitofp" } else { "sitofp" };
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "integer".to_string(),
+                            reason: format!("{} operand must be integer type", opcode_name),
+                            location: format!("{} instruction", opcode_name),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_float() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: format!("{} result must be floating point type", opcode_name),
+                                location: format!("{} instruction", opcode_name),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::PtrToInt => {
+                // PtrToInt: operand must be pointer, result must be integer
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "pointer".to_string(),
+                            reason: "ptrtoint operand must be pointer type".to_string(),
+                            location: "ptrtoint instruction".to_string(),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_integer() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "ptrtoint result must be integer type".to_string(),
+                                location: "ptrtoint instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::IntToPtr => {
+                // IntToPtr: operand must be integer, result must be pointer
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "integer".to_string(),
+                            reason: "inttoptr operand must be integer type".to_string(),
+                            location: "inttoptr instruction".to_string(),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_pointer() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "inttoptr result must be pointer type".to_string(),
+                                location: "inttoptr instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::BitCast => {
+                // BitCast: basic type compatibility check
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        // Bitcast cannot convert to/from void
+                        if src_type.is_void() || dst_type.is_void() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "bitcast cannot convert to/from void type".to_string(),
+                                location: "bitcast instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            Opcode::AddrSpaceCast => {
+                // AddrSpaceCast: both must be pointers
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let src_type = operands[0].get_type();
+                    if !src_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidCast {
+                            from: format!("{:?}", src_type),
+                            to: "pointer".to_string(),
+                            reason: "addrspacecast operand must be pointer type".to_string(),
+                            location: "addrspacecast instruction".to_string(),
+                        });
+                    }
+                    if let Some(result) = inst.result() {
+                        let dst_type = result.get_type();
+                        if !dst_type.is_pointer() {
+                            self.errors.push(VerificationError::InvalidCast {
+                                from: format!("{:?}", src_type),
+                                to: format!("{:?}", dst_type),
+                                reason: "addrspacecast result must be pointer type".to_string(),
+                                location: "addrspacecast instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // === AGGREGATE OPERATIONS ===
+            Opcode::ExtractElement => {
+                // ExtractElement: first operand must be vector, second must be integer index
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let vec_type = operands[0].get_type();
+                    let idx_type = operands[1].get_type();
+
+                    if !vec_type.is_vector() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("extractelement first operand must be vector type, got {:?}", vec_type),
+                            location: "extractelement instruction".to_string(),
+                        });
+                    }
+
+                    if !idx_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("extractelement index must be integer type, got {:?}", idx_type),
+                            location: "extractelement instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::InsertElement => {
+                // InsertElement: first operand must be vector, value must match element type, index must be integer
+                let operands = inst.operands();
+                if operands.len() >= 3 {
+                    let vec_type = operands[0].get_type();
+                    let val_type = operands[1].get_type();
+                    let idx_type = operands[2].get_type();
+
+                    if !vec_type.is_vector() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("insertelement first operand must be vector type, got {:?}", vec_type),
+                            location: "insertelement instruction".to_string(),
+                        });
+                    } else if let Some((elem_type, _)) = vec_type.vector_info() {
+                        if *val_type != *elem_type {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                expected: format!("{:?}", elem_type),
+                                found: format!("{:?}", val_type),
+                                location: "insertelement value".to_string(),
+                            });
+                        }
+                    }
+
+                    if !idx_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("insertelement index must be integer type, got {:?}", idx_type),
+                            location: "insertelement instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::ExtractValue => {
+                // ExtractValue: operand must be aggregate type (struct or array)
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let agg_type = operands[0].get_type();
+                    if !agg_type.is_struct() && !agg_type.is_array() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("extractvalue operand must be aggregate type (struct or array), got {:?}", agg_type),
+                            location: "extractvalue instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::InsertValue => {
+                // InsertValue: operand must be aggregate type (struct or array)
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let agg_type = operands[0].get_type();
+                    if !agg_type.is_struct() && !agg_type.is_array() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("insertvalue operand must be aggregate type (struct or array), got {:?}", agg_type),
+                            location: "insertvalue instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::GetElementPtr => {
+                // GetElementPtr: base must be pointer
+                let operands = inst.operands();
+                if operands.len() >= 1 {
+                    let base_type = operands[0].get_type();
+                    if !base_type.is_pointer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("getelementptr base must be pointer type, got {:?}", base_type),
+                            location: "getelementptr instruction".to_string(),
+                        });
+                    }
+                    // All index operands must be integers
+                    for (i, operand) in operands.iter().enumerate().skip(1) {
+                        let idx_type = operand.get_type();
+                        if !idx_type.is_integer() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: format!("getelementptr index {} must be integer type, got {:?}", i-1, idx_type),
+                                location: "getelementptr instruction".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // === FUNCTION CALL VALIDATION ===
+            Opcode::Call => {
+                // Call: validate argument count and types match function signature
+                let operands = inst.operands();
+                if operands.is_empty() {
+                    return; // No callee, skip validation
+                }
+
+                let callee = &operands[0];
+                let callee_type = callee.get_type();
+
+                // If callee is a pointer to function, get the function type
+                let fn_type = if callee_type.is_pointer() {
+                    if let Some(pointee) = callee_type.pointee_type() {
+                        if pointee.is_function() {
+                            pointee.clone()
+                        } else {
+                            return; // Not a function pointer
+                        }
+                    } else {
+                        return;
+                    }
+                } else if callee_type.is_function() {
+                    callee_type.clone()
+                } else {
+                    return; // Not a function type
+                };
+
+                if let Some((ret_type, param_types, is_var_arg)) = fn_type.function_info() {
+                    let args = &operands[1..];
+
+                    // Check argument count (varargs functions can have more)
+                    if !is_var_arg && args.len() != param_types.len() {
+                        self.errors.push(VerificationError::InvalidCall {
+                            expected_args: param_types.len(),
+                            found_args: args.len(),
+                            location: "call instruction".to_string(),
+                        });
+                    } else if args.len() < param_types.len() {
+                        // Even varargs functions need at least the fixed parameters
+                        self.errors.push(VerificationError::InvalidCall {
+                            expected_args: param_types.len(),
+                            found_args: args.len(),
+                            location: "call instruction (too few args for varargs)".to_string(),
+                        });
+                    }
+
+                    // Check argument types match parameter types
+                    for (i, (arg, param_type)) in args.iter().zip(param_types.iter()).enumerate() {
+                        let arg_type = arg.get_type();
+                        // Allow pointer type equivalence
+                        let types_match = if arg_type.is_pointer() && param_type.is_pointer() {
+                            true
+                        } else {
+                            *arg_type == *param_type
+                        };
+
+                        if !types_match {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                expected: format!("{:?}", param_type),
+                                found: format!("{:?}", arg_type),
+                                location: format!("call argument {}", i),
+                            });
+                        }
+                    }
+
+                    // Verify return type matches result
+                    if let Some(result) = inst.result() {
+                        let result_type = result.get_type();
+                        let types_match = if result_type.is_pointer() && ret_type.is_pointer() {
+                            true
+                        } else {
+                            *result_type == ret_type
+                        };
+
+                        if !types_match {
+                            self.errors.push(VerificationError::TypeMismatch {
+                                expected: format!("{:?}", ret_type),
+                                found: format!("{:?}", result_type),
+                                location: "call result type".to_string(),
+                            });
+                        }
+                    } else if !ret_type.is_void() {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", ret_type),
+                            found: "void (no result)".to_string(),
+                            location: "call must have result for non-void return".to_string(),
+                        });
+                    }
+                }
+            }
+
+            // === EXISTING VALIDATIONS ===
             Opcode::Alloca => {
                 // Alloca must allocate a sized type (not void, function, label, token, or metadata)
                 if let Some(result) = inst.result() {
@@ -277,10 +750,19 @@ impl Verifier {
                 }
             }
             Opcode::PHI => {
-                // PHI: all incoming values must have same type as result
+                // PHI: all incoming values must have same type as result, must have even operand count
+                let operands = inst.operands();
+
+                // PHI must have even number of operands (value/block pairs)
+                if operands.len() % 2 != 0 {
+                    self.errors.push(VerificationError::InvalidPhi {
+                        reason: format!("phi must have even number of operands (value/block pairs), found {}", operands.len()),
+                        location: "phi instruction".to_string(),
+                    });
+                }
+
                 if let Some(result) = inst.result() {
                     let result_type = result.get_type();
-                    let operands = inst.operands();
                     // PHI operands are pairs: [value1, block1, value2, block2, ...]
                     let mut i = 0;
                     while i < operands.len() {
@@ -306,11 +788,14 @@ impl Verifier {
                 }
             }
             Opcode::ShuffleVector => {
-                // ShuffleVector: vec1 and vec2 must be same type
+                // ShuffleVector: vec1 and vec2 must be same type, mask must be vector of integers
                 let operands = inst.operands();
-                if operands.len() >= 2 {
+                if operands.len() >= 3 {
                     let vec1_type = operands[0].get_type();
                     let vec2_type = operands[1].get_type();
+                    let mask_type = operands[2].get_type();
+
+                    // vec1 and vec2 must be same type
                     if *vec1_type != *vec2_type {
                         self.errors.push(VerificationError::TypeMismatch {
                             expected: format!("{:?}", vec1_type),
@@ -318,10 +803,60 @@ impl Verifier {
                             location: "shufflevector second vector".to_string(),
                         });
                     }
+
+                    // Both must be vectors
+                    if !vec1_type.is_vector() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("shufflevector operands must be vector types, got {:?}", vec1_type),
+                            location: "shufflevector instruction".to_string(),
+                        });
+                    }
+
+                    // Mask must be a vector of integers
+                    if mask_type.is_vector() {
+                        if let Some((elem_type, _)) = mask_type.vector_info() {
+                            if !elem_type.is_integer() {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: format!("shufflevector mask must be vector of integers, got vector of {:?}", elem_type),
+                                    location: "shufflevector instruction".to_string(),
+                                });
+                            }
+                        }
+                    } else {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("shufflevector mask must be vector type, got {:?}", mask_type),
+                            location: "shufflevector instruction".to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Shl | Opcode::LShr | Opcode::AShr => {
+                // Shift operations: both operands must be same integer or vector type
+                let operands = inst.operands();
+                if operands.len() >= 2 {
+                    let value_type = operands[0].get_type();
+                    let shift_type = operands[1].get_type();
+
+                    // Value must be integer or vector of integers
+                    if !value_type.is_integer() && !value_type.is_vector() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("shift operand must be integer or vector type, got {:?}", value_type),
+                            location: format!("{:?} instruction", inst.opcode()),
+                        });
+                    }
+
+                    // Shift amount must have same type as value
+                    if *value_type != *shift_type {
+                        self.errors.push(VerificationError::TypeMismatch {
+                            expected: format!("{:?}", value_type),
+                            found: format!("{:?}", shift_type),
+                            location: format!("{:?} shift amount", inst.opcode()),
+                        });
+                    }
                 }
             }
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
-            Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
+            Opcode::URem | Opcode::SRem |
             Opcode::And | Opcode::Or | Opcode::Xor |
             Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
                 // Binary operations: both operands must have same type
@@ -335,6 +870,28 @@ impl Verifier {
                             found: format!("{:?}", op2_type),
                             location: format!("{:?} instruction", inst.opcode()),
                         });
+                    }
+
+                    // Integer operations must have integer operands
+                    match inst.opcode() {
+                        Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
+                        Opcode::URem | Opcode::SRem | Opcode::And | Opcode::Or | Opcode::Xor => {
+                            if !op1_type.is_integer() && !op1_type.is_vector() {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: format!("integer operation requires integer or vector operands, got {:?}", op1_type),
+                                    location: format!("{:?} instruction", inst.opcode()),
+                                });
+                            }
+                        }
+                        Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
+                            if !op1_type.is_float() && !op1_type.is_vector() {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: format!("floating point operation requires float or vector operands, got {:?}", op1_type),
+                                    location: format!("{:?} instruction", inst.opcode()),
+                                });
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
