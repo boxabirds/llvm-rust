@@ -1124,6 +1124,9 @@ impl Parser {
                     });
                 }
 
+                // Alloca returns a pointer to the allocated type
+                result_type = Some(self.context.ptr_type(alloca_ty));
+
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
                     if self.match_token(&Token::Align) {
