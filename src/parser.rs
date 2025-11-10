@@ -63,6 +63,10 @@ impl Parser {
         self.tokens = lexer.tokenize().map_err(ParseError::LexerError)?;
         self.current = 0;
 
+        // Pre-scan and parse type declarations in multiple passes to handle forward references
+        self.parse_all_type_declarations()?;
+        self.current = 0; // Reset to beginning
+
         let module = Module::new("parsed_module".to_string(), self.context.clone());
 
         // Parse module contents with safety limit to prevent infinite loops
@@ -233,6 +237,44 @@ impl Parser {
         if let Some(Token::StringLit(_)) = self.peek() {
             self.advance();
         }
+        Ok(())
+    }
+
+    fn parse_all_type_declarations(&mut self) -> ParseResult<()> {
+        // Multi-pass approach to handle forward references
+        // Keep parsing until no more type declarations are found or max iterations reached
+        const MAX_PASSES: usize = 10;
+
+        for _pass in 0..MAX_PASSES {
+            self.current = 0;
+            let mut found_any = false;
+
+            while !self.is_at_end() {
+                // Look for type declarations
+                if (self.peek_global_ident().is_some() || self.check_local_ident())
+                    && self.peek_ahead(1) == Some(&Token::Equal)
+                    && self.peek_ahead(2) == Some(&Token::Type) {
+
+                    // Try to parse this type declaration
+                    let saved_pos = self.current;
+                    if self.parse_type_declaration().is_ok() {
+                        found_any = true;
+                    } else {
+                        // Parsing failed (probably forward reference), restore position
+                        self.current = saved_pos;
+                        self.advance();
+                    }
+                } else {
+                    self.advance();
+                }
+            }
+
+            // If no declarations were successfully parsed this pass, we're done
+            if !found_any {
+                break;
+            }
+        }
+
         Ok(())
     }
 
