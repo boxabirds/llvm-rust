@@ -1215,9 +1215,13 @@ impl Parser {
                 self.skip_instruction_flags(); // Skip inbounds, nuw, nusw, etc.
                 let _ty = self.parse_type()?;
                 self.consume(&Token::Comma)?;
-                let _ptr_ty = self.parse_type()?;
-                let ptr = self.parse_value()?;
+                let ptr_ty = self.parse_type()?;
+                let ptr = self.parse_value_with_type(Some(&ptr_ty))?;
                 operands.push(ptr);
+
+                // GEP result is always a pointer type (opaque ptr in modern LLVM)
+                result_type = Some(self.context.ptr_type(self.context.int8_type()));
+
                 // Parse indices (each can have optional inrange qualifier)
                 while self.match_token(&Token::Comma) {
                     // Check if this comma is followed by metadata (e.g., !dbg !23)
@@ -1227,8 +1231,8 @@ impl Parser {
                         break;
                     }
                     self.match_token(&Token::Inrange); // Skip optional inrange
-                    let _idx_ty = self.parse_type()?;
-                    let idx = self.parse_value()?;
+                    let idx_ty = self.parse_type()?;
+                    let idx = self.parse_value_with_type(Some(&idx_ty))?;
                     operands.push(idx);
                 }
             }
@@ -2295,8 +2299,10 @@ impl Parser {
                     Ok(value.clone())
                 } else {
                     // If not found, create a placeholder instruction value for local variables
-                    // This can happen for forward references or undefined values
-                    Ok(Value::instruction(self.context.void_type(), Opcode::Add, Some(name)))
+                    // This can happen for forward references (e.g., phi nodes that reference themselves)
+                    // Use expected_type if provided, otherwise default to void
+                    let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                    Ok(Value::instruction(ty, Opcode::Add, Some(name)))
                 }
             }
             Token::GlobalIdent(name) => {
