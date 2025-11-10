@@ -430,12 +430,16 @@ impl Verifier {
                 }
             }
             Opcode::FPToUI | Opcode::FPToSI => {
-                // FPToUI/FPToSI: operand must be float, result must be integer
+                // FPToUI/FPToSI: operand must be float (or vector of float), result must be integer (or vector of integer)
                 let operands = inst.operands();
                 let opcode_name = if inst.opcode() == Opcode::FPToUI { "fptoui" } else { "fptosi" };
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_float() {
+                    // Check if source is float or vector of float
+                    let src_is_float = src_type.is_float() ||
+                        (src_type.is_vector() && src_type.vector_info().map_or(false, |(elem, _)| elem.is_float()));
+
+                    if !src_is_float {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "float".to_string(),
@@ -445,7 +449,11 @@ impl Verifier {
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_integer() {
+                        // Check if destination is integer or vector of integer
+                        let dst_is_int = dst_type.is_integer() ||
+                            (dst_type.is_vector() && dst_type.vector_info().map_or(false, |(elem, _)| elem.is_integer()));
+
+                        if !dst_is_int {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
@@ -457,12 +465,16 @@ impl Verifier {
                 }
             }
             Opcode::UIToFP | Opcode::SIToFP => {
-                // UIToFP/SIToFP: operand must be integer, result must be float
+                // UIToFP/SIToFP: operand must be integer (or vector of integer), result must be float (or vector of float)
                 let operands = inst.operands();
                 let opcode_name = if inst.opcode() == Opcode::UIToFP { "uitofp" } else { "sitofp" };
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_integer() {
+                    // Check if source is integer or vector of integer
+                    let src_is_int = src_type.is_integer() ||
+                        (src_type.is_vector() && src_type.vector_info().map_or(false, |(elem, _)| elem.is_integer()));
+
+                    if !src_is_int {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "integer".to_string(),
@@ -472,7 +484,11 @@ impl Verifier {
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_float() {
+                        // Check if destination is float or vector of float
+                        let dst_is_float = dst_type.is_float() ||
+                            (dst_type.is_vector() && dst_type.vector_info().map_or(false, |(elem, _)| elem.is_float()));
+
+                        if !dst_is_float {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
@@ -484,11 +500,15 @@ impl Verifier {
                 }
             }
             Opcode::PtrToInt => {
-                // PtrToInt: operand must be pointer, result must be integer
+                // PtrToInt: operand must be pointer (or vector of pointer), result must be integer (or vector of integer)
                 let operands = inst.operands();
                 if operands.len() >= 1 {
                     let src_type = operands[0].get_type();
-                    if !src_type.is_pointer() {
+                    // Check if source is pointer or vector of pointer
+                    let src_is_ptr = src_type.is_pointer() ||
+                        (src_type.is_vector() && src_type.vector_info().map_or(false, |(elem, _)| elem.is_pointer()));
+
+                    if !src_is_ptr {
                         self.errors.push(VerificationError::InvalidCast {
                             from: format!("{:?}", src_type),
                             to: "pointer".to_string(),
@@ -498,7 +518,11 @@ impl Verifier {
                     }
                     if let Some(result) = inst.result() {
                         let dst_type = result.get_type();
-                        if !dst_type.is_integer() {
+                        // Check if destination is integer or vector of integer
+                        let dst_is_int = dst_type.is_integer() ||
+                            (dst_type.is_vector() && dst_type.vector_info().map_or(false, |(elem, _)| elem.is_integer()));
+
+                        if !dst_is_int {
                             self.errors.push(VerificationError::InvalidCast {
                                 from: format!("{:?}", src_type),
                                 to: format!("{:?}", dst_type),
