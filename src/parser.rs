@@ -741,6 +741,11 @@ impl Parser {
                         // Next token is a label definition, not a value - stop here
                         return Ok(operands);
                     }
+                    // Skip parsing value if next token is followed by =, that's a new instruction assignment
+                    if self.peek_ahead(1) == Some(&Token::Equal) {
+                        // Next token is a new instruction, not a return value - stop here
+                        return Ok(operands);
+                    }
                     // If we see a value token (including constant expressions), parse it
                     if matches!(self.peek(), Some(Token::LocalIdent(_)) | Some(Token::GlobalIdent(_)) |
                                              Some(Token::Integer(_)) | Some(Token::Float64(_)) |
@@ -876,6 +881,9 @@ impl Parser {
                     }
                     self.match_token(&Token::RBracket);
                 }
+
+                // Skip function attributes that may appear after arguments (nounwind, readonly, etc.)
+                self.skip_function_attributes();
             }
             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
             Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
@@ -894,7 +902,15 @@ impl Parser {
                 self.match_token(&Token::Inalloca);
                 self.match_token(&Token::Swifterror);
 
-                let _ty = self.parse_type()?;
+                let alloca_ty = self.parse_type()?;
+
+                // Validate that alloca type is sized (not void, function, label, token, or metadata)
+                if !alloca_ty.is_sized() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("invalid type for alloca: {:?}", alloca_ty),
+                        position: self.current,
+                    });
+                }
 
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
@@ -1314,7 +1330,8 @@ impl Parser {
                    self.match_token(&Token::Readonly) ||
                    self.match_token(&Token::Writeonly) ||
                    self.match_token(&Token::Swifterror) ||
-                   self.match_token(&Token::Swiftself) {
+                   self.match_token(&Token::Swiftself) ||
+                   self.match_token(&Token::Swiftasync) {
                     continue;
                 }
 
@@ -2701,7 +2718,23 @@ impl Parser {
 /// Parse a module from a string
 pub fn parse(source: &str, context: Context) -> ParseResult<Module> {
     let mut parser = Parser::new(context);
-    parser.parse_module(source)
+    let module = parser.parse_module(source)?;
+
+    // Verify the module after parsing
+    match crate::verification::verify_module(&module) {
+        Ok(_) => Ok(module),
+        Err(errors) => {
+            // Convert verification errors to parse error
+            let error_msg = errors.iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            Err(ParseError::InvalidSyntax {
+                message: format!("Verification failed: {}", error_msg),
+                position: 0,
+            })
+        }
+    }
 }
 
 #[cfg(test)]
