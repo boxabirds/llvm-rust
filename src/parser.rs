@@ -36,6 +36,8 @@ pub struct Parser {
     context: Context,
     tokens: Vec<Token>,
     current: usize,
+    /// Symbol table for tracking local values within a function
+    symbol_table: std::collections::HashMap<String, Value>,
 }
 
 impl Parser {
@@ -44,6 +46,7 @@ impl Parser {
             context,
             tokens: Vec::new(),
             current: 0,
+            symbol_table: std::collections::HashMap::new(),
         }
     }
 
@@ -328,7 +331,15 @@ impl Parser {
         let args: Vec<Value> = params.iter().enumerate().map(|(idx, (ty, name))| {
             Value::argument(ty.clone(), idx, Some(name.clone()))
         }).collect();
-        function.set_arguments(args);
+        function.set_arguments(args.clone());
+
+        // Clear symbol table for this function and populate with parameters
+        self.symbol_table.clear();
+        for arg in &args {
+            if let Some(name) = arg.name() {
+                self.symbol_table.insert(name.to_string(), arg.clone());
+            }
+        }
 
         // Parse body if present with safety limit to prevent infinite loops
         if self.match_token(&Token::LBrace) {
@@ -650,7 +661,10 @@ impl Parser {
         let result = result_name.map(|name| {
             // Create an instruction value with void type for now
             // The type should ideally be inferred from the instruction
-            Value::instruction(self.context.void_type(), opcode, Some(name))
+            let value = Value::instruction(self.context.void_type(), opcode, Some(name.clone()));
+            // Add to symbol table for lookup
+            self.symbol_table.insert(name, value.clone());
+            value
         });
 
         Ok(Some(Instruction::new(opcode, operands, result)))
@@ -741,7 +755,7 @@ impl Parser {
                 // Parse type first (handles both plain "void" and complex types like "void ()*")
                 if !self.is_at_end() && !self.check(&Token::RBrace) &&
                    self.peek_ahead(1) != Some(&Token::Colon) {
-                    let _ty = self.parse_type()?;
+                    let ty = self.parse_type()?;
                     // After parsing type, check if there's a value
                     // Skip parsing value if next token is a label (identifier followed by colon)
                     if self.peek_ahead(1) == Some(&Token::Colon) {
@@ -773,7 +787,7 @@ impl Parser {
                                              Some(Token::ICmp) | Some(Token::FCmp) | Some(Token::Select) |
                                              Some(Token::ExtractValue) | Some(Token::ExtractElement) |
                                              Some(Token::InsertElement) | Some(Token::ShuffleVector)) {
-                        let val = self.parse_value()?;
+                        let val = self.parse_value_with_type(Some(&ty))?;
                         operands.push(val);
                     }
                 }
@@ -1694,6 +1708,10 @@ impl Parser {
     }
 
     fn parse_value(&mut self) -> ParseResult<Value> {
+        self.parse_value_with_type(None)
+    }
+
+    fn parse_value_with_type(&mut self, expected_type: Option<&Type>) -> ParseResult<Value> {
         let token = self.peek().ok_or(ParseError::UnexpectedEOF)?;
 
         match token {
@@ -1763,8 +1781,14 @@ impl Parser {
             Token::LocalIdent(name) => {
                 let name = name.clone();
                 self.advance();
-                // Create a placeholder instruction value for local variables
-                Ok(Value::instruction(self.context.void_type(), Opcode::Add, Some(name)))
+                // Look up in symbol table first
+                if let Some(value) = self.symbol_table.get(&name) {
+                    Ok(value.clone())
+                } else {
+                    // If not found, create a placeholder instruction value for local variables
+                    // This can happen for forward references or undefined values
+                    Ok(Value::instruction(self.context.void_type(), Opcode::Add, Some(name)))
+                }
             }
             Token::GlobalIdent(name) => {
                 let name = name.clone();
@@ -1775,7 +1799,17 @@ impl Parser {
             Token::Integer(n) => {
                 let n = *n;
                 self.advance();
-                Ok(Value::const_int(self.context.int32_type(), n as i64, None))
+                // Use expected type if provided and it's an integer type
+                let ty = if let Some(expected) = expected_type {
+                    if expected.is_integer() {
+                        expected.clone()
+                    } else {
+                        self.context.int32_type()
+                    }
+                } else {
+                    self.context.int32_type()
+                };
+                Ok(Value::const_int(ty, n as i64, None))
             }
             Token::Float64(f) => {
                 let f = *f;
