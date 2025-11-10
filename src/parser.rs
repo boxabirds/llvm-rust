@@ -424,21 +424,34 @@ impl Parser {
                 Ok(Value::const_null(ty.clone()))
             },
             Some(Token::Integer(_)) => {
-                if let Some(Token::Integer(n)) = self.peek() {
-                    let val = *n as i64;
-                    self.advance();
-                    Ok(Value::const_int(ty.clone(), val, None))
+                if ty.is_integer() {
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        let val = *n as i64;
+                        self.advance();
+                        Ok(Value::const_int(ty.clone(), val, None))
+                    } else {
+                        unreachable!()
+                    }
                 } else {
-                    unreachable!()
+                    // Not an integer type, use constant expression parser
+                    self.parse_constant_expression()
                 }
             },
             Some(Token::True) => {
                 self.advance();
-                Ok(Value::const_int(ty.clone(), 1, None))
+                if ty.is_integer() {
+                    Ok(Value::const_int(ty.clone(), 1, None))
+                } else {
+                    Ok(Value::const_int(self.context.bool_type(), 1, None))
+                }
             },
             Some(Token::False) => {
                 self.advance();
-                Ok(Value::const_int(ty.clone(), 0, None))
+                if ty.is_integer() {
+                    Ok(Value::const_int(ty.clone(), 0, None))
+                } else {
+                    Ok(Value::const_int(self.context.bool_type(), 0, None))
+                }
             },
             Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
                 // Complex aggregate constant - use constant expression parser
