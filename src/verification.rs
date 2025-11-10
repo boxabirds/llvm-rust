@@ -117,6 +117,16 @@ impl Verifier {
             return; // External function, nothing to verify
         }
 
+        // Check if this is an intrinsic function being defined
+        let fn_name = function.name();
+        if fn_name.starts_with("llvm.") {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "llvm intrinsics cannot be defined".to_string(),
+                location: format!("function {}", fn_name),
+            });
+            return;
+        }
+
         // Check if function has an entry block
         if function.entry_block().is_none() {
             self.errors.push(VerificationError::EntryBlockMissing {
@@ -227,6 +237,23 @@ impl Verifier {
             self.errors.push(VerificationError::MultipleTerminators {
                 block: bb.name().unwrap_or_else(|| "unnamed".to_string()),
             });
+        }
+
+        // Check PHI node grouping: all PHI nodes must be at the top
+        let mut found_non_phi = false;
+        for inst in instructions.iter() {
+            if inst.opcode() == Opcode::PHI {
+                if found_non_phi {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "PHI nodes not grouped at top of basic block".to_string(),
+                        location: format!("block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
+                    });
+                    break; // Only report once per block
+                }
+            } else if !inst.is_terminator() {
+                // Found non-PHI, non-terminator instruction
+                found_non_phi = true;
+            }
         }
 
         // Verify each instruction
