@@ -1824,8 +1824,9 @@ impl Parser {
             Token::GlobalIdent(name) => {
                 let name = name.clone();
                 self.advance();
-                // Create a global variable value
-                Ok(Value::new(self.context.void_type(), crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
+                // Create a global variable value with expected type if available
+                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
+                Ok(Value::new(ty, crate::value::ValueKind::GlobalVariable { is_constant: false }, Some(name)))
             }
             Token::Integer(n) => {
                 let n = *n;
@@ -1965,7 +1966,7 @@ impl Parser {
     }
 
     fn parse_constant_expression(&mut self) -> ParseResult<Value> {
-        // Parse constant expressions like: ptrtoint (ptr @global to i32)
+        // Parse constant expressions like: ptrtoint (ptr @global to i32), inttoptr (i64 50 to ptr)
         let token = self.peek().ok_or(ParseError::UnexpectedEOF)?;
 
         // Determine the opcode
@@ -2033,11 +2034,14 @@ impl Parser {
         // For GEP: getelementptr (basetype, ptrtype ptrvalue, indices...)
         // For select: select (type cond, type val1, type val2)
 
+        let mut result_type: Option<Type> = None;
+
         if matches!(opcode, Opcode::GetElementPtr) {
             // GEP is special: getelementptr (basetype, ptrtype ptrvalue, indextype indexvalue, ...)
             let _base_ty = self.parse_type()?;
             self.consume(&Token::Comma)?;
-            let _ptr_ty = self.parse_type()?;
+            let ptr_ty = self.parse_type()?;
+            result_type = Some(ptr_ty);  // GEP result is pointer type
             let _ptr_val = self.parse_value()?;
             // Parse remaining indices (each can have optional inrange qualifier)
             while self.match_token(&Token::Comma) {
@@ -2048,37 +2052,38 @@ impl Parser {
         } else {
             // Simplified parsing - just parse type and value, skip to closing paren
             // This allows the constant expression to be recognized without full semantic support
-            let _src_ty = self.parse_type()?;
+            let src_ty = self.parse_type()?;
             let _src_val = self.parse_value()?;
 
-            // Handle 'to' keyword for casts
+            // Handle 'to' keyword for casts - destination type is the result type
             if matches!(opcode, Opcode::PtrToInt | Opcode::IntToPtr | Opcode::PtrToAddr | Opcode::AddrToPtr |
                                Opcode::BitCast | Opcode::Trunc | Opcode::ZExt | Opcode::SExt |
                                Opcode::FPTrunc | Opcode::FPExt | Opcode::FPToUI |
                                Opcode::FPToSI | Opcode::UIToFP | Opcode::SIToFP |
                                Opcode::AddrSpaceCast) {
                 if self.match_token(&Token::To) {
-                    let _dest_ty = self.parse_type()?;
+                    let dest_ty = self.parse_type()?;
+                    result_type = Some(dest_ty);  // Cast result is destination type
                 }
+            } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
+                // Comparison results are always i1
+                result_type = Some(self.context.int_type(1));
             } else if matches!(opcode, Opcode::Select) {
                 // Select: select (type cond, type val1, type val2)
+                // Result type is the value type (second argument)
                 if self.match_token(&Token::Comma) {
-                    let _ty2 = self.parse_type()?;
+                    let val_ty = self.parse_type()?;
+                    result_type = Some(val_ty);  // Select result is value type
                     let _val2 = self.parse_value()?;
                     if self.match_token(&Token::Comma) {
                         let _ty3 = self.parse_type()?;
                         let _val3 = self.parse_value()?;
                     }
                 }
-            } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
-                // Comparison: icmp/fcmp (predicate type val1, type val2)
-                // The first "type" we parsed might actually be a predicate, skip
-                if self.match_token(&Token::Comma) {
-                    let _ty2 = self.parse_type()?;
-                    let _val2 = self.parse_value()?;
-                }
             } else if matches!(opcode, Opcode::ShuffleVector) {
                 // ShuffleVector has 3 operands: shufflevector (type vec1, type vec2, type mask)
+                // Result type is the first vector type
+                result_type = Some(src_ty.clone());
                 if self.match_token(&Token::Comma) {
                     let _ty2 = self.parse_type()?;
                     let _val2 = self.parse_value()?;
@@ -2089,6 +2094,8 @@ impl Parser {
                 }
             } else if matches!(opcode, Opcode::InsertElement) {
                 // InsertElement has 3 operands: insertelement (type vec, type val, type idx)
+                // Result type is the vector type
+                result_type = Some(src_ty.clone());
                 if self.match_token(&Token::Comma) {
                     let _ty2 = self.parse_type()?;
                     let _val2 = self.parse_value()?;
@@ -2098,7 +2105,9 @@ impl Parser {
                     }
                 }
             } else {
-                // Binary operations and others - parse second operand if comma present
+                // Binary operations and others - result type is operand type
+                result_type = Some(src_ty.clone());
+                // Parse second operand if comma present
                 if self.match_token(&Token::Comma) {
                     let _ty2 = self.parse_type()?;
                     let _val2 = self.parse_value()?;
@@ -2108,8 +2117,9 @@ impl Parser {
 
         self.consume(&Token::RParen)?;
 
-        // Return a placeholder constant expression value
-        Ok(Value::instruction(self.context.void_type(), opcode, Some("constexpr".to_string())))
+        // Return a constant expression value with the correct result type
+        let ty = result_type.unwrap_or_else(|| self.context.void_type());
+        Ok(Value::instruction(ty, opcode, Some("constexpr".to_string())))
     }
 
     fn parse_parameters(&mut self) -> ParseResult<Vec<(Type, String)>> {
