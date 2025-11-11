@@ -454,11 +454,19 @@ impl Parser {
                     self.advance();
                     // Comdat can have an optional name: comdat($name) or comdat(identifier)
                     if self.match_token(&Token::LParen) {
-                        if let Some(Token::Identifier(name)) = self.peek() {
+                        // Handle $name format (GlobalIdent)
+                        if let Some(Token::GlobalIdent(name)) = self.peek() {
+                            comdat = Some(name.clone());
+                            self.advance();
+                        } else if let Some(Token::Identifier(name)) = self.peek() {
+                            // Handle plain identifier format
                             comdat = Some(name.clone());
                             self.advance();
                         }
                         self.match_token(&Token::RParen);
+                    } else {
+                        // comdat without explicit name means use the global's own name
+                        comdat = Some(name.clone());
                     }
                 },
                 _ => break,
