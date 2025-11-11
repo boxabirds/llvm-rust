@@ -1204,6 +1204,19 @@ impl Verifier {
                             location: "store instruction".to_string(),
                         });
                     }
+
+                    // Atomic stores have additional constraints
+                    // Note: We would need to detect atomic stores from instruction attributes
+                    // For now, we check if it's a struct type which is never valid for atomics
+                    // This is a heuristic - proper detection requires parsing atomic attribute
+                    if value_type.is_struct() {
+                        // If storing a struct, this might be an atomic store which is invalid
+                        // We can't definitively check without parsing attributes, but we can
+                        // add a check that would catch atomic struct stores
+                        // Note: This is overly broad and would be refined with proper attribute parsing
+                        // For now, we rely on the comment "atomic store" appearing in the instruction name
+                        // Since we don't have that, we'll skip this check and rely on parser
+                    }
                 }
             }
             Opcode::Load => {
@@ -1759,6 +1772,26 @@ impl Verifier {
             }
         }
 
+        // llvm.vector.reduce.* - vector reduction intrinsics
+        if intrinsic_name.starts_with("llvm.vector.reduce.") {
+            self.verify_intrinsic_vector_reduce(inst, intrinsic_name, operands);
+        }
+
+        // llvm.is.fpclass - floating-point class test
+        if intrinsic_name.starts_with("llvm.is.fpclass.") {
+            self.verify_intrinsic_is_fpclass(inst, intrinsic_name, operands);
+        }
+
+        // llvm.sadd.sat, llvm.uadd.sat, llvm.ssub.sat, llvm.usub.sat, llvm.sshl.sat, llvm.ushl.sat
+        if intrinsic_name.contains(".sat.") {
+            self.verify_intrinsic_sat(inst, intrinsic_name, operands);
+        }
+
+        // llvm.vp.* - vector predication intrinsics
+        if intrinsic_name.starts_with("llvm.vp.") {
+            self.verify_intrinsic_vp(inst, intrinsic_name, operands);
+        }
+
         // llvm.experimental.get.vector.length - VF (second operand) must be positive
         // Note: This would require constant analysis to check if the value is > 0
         // For now, we can't validate this without constant folding infrastructure
@@ -1770,6 +1803,199 @@ impl Verifier {
 
         // llvm.cttz/ctlz - second argument must be constant i1
         // This would require constant detection which we don't have yet
+    }
+
+    /// Verify llvm.vector.reduce.* intrinsics
+    fn verify_intrinsic_vector_reduce(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+        // Vector reduce intrinsics have format: llvm.vector.reduce.<op>.<type>
+        // where <op> is: add, mul, and, or, xor, smax, smin, umax, umin, fmax, fmin, fadd, fmul
+
+        // Determine expected types based on operation
+        let is_int_op = intrinsic_name.contains(".add.") || intrinsic_name.contains(".mul.") ||
+                        intrinsic_name.contains(".and.") || intrinsic_name.contains(".or.") ||
+                        intrinsic_name.contains(".xor.") || intrinsic_name.contains(".smax.") ||
+                        intrinsic_name.contains(".smin.") || intrinsic_name.contains(".umax.") ||
+                        intrinsic_name.contains(".umin.");
+        let is_fp_op = intrinsic_name.contains(".fmax.") || intrinsic_name.contains(".fmin.") ||
+                       intrinsic_name.contains(".fadd.") || intrinsic_name.contains(".fmul.");
+
+        if operands.len() < 2 {
+            return; // Not enough operands, skip
+        }
+
+        // For fadd/fmul, first operand is start value (scalar), second is vector
+        // For others, first operand is function, second is vector
+        let vec_arg_idx = if intrinsic_name.contains(".fadd.") || intrinsic_name.contains(".fmul.") {
+            2 // operands[0] = function, operands[1] = start value, operands[2] = vector
+        } else {
+            1 // operands[0] = function, operands[1] = vector
+        };
+
+        if operands.len() <= vec_arg_idx {
+            return;
+        }
+
+        let vec_arg = &operands[vec_arg_idx];
+        let vec_type = vec_arg.get_type();
+
+        // Argument must be a vector
+        if !vec_type.is_vector() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Intrinsic has incorrect argument type!".to_string(),
+                location: format!("call to {}", intrinsic_name),
+            });
+            return;
+        }
+
+        // Check element type matches operation type
+        if let Some((elem_type, _)) = vec_type.vector_info() {
+            if is_int_op && !elem_type.is_integer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Intrinsic has incorrect argument type!".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            } else if is_fp_op && !elem_type.is_float() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Intrinsic has incorrect argument type!".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+
+            // For fadd/fmul with start value, check start value type matches element type
+            if (intrinsic_name.contains(".fadd.") || intrinsic_name.contains(".fmul.")) && operands.len() >= 3 {
+                let start_val = &operands[1];
+                let start_type = start_val.get_type();
+                if *start_type != *elem_type {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Intrinsic has incorrect argument type!".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+            }
+
+            // Check return type matches element type
+            if let Some(result) = inst.result() {
+                let result_type = result.get_type();
+                if *result_type != *elem_type {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Intrinsic has incorrect return type!".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Verify llvm.is.fpclass intrinsic
+    fn verify_intrinsic_is_fpclass(&mut self, _inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+        if operands.len() < 3 {
+            return; // Not enough operands
+        }
+
+        // operands[0] = function, operands[1] = value, operands[2] = test mask
+        let mask_operand = &operands[2];
+
+        // Test mask must be a constant integer
+        if let Some(mask_val) = mask_operand.as_const_int() {
+            // Valid mask bits are 0-9 (values 0-1023)
+            // Bit 10 and higher are invalid
+            // Also, -1 (all bits set) is specifically invalid
+            if mask_val < 0 || mask_val >= 1024 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "unsupported bits for llvm.is.fpclass test mask".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+        // Note: If mask is not constant, parser should have caught it as immarg violation
+    }
+
+    /// Verify saturating arithmetic intrinsics
+    fn verify_intrinsic_sat(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+        if operands.len() < 3 {
+            return; // Not enough operands
+        }
+
+        // operands[0] = function, operands[1] = arg1, operands[2] = arg2
+        let arg1_type = operands[1].get_type();
+        let arg2_type = operands[2].get_type();
+
+        // Both arguments must be integers or vectors of integers
+        let arg1_valid = arg1_type.is_integer() ||
+                        (arg1_type.is_vector() && arg1_type.vector_info().map_or(false, |(e, _)| e.is_integer()));
+        let arg2_valid = arg2_type.is_integer() ||
+                        (arg2_type.is_vector() && arg2_type.vector_info().map_or(false, |(e, _)| e.is_integer()));
+
+        if !arg1_valid || !arg2_valid {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Intrinsic has incorrect argument type!".to_string(),
+                location: format!("call to {}", intrinsic_name),
+            });
+        }
+
+        // Both arguments must have same type
+        if *arg1_type != *arg2_type {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Intrinsic has incorrect argument type!".to_string(),
+                location: format!("call to {}", intrinsic_name),
+            });
+        }
+
+        // Return type must match argument types
+        if let Some(result) = inst.result() {
+            let result_type = result.get_type();
+            let result_valid = result_type.is_integer() ||
+                              (result_type.is_vector() && result_type.vector_info().map_or(false, |(e, _)| e.is_integer()));
+
+            if !result_valid {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Intrinsic has incorrect return type!".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            } else if *result_type != *arg1_type {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Intrinsic has incorrect return type!".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+    }
+
+    /// Verify llvm.vp.* (vector predication) intrinsics
+    fn verify_intrinsic_vp(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+        // llvm.vp.fptosi, llvm.vp.fptoui, llvm.vp.sitofp, llvm.vp.uitofp - cast intrinsics
+        // VP cast intrinsics: first argument and result vector lengths must be equal
+        if intrinsic_name.starts_with("llvm.vp.fptosi.") ||
+           intrinsic_name.starts_with("llvm.vp.fptoui.") ||
+           intrinsic_name.starts_with("llvm.vp.sitofp.") ||
+           intrinsic_name.starts_with("llvm.vp.uitofp.") {
+
+            if operands.len() < 2 {
+                return;
+            }
+
+            let src_type = operands[1].get_type(); // operands[0] = function, operands[1] = source
+
+            if let Some(result) = inst.result() {
+                let dst_type = result.get_type();
+
+                // Both must be vectors
+                if src_type.is_vector() && dst_type.is_vector() {
+                    if let (Some((_, src_len)), Some((_, dst_len))) = (src_type.vector_info(), dst_type.vector_info()) {
+                        if src_len != dst_len {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "VP cast intrinsic first argument and result vector lengths must be equal".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // llvm.vp.fcmp and llvm.vp.icmp - comparison intrinsics
+        // These require metadata predicate validation which we can't do without metadata access
+        // Skipping for now
     }
 }
 
