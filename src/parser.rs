@@ -2570,7 +2570,7 @@ impl Parser {
             Token::None => {
                 self.advance();
                 // 'none' is used with token type in GC intrinsics
-                Ok(Value::undef(self.context.metadata_type()))
+                Ok(Value::undef(self.context.token_type()))
             }
             Token::Undef => {
                 self.advance();
