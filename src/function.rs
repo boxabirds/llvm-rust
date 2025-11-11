@@ -98,6 +98,10 @@ pub struct FunctionAttributes {
     // Attribute group references (#0, #1, etc.)
     pub attribute_groups: Vec<String>,
 
+    // Complex string attributes (allockind, allocsize, etc.)
+    pub allockind: Option<Vec<String>>,  // e.g., ["alloc", "zeroed"]
+    pub allocsize: Option<Vec<usize>>,   // e.g., [0] or [0, 1]
+
     // Other attributes as strings
     pub other_attributes: Vec<String>,
 }
