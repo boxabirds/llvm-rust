@@ -728,10 +728,26 @@ impl Verifier {
                             });
                         }
 
+                        // Bitcast between pointers and non-pointers requires compatible sizes
+                        let src_is_ptr = src_type.is_pointer();
+                        let dst_is_ptr = dst_type.is_pointer();
+
+                        if src_is_ptr != dst_is_ptr {
+                            // One is pointer, other is not - check if non-pointer is integer
+                            let non_ptr_type = if src_is_ptr { dst_type.clone() } else { src_type.clone() };
+                            if !non_ptr_type.is_integer() && !non_ptr_type.is_vector() {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: "bitcast between pointer and non-integer type is invalid".to_string(),
+                                    location: "bitcast instruction".to_string(),
+                                });
+                            }
+                        }
+
                         // Bitcast cannot change address space
-                        // Note: Checking address space would require Type API support
-                        // For now, we check if both are pointers but have different representations
-                        // This catches some basic bitcast errors
+                        // Note: Full address space checking requires Type API support
+                        // This is a placeholder for future implementation
                     }
                 }
             }
