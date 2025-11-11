@@ -140,6 +140,25 @@ impl Verifier {
     pub fn verify_module(&mut self, module: &Module) -> VerificationResult {
         self.errors.clear();
 
+        // Verify global variables
+        for global in module.globals() {
+            let global_type = global.get_type();
+            // If it's a pointer, check the pointee type
+            let value_type = if global_type.is_pointer() {
+                global_type.pointee_type().unwrap_or(global_type)
+            } else {
+                global_type
+            };
+
+            // Global variables cannot have token type
+            if value_type.is_token() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "invalid type for global variable".to_string(),
+                    location: format!("global variable @{}", global.name()),
+                });
+            }
+        }
+
         // Verify all functions in the module
         for function in module.functions() {
             self.verify_function(&function);
@@ -163,6 +182,21 @@ impl Verifier {
                 reason: "llvm intrinsics cannot be defined".to_string(),
                 location: format!("function {}", fn_name),
             });
+        }
+
+        // Check if non-intrinsic function takes token parameters
+        // Only intrinsics can have token parameters
+        if !fn_name.starts_with("llvm.") {
+            for param in function.arguments() {
+                let param_type = param.get_type();
+                if param_type.is_token() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Function takes token but isn't an intrinsic".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                    break; // Only report once per function
+                }
+            }
         }
 
         // Verify parameter attributes (for both declarations and definitions)
@@ -1261,6 +1295,14 @@ impl Verifier {
                     let cond_type = operands[0].get_type();
                     let true_type = operands[1].get_type();
                     let false_type = operands[2].get_type();
+
+                    // Select values cannot have token type
+                    if true_type.is_token() || false_type.is_token() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "select values cannot have token type".to_string(),
+                            location: "select instruction".to_string(),
+                        });
+                    }
 
                     // Allow pointer type equivalence
                     let types_match = if true_type.is_pointer() && false_type.is_pointer() {

@@ -2196,8 +2196,8 @@ impl Parser {
             }
             Token::Token => {
                 self.advance();
-                // Token type for statepoints/gc - use metadata type as placeholder
-                Ok(self.context.metadata_type())
+                // Token type for statepoints/gc
+                Ok(self.context.token_type())
             }
             Token::Metadata => {
                 self.advance();
