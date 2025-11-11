@@ -12,6 +12,7 @@ pub struct Instruction {
     opcode: Opcode,
     operands: Vec<Value>,
     result: Option<Value>,
+    metadata_attachments: Vec<String>, // e.g., ["dbg", "llvm.access.group", "align"]
 }
 
 /// Instruction opcodes
@@ -113,7 +114,23 @@ impl Instruction {
             opcode,
             operands,
             result,
+            metadata_attachments: Vec::new(),
         }
+    }
+
+    /// Add a metadata attachment
+    pub fn add_metadata_attachment(&mut self, name: String) {
+        self.metadata_attachments.push(name);
+    }
+
+    /// Get metadata attachments
+    pub fn metadata_attachments(&self) -> &[String] {
+        &self.metadata_attachments
+    }
+
+    /// Check if instruction has a specific metadata attachment
+    pub fn has_metadata(&self, name: &str) -> bool {
+        self.metadata_attachments.iter().any(|m| m == name)
     }
 
     /// Get the opcode of this instruction

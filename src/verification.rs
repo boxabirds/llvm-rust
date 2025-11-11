@@ -429,6 +429,9 @@ impl Verifier {
         // Proper implementation requires determining reachability before checking
         // Without CFG analysis, this check produces false positives and breaks Level 5 tests
 
+        // Verify metadata attachments
+        self.verify_instruction_metadata(inst, &location);
+
         // Verify atomic instructions
         self.verify_atomic_instruction(inst, &location);
 
@@ -1992,6 +1995,118 @@ impl Verifier {
         // 1. Better type system support for target extension types
         // 2. Opaque struct detection
         // Placeholder for future implementation
+    }
+
+    /// Verify metadata attachments on instructions
+    fn verify_instruction_metadata(&mut self, inst: &Instruction, location: &str) {
+        for md_name in inst.metadata_attachments() {
+            match md_name.as_str() {
+                "align" => {
+                    // align metadata only applies to load instructions
+                    if inst.opcode() != Opcode::Load {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "align applies only to load instructions".to_string(),
+                            location: location.to_string(),
+                        });
+                    }
+                    // Additional check: align only applies to pointer types
+                    // This would require checking the loaded type
+                }
+                "llvm.access.group" | "parallel_loop_access" => {
+                    // Access group metadata must be used on memory operations
+                    match inst.opcode() {
+                        Opcode::Load | Opcode::Store | Opcode::Call | Opcode::Invoke => {
+                            // Valid usage
+                        }
+                        _ => {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: format!("{} metadata can only be used on memory operations", md_name),
+                                location: location.to_string(),
+                            });
+                        }
+                    }
+                }
+                "nontemporal" => {
+                    // nontemporal metadata only on load/store
+                    match inst.opcode() {
+                        Opcode::Load | Opcode::Store => { /* Valid */ }
+                        _ => {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "nontemporal metadata can only be used on load/store".to_string(),
+                                location: location.to_string(),
+                            });
+                        }
+                    }
+                }
+                "invariant.load" => {
+                    // invariant.load only on load instructions
+                    if inst.opcode() != Opcode::Load {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "invariant.load metadata can only be used on load instructions".to_string(),
+                            location: location.to_string(),
+                        });
+                    }
+                }
+                "nonnull" => {
+                    // nonnull metadata only on load instructions
+                    if inst.opcode() != Opcode::Load {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "nonnull metadata can only be used on load instructions".to_string(),
+                            location: location.to_string(),
+                        });
+                    }
+                }
+                "range" => {
+                    // range metadata only on load/call/invoke
+                    match inst.opcode() {
+                        Opcode::Load | Opcode::Call | Opcode::Invoke => { /* Valid */ }
+                        _ => {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "range metadata can only be used on load/call/invoke".to_string(),
+                                location: location.to_string(),
+                            });
+                        }
+                    }
+                }
+                "noalias" | "alias.scope" => {
+                    // Alias metadata on memory operations
+                    match inst.opcode() {
+                        Opcode::Load | Opcode::Store | Opcode::Call | Opcode::Invoke => { /* Valid */ }
+                        _ => {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: format!("{} metadata can only be used on memory operations", md_name),
+                                location: location.to_string(),
+                            });
+                        }
+                    }
+                }
+                "tbaa" | "tbaa.struct" => {
+                    // TBAA metadata on memory operations and VAArg
+                    match inst.opcode() {
+                        Opcode::Load | Opcode::Store | Opcode::Call | Opcode::Invoke |
+                        Opcode::AtomicCmpXchg | Opcode::AtomicRMW | Opcode::VAArg => { /* Valid */ }
+                        _ => {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "tbaa metadata can only be used on memory operations".to_string(),
+                                location: location.to_string(),
+                            });
+                        }
+                    }
+                }
+                // Debug metadata is allowed on any instruction
+                "dbg" | "DILocation" | "DILocalVariable" | "DIExpression" => {
+                    // Always valid
+                }
+                // Profile and branch metadata
+                "prof" | "unpredictable" => {
+                    // These can appear on branches, calls, etc.
+                    // Generally valid on most instructions
+                }
+                _ => {
+                    // Unknown metadata - don't error, as there may be custom metadata
+                }
+            }
+        }
     }
 
     /// Verify that GEP doesn't try to index through a pointer within an aggregate
