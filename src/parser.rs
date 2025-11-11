@@ -823,8 +823,8 @@ impl Parser {
         let mut inst_count = 0;
         let mut last_position = self.current;
         let mut stuck_count = 0;
-        const MAX_INSTRUCTIONS_PER_BLOCK: usize = 10000;
-        const MAX_STUCK_ITERATIONS: usize = 3;
+        const MAX_INSTRUCTIONS_PER_BLOCK: usize = 50000;  // Increased for large basic blocks
+        const MAX_STUCK_ITERATIONS: usize = 10;  // Increased to handle complex edge cases
 
         loop {
             if inst_count >= MAX_INSTRUCTIONS_PER_BLOCK {
@@ -1943,6 +1943,134 @@ impl Parser {
                         self.match_token(&Token::Comma);
                     }
                     self.consume(&Token::RBracket)?;
+                }
+            }
+            Opcode::Fence => {
+                // fence [syncscope("<scope>")] <ordering>
+                // Skip syncscope if present
+                self.skip_syncscope();
+                // Skip ordering (acquire, release, acq_rel, seq_cst)
+                self.skip_atomic_ordering();
+            }
+            Opcode::Resume => {
+                // resume type %value
+                let ty = self.parse_type()?;
+                let val = self.parse_value_with_type(Some(&ty))?;
+                operands.push(val);
+            }
+            Opcode::LandingPad => {
+                // landingpad type [cleanup] [catch/filter clauses...]
+                // Parse result type
+                result_type = Some(self.parse_type()?);
+
+                // Skip cleanup if present
+                if self.match_token(&Token::Cleanup) {
+                    // cleanup flag
+                }
+
+                // Skip catch/filter clauses until next instruction
+                let mut skip_count = 0;
+                const MAX_SKIP: usize = 100;
+                while !self.is_at_end() && skip_count < MAX_SKIP {
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        break;
+                    }
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        break;
+                    }
+                    if self.check(&Token::RBrace) {
+                        break;
+                    }
+                    self.advance();
+                    skip_count += 1;
+                }
+            }
+            Opcode::CatchPad => {
+                // catchpad within %parentpad [args...]
+                // Skip 'within' keyword if present
+                while !self.is_at_end() && !self.check(&Token::LBracket) {
+                    if self.check(&Token::RBrace) ||
+                       (self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal)) {
+                        break;
+                    }
+                    self.advance();
+                }
+                // Skip args in brackets
+                if self.match_token(&Token::LBracket) {
+                    self.skip_to_matching_bracket();
+                    self.advance();
+                }
+            }
+            Opcode::CleanupPad => {
+                // cleanuppad within %parentpad [args...]
+                // Similar to catchpad
+                while !self.is_at_end() && !self.check(&Token::LBracket) {
+                    if self.check(&Token::RBrace) ||
+                       (self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal)) {
+                        break;
+                    }
+                    self.advance();
+                }
+                if self.match_token(&Token::LBracket) {
+                    self.skip_to_matching_bracket();
+                    self.advance();
+                }
+            }
+            Opcode::CatchSwitch => {
+                // catchswitch within %parentpad [label %handler1, ...] unwind label %cleanup
+                // Skip everything until next instruction
+                let mut skip_count = 0;
+                const MAX_SKIP: usize = 100;
+                while !self.is_at_end() && skip_count < MAX_SKIP {
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        break;
+                    }
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        break;
+                    }
+                    if self.check(&Token::RBrace) {
+                        break;
+                    }
+                    self.advance();
+                    skip_count += 1;
+                }
+            }
+            Opcode::CleanupRet => {
+                // cleanupret from %cleanuppad unwind label %continue / unwind to caller
+                // Skip everything until next instruction
+                let mut skip_count = 0;
+                const MAX_SKIP: usize = 100;
+                while !self.is_at_end() && skip_count < MAX_SKIP {
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        break;
+                    }
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        break;
+                    }
+                    if self.check(&Token::RBrace) {
+                        break;
+                    }
+                    self.advance();
+                    skip_count += 1;
+                }
+            }
+            Opcode::CatchRet => {
+                // catchret from %catchpad to label %continue
+                // Skip everything until next instruction
+                let mut skip_count = 0;
+                const MAX_SKIP: usize = 100;
+                while !self.is_at_end() && skip_count < MAX_SKIP {
+                    if self.check_local_ident() && self.peek_ahead(1) == Some(&Token::Equal) {
+                        break;
+                    }
+                    if self.peek_ahead(1) == Some(&Token::Colon) {
+                        break;
+                    }
+                    if self.check(&Token::RBrace) {
+                        break;
+                    }
+                    self.advance();
+                    skip_count += 1;
                 }
             }
             // Binary operations: op [flags] type op1, type op2 or just op type op1, op2
@@ -4405,6 +4533,41 @@ impl Parser {
             } else {
                 self.current -= 1; // put back the comma
                 break;
+            }
+        }
+    }
+
+    fn skip_atomic_ordering(&mut self) -> bool {
+        // Atomic orderings are the same as memory orderings
+        self.skip_memory_ordering()
+    }
+
+    fn skip_to_matching_paren(&mut self) {
+        // Skip all tokens until we find the matching closing parenthesis
+        let mut depth = 1;
+        while depth > 0 && !self.is_at_end() {
+            if self.check(&Token::LParen) {
+                depth += 1;
+            } else if self.check(&Token::RParen) {
+                depth -= 1;
+            }
+            if depth > 0 {
+                self.advance();
+            }
+        }
+    }
+
+    fn skip_to_matching_bracket(&mut self) {
+        // Skip all tokens until we find the matching closing bracket
+        let mut depth = 1;
+        while depth > 0 && !self.is_at_end() {
+            if self.check(&Token::LBracket) {
+                depth += 1;
+            } else if self.check(&Token::RBracket) {
+                depth -= 1;
+            }
+            if depth > 0 {
+                self.advance();
             }
         }
     }
