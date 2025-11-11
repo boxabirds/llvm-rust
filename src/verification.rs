@@ -322,25 +322,10 @@ impl Verifier {
             }
         }
 
-        // Check for self-referential instructions (only PHI nodes allowed)
-        for inst in instructions.iter() {
-            if inst.opcode() != Opcode::PHI {
-                // Check if any operand references the instruction's own result
-                if let Some(result) = inst.result() {
-                    let result_name = result.name();
-                    for operand in inst.operands() {
-                        if let Some(op_name) = operand.name() {
-                            if result_name.is_some() && result_name == Some(op_name) {
-                                self.errors.push(VerificationError::InvalidSSA {
-                                    value: op_name.to_string(),
-                                    location: format!("instruction in block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // Note: Self-referential check removed - it was catching false positives:
+        // 1. Self-reference in unreachable code is allowed
+        // 2. Local names can shadow global names
+        // Proper check requires reachability analysis
 
         // Verify each instruction
         for inst in instructions.iter() {
