@@ -6,6 +6,8 @@
 pub mod x86_64;
 pub mod machine_instr;
 pub mod register_allocator;
+pub mod elf;
+pub mod external_functions;
 
 use crate::module::Module;
 use crate::function::Function;
