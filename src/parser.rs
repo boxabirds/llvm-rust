@@ -208,12 +208,29 @@ impl Parser {
                 continue;
             }
 
-            // Skip named metadata definitions: !name = !{ ... }
-            if let Some(Token::MetadataIdent(_)) = self.peek() {
-                self.advance(); // skip metadata name
+            // Parse metadata definitions: !name = !{ ... } or !0 = !{...}
+            if let Some(Token::MetadataIdent(name)) = self.peek().cloned() {
+                let metadata_name = name.clone();
+                self.advance(); // consume metadata name
                 self.match_token(&Token::Equal);
-                // Skip metadata value
-                self.skip_metadata();
+
+                // Parse the metadata content
+                if let Ok(metadata) = self.parse_metadata_node() {
+                    // Store in registry for later reference
+                    self.metadata_registry.insert(metadata_name.clone(), metadata.clone());
+
+                    // If this is !llvm.module.flags, add to module
+                    if metadata_name == "llvm.module.flags" {
+                        if let Some(flags) = metadata.operands() {
+                            for flag in flags {
+                                module.add_module_flag(flag.clone());
+                            }
+                        }
+                    }
+                } else {
+                    // If parsing fails, skip it
+                    self.skip_metadata();
+                }
                 continue;
             }
 
@@ -2021,6 +2038,141 @@ impl Parser {
             }
         }
         None
+    }
+
+    /// Parse metadata node content and return actual Metadata object
+    /// Handles: !{...}, !"string", !0, !DILocation(...), null
+    fn parse_metadata_node(&mut self) -> ParseResult<crate::metadata::Metadata> {
+        use crate::metadata::Metadata;
+
+        // Case 1: MetadataIdent - reference to numbered or named metadata
+        if let Some(Token::MetadataIdent(ref name)) = self.peek() {
+            let md_name = name.clone();
+            self.advance();
+
+            // Check if it's a reference to existing metadata (!0, !1, etc.)
+            if md_name.chars().all(|c| c.is_ascii_digit()) {
+                // Reference to numbered metadata - look it up in registry
+                if let Some(existing) = self.metadata_registry.get(&md_name) {
+                    return Ok(existing.clone());
+                } else {
+                    // Forward reference - create placeholder
+                    // For now, return empty tuple as placeholder
+                    return Ok(Metadata::tuple(vec![]));
+                }
+            }
+
+            // Named metadata like DILocation, DIExpression, etc.
+            if self.check(&Token::LParen) {
+                self.advance(); // consume (
+
+                // For now, parse the content but create simple tuple
+                // Full DILocation/DIExpression parsing would go here
+                let mut operands = Vec::new();
+
+                while !self.check(&Token::RParen) && !self.is_at_end() {
+                    // Skip key: value pairs for now
+                    // TODO: Properly parse DILocation(line: 5, column: 3, ...)
+                    if let Some(Token::Identifier(_)) = self.peek() {
+                        self.advance(); // key
+                        if self.match_token(&Token::Colon) {
+                            // Parse value
+                            if let Some(Token::Integer(n)) = self.peek() {
+                                operands.push(Metadata::int(*n as i64));
+                                self.advance();
+                            } else if let Some(Token::MetadataIdent(_)) = self.peek() {
+                                // Recursive metadata reference
+                                let inner = self.parse_metadata_node()?;
+                                operands.push(inner);
+                            } else {
+                                self.advance(); // skip unknown value
+                            }
+                        }
+                    }
+
+                    self.match_token(&Token::Comma);
+                }
+
+                self.consume(&Token::RParen)?;
+                return Ok(Metadata::named(md_name, operands));
+            }
+
+            // Just a name without parens - return named metadata
+            return Ok(Metadata::named(md_name, vec![]));
+        }
+
+        // Case 2: Exclaim followed by content
+        if self.match_token(&Token::Exclaim) {
+            // Case 2a: !{...} - tuple
+            if self.check(&Token::LBrace) {
+                self.advance(); // consume {
+                let mut elements = Vec::new();
+
+                while !self.check(&Token::RBrace) && !self.is_at_end() {
+                    // Parse each element
+                    if let Some(Token::MetadataIdent(_)) = self.peek() {
+                        elements.push(self.parse_metadata_node()?);
+                    } else if self.check(&Token::Exclaim) {
+                        elements.push(self.parse_metadata_node()?);
+                    } else if let Some(Token::Integer(n)) = self.peek() {
+                        // Bare integer in metadata context
+                        elements.push(Metadata::int(*n as i64));
+                        self.advance();
+                    } else if let Some(Token::StringLit(s)) = self.peek() {
+                        elements.push(Metadata::string(s.clone()));
+                        self.advance();
+                    } else if self.match_token(&Token::Null) {
+                        // null in metadata
+                        elements.push(Metadata::tuple(vec![])); // Use empty tuple for null
+                    } else {
+                        // Skip unknown token
+                        self.advance();
+                    }
+
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+
+                self.consume(&Token::RBrace)?;
+                return Ok(Metadata::tuple(elements));
+            }
+
+            // Case 2b: !"string" - string metadata
+            if let Some(Token::StringLit(s)) = self.peek() {
+                let string = s.clone();
+                self.advance();
+                return Ok(Metadata::string(string));
+            }
+
+            // Case 2c: !0, !1 - numbered reference
+            if let Some(Token::Integer(n)) = self.peek() {
+                let num = n.to_string();
+                self.advance();
+                // Look up in registry
+                if let Some(existing) = self.metadata_registry.get(&num) {
+                    return Ok(existing.clone());
+                } else {
+                    // Forward reference - placeholder
+                    return Ok(Metadata::tuple(vec![]));
+                }
+            }
+
+            // Case 2d: !DILocation(...) when lexer didn't combine
+            if let Some(Token::Identifier(name)) = self.peek() {
+                let md_name = name.clone();
+                self.advance();
+                if self.check(&Token::LParen) {
+                    // Put the identifier back and re-parse as MetadataIdent
+                    self.current -= 1;
+                    return self.parse_metadata_node();
+                }
+                return Ok(Metadata::named(md_name, vec![]));
+            }
+        }
+
+        // Default: return empty tuple
+        Ok(Metadata::tuple(vec![]))
     }
 
     fn parse_call_arguments_with_context(&mut self, is_varargs: bool) -> ParseResult<Vec<(Type, Value)>> {
