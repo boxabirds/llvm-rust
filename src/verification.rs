@@ -1425,3 +1425,65 @@ mod tests {
         }
     }
 }
+
+    fn verify_calling_convention(&mut self, function: &crate::function::Function) {
+        use crate::function::CallingConvention;
+
+        let cc = function.calling_convention();
+        let fn_type = function.get_type();
+        let ret_type = fn_type.return_type();
+        let fn_name = function.name();
+
+        match cc {
+            CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel |
+            CallingConvention::AMDGPU_CS_Chain | CallingConvention::AMDGPU_CS_Chain_Preserve => {
+                if !ret_type.is_void() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention requires void return type".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            },
+            _ => {},
+        }
+
+        if fn_type.is_vararg() {
+            match cc {
+                CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel |
+                CallingConvention::AMDGPU_VS | CallingConvention::AMDGPU_GS |
+                CallingConvention::AMDGPU_PS | CallingConvention::AMDGPU_CS |
+                CallingConvention::AMDGPU_CS_Chain | CallingConvention::AMDGPU_CS_Chain_Preserve => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not support varargs or perfect forwarding!".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                },
+                CallingConvention::AMDGPU_GFX_Whole_Wave => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not support varargs".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                },
+                _ => {},
+            }
+        }
+
+        if cc == CallingConvention::AMDGPU_GFX_Whole_Wave {
+            let params = function.arguments();
+            if params.is_empty() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Calling convention requires first argument to be i1".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            } else {
+                let first_param_type = params[0].get_type();
+                if !first_param_type.is_integer() || first_param_type.int_width() != Some(1) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention requires first argument to be i1".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            }
+        }
+    }
+}

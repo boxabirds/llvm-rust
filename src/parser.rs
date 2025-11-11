@@ -539,7 +539,7 @@ impl Parser {
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
         // declare [cc] [ret attrs] [!metadata] type @name([params])
-        self.skip_linkage_and_visibility(); // For calling conventions
+        let cc = self.parse_calling_convention();
         self.skip_attributes();
 
         // Skip metadata attachments before return type (e.g., declare !dbg !12 i32 @foo())
@@ -559,13 +559,14 @@ impl Parser {
 
         let fn_type = self.context.function_type(return_type, param_types, is_vararg);
         let function = Function::new(name, fn_type);
+        function.set_calling_convention(cc);
         function.set_attributes(attrs);
         Ok(function)
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
         // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
-        self.skip_linkage_and_visibility();
+        let cc = self.parse_calling_convention();
         self.skip_attributes();
 
         // Skip metadata attachments before return type
@@ -587,6 +588,7 @@ impl Parser {
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
         let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+        function.set_calling_convention(cc);
         function.set_attributes(attrs);
 
         // Set arguments
@@ -2918,6 +2920,80 @@ impl Parser {
     }
 
     // Helper methods
+
+    fn parse_calling_convention(&mut self) -> CallingConvention {
+        let mut cc = CallingConvention::C;
+
+        loop {
+            // Check token-based calling conventions first
+            if self.match_token(&Token::Amdgpu_kernel) {
+                cc = CallingConvention::AMDGPU_Kernel;
+                continue;
+            }
+            if self.match_token(&Token::Amdgpu_ps) {
+                cc = CallingConvention::AMDGPU_PS;
+                continue;
+            }
+            if self.match_token(&Token::Amdgpu_cs_chain) {
+                cc = CallingConvention::AMDGPU_CS_Chain;
+                continue;
+            }
+
+            // Check identifier-based calling conventions
+            if let Some(Token::Identifier(id)) = self.peek() {
+                let cc_name = id.clone();
+                let cc_opt = match cc_name.as_str() {
+                    "ccc" => Some(CallingConvention::C),
+                    "fastcc" => Some(CallingConvention::Fast),
+                    "coldcc" => Some(CallingConvention::Cold),
+                    "tailcc" => Some(CallingConvention::Tail),
+                    "swiftcc" => Some(CallingConvention::Swift),
+                    "swifttailcc" => Some(CallingConvention::SwiftTail),
+                    "amdgpu_kernel" => Some(CallingConvention::AMDGPU_Kernel),
+                    "amdgpu_vs" => Some(CallingConvention::AMDGPU_VS),
+                    "amdgpu_gs" => Some(CallingConvention::AMDGPU_GS),
+                    "amdgpu_ps" => Some(CallingConvention::AMDGPU_PS),
+                    "amdgpu_cs" => Some(CallingConvention::AMDGPU_CS),
+                    "amdgpu_hs" => Some(CallingConvention::AMDGPU_HS),
+                    "amdgpu_ls" => Some(CallingConvention::AMDGPU_LS),
+                    "amdgpu_es" => Some(CallingConvention::AMDGPU_ES),
+                    "amdgpu_cs_chain" => Some(CallingConvention::AMDGPU_CS_Chain),
+                    "amdgpu_cs_chain_preserve" => Some(CallingConvention::AMDGPU_CS_Chain_Preserve),
+                    "amdgpu_gfx_whole_wave" => Some(CallingConvention::AMDGPU_GFX_Whole_Wave),
+                    "spir_kernel" => Some(CallingConvention::SPIR_Kernel),
+                    "spir_func" => Some(CallingConvention::SPIR_Func),
+                    "x86_stdcallcc" => Some(CallingConvention::X86_StdCall),
+                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") => {
+                        // Unknown variant, skip it
+                        None
+                    },
+                    _ => None,
+                };
+
+                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") {
+                    if let Some(c) = cc_opt {
+                        cc = c;
+                    }
+                    self.advance();
+                    // Some calling conventions have parameters
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        // Now skip linkage/visibility keywords
+        self.skip_linkage_and_visibility();
+        cc
+    }
 
     fn skip_linkage_and_visibility(&mut self) {
         loop {
