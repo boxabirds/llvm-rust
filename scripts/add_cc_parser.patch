@@ -1,0 +1,150 @@
+--- a/src/parser.rs
++++ b/src/parser.rs
+@@ -3009,6 +3009,140 @@ impl Parser {
+             }
+         }
+     }
++
++    /// Parse linkage, visibility, and calling convention, returning the calling convention
++    fn parse_linkage_visibility_and_cc(&mut self) -> CallingConvention {
++        let mut calling_convention = CallingConvention::C;
++
++        loop {
++            // Skip linkage and visibility keywords
++            if self.match_token(&Token::Private) ||
++               self.match_token(&Token::Internal) ||
++               self.match_token(&Token::External) ||
++               self.match_token(&Token::Weak) ||
++               self.match_token(&Token::Linkonce) ||
++               self.match_token(&Token::Linkonce_odr) ||
++               self.match_token(&Token::Weak_odr) ||
++               self.match_token(&Token::Available_externally) ||
++               self.match_token(&Token::Extern_weak) ||
++               self.match_token(&Token::Common) ||
++               self.match_token(&Token::Appending) ||
++               self.match_token(&Token::Hidden) ||
++               self.match_token(&Token::Protected) ||
++               self.match_token(&Token::Default) ||
++               self.match_token(&Token::Dllimport) ||
++               self.match_token(&Token::Dllexport) ||
++               self.match_token(&Token::Unnamed_addr) ||
++               self.match_token(&Token::Dso_local) ||
++               self.match_token(&Token::Dso_preemptable) ||
++               self.match_token(&Token::Local_unnamed_addr) {
++                continue;
++            }
++
++            // Parse calling conventions from Tokens
++            if self.match_token(&Token::Amdgpu_kernel) {
++                calling_convention = CallingConvention::AMDGPU_Kernel;
++                continue;
++            }
++            if self.match_token(&Token::Amdgpu_ps) {
++                calling_convention = CallingConvention::AMDGPU_PS;
++                continue;
++            }
++            if self.match_token(&Token::Amdgpu_cs_chain) {
++                calling_convention = CallingConvention::AMDGPU_CS_Chain;
++                continue;
++            }
++
++            // Thread_local
++            if self.match_token(&Token::Thread_local) {
++                if self.check(&Token::LParen) {
++                    self.advance();
++                    while !self.check(&Token::RParen) && !self.is_at_end() {
++                        self.advance();
++                    }
++                    self.match_token(&Token::RParen);
++                }
++                continue;
++            }
++
++            // Parse identifier-based calling conventions
++            if let Some(Token::Identifier(id)) = self.peek() {
++                let cc_name = id.clone();
++
++                let cc_opt = match cc_name.as_str() {
++                    "ccc" => Some(CallingConvention::C),
++                    "fastcc" => Some(CallingConvention::Fast),
++                    "coldcc" => Some(CallingConvention::Cold),
++                    "tailcc" => Some(CallingConvention::Tail),
++                    "swiftcc" => Some(CallingConvention::Swift),
++                    "swifttailcc" => Some(CallingConvention::SwiftTail),
++                    "webkit_jscc" => Some(CallingConvention::Webkit_JS),
++                    "anyregcc" => Some(CallingConvention::AnyReg),
++                    "preserve_mostcc" => Some(CallingConvention::PreserveMost),
++                    "preserve_allcc" => Some(CallingConvention::PreserveAll),
++                    "cxx_fast_tlscc" => Some(CallingConvention::CXX_FastTLS),
++                    "cfguard_checkcc" => Some(CallingConvention::CFunc),
++                    "x86_stdcallcc" => Some(CallingConvention::X86_StdCall),
++                    "x86_fastcallcc" => Some(CallingConvention::X86_FastCall),
++                    "x86_thiscallcc" => Some(CallingConvention::X86_ThisCall),
++                    "x86_vectorcallcc" => Some(CallingConvention::X86_VectorCall),
++                    "x86_regcallcc" => Some(CallingConvention::X86_RegCall),
++                    "arm_apcscc" => Some(CallingConvention::ARM_APCS),
++                    "arm_aapcscc" => Some(CallingConvention::ARM_AAPCS),
++                    "arm_aapcs_vfpcc" => Some(CallingConvention::ARM_AAPCS_VFP),
++                    "aarch64_vector_pcs" => Some(CallingConvention::AArch64_VectorCall),
++                    "aarch64_sve_vector_pcs" => Some(CallingConvention::AArch64_SVE_VectorCall),
++                    "amdgpu_vs" => Some(CallingConvention::AMDGPU_VS),
++                    "amdgpu_gs" => Some(CallingConvention::AMDGPU_GS),
++                    "amdgpu_ps" => Some(CallingConvention::AMDGPU_PS),
++                    "amdgpu_cs" => Some(CallingConvention::AMDGPU_CS),
++                    "amdgpu_hs" => Some(CallingConvention::AMDGPU_HS),
++                    "amdgpu_ls" => Some(CallingConvention::AMDGPU_LS),
++                    "amdgpu_es" => Some(CallingConvention::AMDGPU_ES),
++                    "amdgpu_kernel" => Some(CallingConvention::AMDGPU_Kernel),
++                    "amdgpu_cs_chain" => Some(CallingConvention::AMDGPU_CS_Chain),
++                    "amdgpu_cs_chain_preserve" => Some(CallingConvention::AMDGPU_CS_Chain_Preserve),
++                    "amdgpu_gfx_whole_wave" => Some(CallingConvention::AMDGPU_GFX_Whole_Wave),
++                    "spir_kernel" => Some(CallingConvention::SPIR_Kernel),
++                    "spir_func" => Some(CallingConvention::SPIR_Func),
++                    "intel_ocl_bicc" => Some(CallingConvention::Intel_OCL_BI),
++                    "ptx_kernel" => Some(CallingConvention::PTX_Kernel),
++                    "ptx_device" => Some(CallingConvention::PTX_Device),
++                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") ||
++                         cc_name.starts_with("aarch64_") || cc_name.starts_with("x86_") ||
++                         cc_name.starts_with("riscv_") || cc_name.starts_with("arm_") ||
++                         cc_name.starts_with("avr_") || cc_name.starts_with("ptx_") ||
++                         cc_name.starts_with("msp430_") || cc_name.starts_with("preserve_") => {
++                        // Unknown calling convention, skip it
++                        None
++                    },
++                    _ => None,
++                };
++
++                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") ||
++                   cc_name.starts_with("aarch64_") || cc_name.starts_with("x86_") ||
++                   cc_name.starts_with("riscv_") || cc_name.starts_with("arm_") {
++                    if let Some(cc) = cc_opt {
++                        calling_convention = cc;
++                    }
++                    self.advance();
++
++                    // Some calling conventions have parameters
++                    if self.check(&Token::LParen) {
++                        self.advance();
++                        while !self.check(&Token::RParen) && !self.is_at_end() {
++                            self.advance();
++                        }
++                        self.match_token(&Token::RParen);
++                    }
++                    continue;
++                }
++            }
++
++            // Check for old linkage types
++            if let Some(Token::Identifier(id)) = self.peek() {
++                if id == "linker_private" || id == "linker_private_weak" ||
++                   id == "linker_private_weak_def_auto" || id == "linkonce_odr_auto_hide" {
++                    self.advance();
++                    continue;
++                }
++            }
++
++            break;
++        }
++
++        calling_convention
++    }

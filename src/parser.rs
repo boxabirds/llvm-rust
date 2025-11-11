@@ -4,7 +4,7 @@
 
 use crate::lexer::{Lexer, Token};
 use crate::module::{Module, GlobalVariable};
-use crate::function::Function;
+use crate::function::{Function, CallingConvention};
 use crate::basic_block::BasicBlock;
 use crate::instruction::{Instruction, Opcode};
 use crate::value::Value;
@@ -26,6 +26,8 @@ pub enum ParseError {
     UnexpectedEOF,
     /// Lexer error
     LexerError(String),
+    /// Invalid attribute
+    InvalidAttribute { message: String },
 }
 
 /// Parse result
@@ -539,8 +541,8 @@ impl Parser {
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
         // declare [cc] [ret attrs] [!metadata] type @name([params])
-        self.skip_linkage_and_visibility(); // For calling conventions
-        self.skip_attributes();
+        let cc = self.parse_calling_convention();
+        let ret_attrs = self.parse_return_attributes();
 
         // Skip metadata attachments before return type (e.g., declare !dbg !12 i32 @foo())
         while self.is_metadata_token() {
@@ -551,22 +553,25 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let (param_types, is_vararg) = self.parse_parameter_types()?;
+        let (param_types, param_attrs, is_vararg) = self.parse_parameter_types()?;
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
-        let attrs = self.parse_function_attributes();
+        let mut attrs = self.parse_function_attributes();
+        attrs.return_attributes = ret_attrs;
+        attrs.parameter_attributes = param_attrs;
 
         let fn_type = self.context.function_type(return_type, param_types, is_vararg);
         let function = Function::new(name, fn_type);
+        function.set_calling_convention(cc);
         function.set_attributes(attrs);
         Ok(function)
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
         // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
-        self.skip_linkage_and_visibility();
-        self.skip_attributes();
+        let cc = self.parse_calling_convention();
+        let ret_attrs = self.parse_return_attributes();
 
         // Skip metadata attachments before return type
         while self.is_metadata_token() {
@@ -577,16 +582,19 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let params = self.parse_parameters()?;
+        let (params, param_attrs) = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
-        let attrs = self.parse_function_attributes();
+        let mut attrs = self.parse_function_attributes();
+        attrs.return_attributes = ret_attrs;
+        attrs.parameter_attributes = param_attrs;
 
         // Create function
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
         let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+        function.set_calling_convention(cc);
         function.set_attributes(attrs);
 
         // Set arguments
@@ -1135,14 +1143,20 @@ impl Parser {
                 result_type = Some(return_type);  // Call result type is the return type
 
                 // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
-                let func = if let Some(fn_ty) = explicit_fn_type {
-                    self.parse_value_with_type(Some(&fn_ty))?
+                let func = if let Some(ref fn_ty) = explicit_fn_type {
+                    self.parse_value_with_type(Some(fn_ty))?
                 } else {
                     self.parse_value()?
                 };
                 operands.push(func);
                 self.consume(&Token::LParen)?;
-                let args = self.parse_call_arguments()?;
+                // Determine if this is a varargs call
+                let is_varargs = if let Some(fn_ty) = &explicit_fn_type {
+                    fn_ty.function_info().map(|(_, _, varargs)| varargs).unwrap_or(false)
+                } else {
+                    false
+                };
+                let args = self.parse_call_arguments_with_context(is_varargs)?;
                 // Extract values from (Type, Value) pairs
                 for (_, value) in args {
                     operands.push(value);
@@ -1595,7 +1609,9 @@ impl Parser {
                 let func = self.parse_value()?;
                 operands.push(func);
                 self.consume(&Token::LParen)?;
-                let args = self.parse_call_arguments()?;
+                // For invoke, we don't know if it's varargs here, so assume false
+                // TODO: Parse function type for invoke to detect varargs
+                let args = self.parse_call_arguments_with_context(false)?;
                 for (_, value) in args {
                     operands.push(value);
                 }
@@ -1967,7 +1983,7 @@ impl Parser {
         }
     }
 
-    fn parse_call_arguments(&mut self) -> ParseResult<Vec<(Type, Value)>> {
+    fn parse_call_arguments_with_context(&mut self, is_varargs: bool) -> ParseResult<Vec<(Type, Value)>> {
         let mut args = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
@@ -2021,28 +2037,67 @@ impl Parser {
 
             let ty = self.parse_type()?;
 
-            // Skip parameter attributes (byval, sret, noundef, allocalign, etc.)
+            // Parse and validate parameter attributes (byval, sret, noundef, allocalign, etc.)
+            let mut has_signext = false;
+            let mut has_zeroext = false;
+            let mut has_nest = false;
+            let mut has_swifterror = false;
+            let mut has_noalias = false;
+            let mut has_align = false;
+            let mut has_dereferenceable = false;
+            let mut has_sret = false;
+
             loop {
                 // Attributes without type parameters
-                if self.match_token(&Token::Inreg) ||
-                   self.match_token(&Token::Noalias) ||
-                   self.match_token(&Token::Nocapture) ||
-                   self.match_token(&Token::Nest) ||
-                   self.match_token(&Token::Zeroext) ||
-                   self.match_token(&Token::Signext) ||
-                   self.match_token(&Token::Immarg) ||
-                   self.match_token(&Token::Nonnull) ||
-                   self.match_token(&Token::Readonly) ||
-                   self.match_token(&Token::Writeonly) ||
-                   self.match_token(&Token::Swifterror) ||
-                   self.match_token(&Token::Swiftself) ||
-                   self.match_token(&Token::Swiftasync) {
+                if self.match_token(&Token::Inreg) {
+                    continue;
+                }
+                if self.match_token(&Token::Noalias) {
+                    has_noalias = true;
+                    continue;
+                }
+                if self.match_token(&Token::Nocapture) {
+                    continue;
+                }
+                if self.match_token(&Token::Nest) {
+                    has_nest = true;
+                    continue;
+                }
+                if self.match_token(&Token::Zeroext) {
+                    has_zeroext = true;
+                    continue;
+                }
+                if self.match_token(&Token::Signext) {
+                    has_signext = true;
+                    continue;
+                }
+                if self.match_token(&Token::Immarg) {
+                    continue;
+                }
+                if self.match_token(&Token::Nonnull) {
+                    continue;
+                }
+                if self.match_token(&Token::Readonly) {
+                    continue;
+                }
+                if self.match_token(&Token::Writeonly) {
+                    continue;
+                }
+                if self.match_token(&Token::Swifterror) {
+                    has_swifterror = true;
+                    continue;
+                }
+                if self.match_token(&Token::Swiftself) {
+                    continue;
+                }
+                if self.match_token(&Token::Swiftasync) {
                     continue;
                 }
 
                 // Attributes with parameters: dereferenceable(N), dereferenceable_or_null(N)
                 if self.match_token(&Token::Dereferenceable) ||
                    self.match_token(&Token::Dereferenceable_or_null) {
+                    has_dereferenceable = true;
                     if self.check(&Token::LParen) {
                         self.advance();
                         while !self.check(&Token::RParen) && !self.is_at_end() {
@@ -2054,9 +2109,32 @@ impl Parser {
                 }
 
                 // Attributes with optional type parameters: byval(type), sret(type), inalloca(type), preallocated(type)
-                if self.match_token(&Token::Byval) ||
-                   self.match_token(&Token::Sret) ||
-                   self.match_token(&Token::Inalloca) ||
+                if self.match_token(&Token::Byval) {
+                    // Handle optional (type) syntax
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        // Skip tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+                if self.match_token(&Token::Sret) {
+                    has_sret = true;
+                    // Handle optional (type) syntax
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        // Skip tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+                if self.match_token(&Token::Inalloca) ||
                    self.match_token(&Token::Preallocated) {
                     // Handle optional (type) syntax
                     if self.check(&Token::LParen) {
@@ -2087,6 +2165,7 @@ impl Parser {
 
                 // Handle align N
                 if self.match_token(&Token::Align) {
+                    has_align = true;
                     if let Some(Token::Integer(_)) = self.peek() {
                         self.advance();
                     }
@@ -2104,6 +2183,51 @@ impl Parser {
 
                 // No more attributes
                 break;
+            }
+
+            // Validate attributes against type
+            // signext/zeroext must be on integer types
+            if has_signext && !ty.is_integer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'signext' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_zeroext && !ty.is_integer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'zeroext' applied to incompatible type!".to_string(),
+                });
+            }
+            // nest, swifterror, noalias, align, dereferenceable must be on pointer types
+            if has_nest && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'nest' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_swifterror && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'swifterror' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_noalias && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'noalias' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_align && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'align' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_dereferenceable && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'dereferenceable' applied to incompatible type!".to_string(),
+                });
+            }
+            // sret cannot be used in varargs functions
+            if has_sret && is_varargs {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'sret' cannot be used in a varargs function call".to_string(),
+                });
             }
 
             let val = self.parse_value_with_type(Some(&ty))?;
@@ -2190,8 +2314,8 @@ impl Parser {
             }
             Token::Token => {
                 self.advance();
-                // Token type for statepoints/gc - use metadata type as placeholder
-                Ok(self.context.metadata_type())
+                // Token type for statepoints/gc
+                Ok(self.context.token_type())
             }
             Token::Metadata => {
                 self.advance();
@@ -2564,7 +2688,7 @@ impl Parser {
             Token::None => {
                 self.advance();
                 // 'none' is used with token type in GC intrinsics
-                Ok(Value::undef(self.context.metadata_type()))
+                Ok(Value::undef(self.context.token_type()))
             }
             Token::Undef => {
                 self.advance();
@@ -2854,8 +2978,9 @@ impl Parser {
         Ok(Value::instruction(ty, opcode, Some("constexpr".to_string())))
     }
 
-    fn parse_parameters(&mut self) -> ParseResult<Vec<(Type, String)>> {
+    fn parse_parameters(&mut self) -> ParseResult<(Vec<(Type, String)>, Vec<crate::function::ParameterAttributes>)> {
         let mut params = Vec::new();
+        let mut param_attrs = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             // Check for varargs (just ellipsis with no type)
@@ -2866,8 +2991,8 @@ impl Parser {
 
             let ty = self.parse_type()?;
 
-            // Parse parameter attributes (readonly, etc.)
-            self.skip_parameter_attributes();
+            // Parse parameter attributes
+            let attrs = self.parse_parameter_attributes();
 
             let name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
                 self.advance();
@@ -2877,17 +3002,19 @@ impl Parser {
             };
 
             params.push((ty, name));
+            param_attrs.push(attrs);
 
             if !self.match_token(&Token::Comma) {
                 break;
             }
         }
 
-        Ok(params)
+        Ok((params, param_attrs))
     }
 
-    fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, bool)> {
+    fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, Vec<crate::function::ParameterAttributes>, bool)> {
         let mut types = Vec::new();
+        let mut param_attrs = Vec::new();
         let mut is_vararg = false;
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
@@ -2901,8 +3028,9 @@ impl Parser {
             let ty = self.parse_type()?;
             types.push(ty);
 
-            // Skip parameter attributes
-            self.skip_parameter_attributes();
+            // Parse parameter attributes
+            let attrs = self.parse_parameter_attributes();
+            param_attrs.push(attrs);
 
             // Skip local ident if present
             if self.check_local_ident() {
@@ -2914,10 +3042,84 @@ impl Parser {
             }
         }
 
-        Ok((types, is_vararg))
+        Ok((types, param_attrs, is_vararg))
     }
 
     // Helper methods
+
+    fn parse_calling_convention(&mut self) -> CallingConvention {
+        let mut cc = CallingConvention::C;
+
+        loop {
+            // Check token-based calling conventions first
+            if self.match_token(&Token::Amdgpu_kernel) {
+                cc = CallingConvention::AMDGPU_Kernel;
+                continue;
+            }
+            if self.match_token(&Token::Amdgpu_ps) {
+                cc = CallingConvention::AMDGPU_PS;
+                continue;
+            }
+            if self.match_token(&Token::Amdgpu_cs_chain) {
+                cc = CallingConvention::AMDGPU_CS_Chain;
+                continue;
+            }
+
+            // Check identifier-based calling conventions
+            if let Some(Token::Identifier(id)) = self.peek() {
+                let cc_name = id.clone();
+                let cc_opt = match cc_name.as_str() {
+                    "ccc" => Some(CallingConvention::C),
+                    "fastcc" => Some(CallingConvention::Fast),
+                    "coldcc" => Some(CallingConvention::Cold),
+                    "tailcc" => Some(CallingConvention::Tail),
+                    "swiftcc" => Some(CallingConvention::Swift),
+                    "swifttailcc" => Some(CallingConvention::SwiftTail),
+                    "amdgpu_kernel" => Some(CallingConvention::AMDGPU_Kernel),
+                    "amdgpu_vs" => Some(CallingConvention::AMDGPU_VS),
+                    "amdgpu_gs" => Some(CallingConvention::AMDGPU_GS),
+                    "amdgpu_ps" => Some(CallingConvention::AMDGPU_PS),
+                    "amdgpu_cs" => Some(CallingConvention::AMDGPU_CS),
+                    "amdgpu_hs" => Some(CallingConvention::AMDGPU_HS),
+                    "amdgpu_ls" => Some(CallingConvention::AMDGPU_LS),
+                    "amdgpu_es" => Some(CallingConvention::AMDGPU_ES),
+                    "amdgpu_cs_chain" => Some(CallingConvention::AMDGPU_CS_Chain),
+                    "amdgpu_cs_chain_preserve" => Some(CallingConvention::AMDGPU_CS_Chain_Preserve),
+                    "amdgpu_gfx_whole_wave" => Some(CallingConvention::AMDGPU_GFX_Whole_Wave),
+                    "spir_kernel" => Some(CallingConvention::SPIR_Kernel),
+                    "spir_func" => Some(CallingConvention::SPIR_Func),
+                    "x86_stdcallcc" => Some(CallingConvention::X86_StdCall),
+                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") => {
+                        // Unknown variant, skip it
+                        None
+                    },
+                    _ => None,
+                };
+
+                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") {
+                    if let Some(c) = cc_opt {
+                        cc = c;
+                    }
+                    self.advance();
+                    // Some calling conventions have parameters
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        // Now skip linkage/visibility keywords
+        self.skip_linkage_and_visibility();
+        cc
+    }
 
     fn skip_linkage_and_visibility(&mut self) {
         loop {
@@ -3009,6 +3211,133 @@ impl Parser {
                 self.match_token(&Token::RParen);
             }
         }
+    }
+
+    fn parse_return_attributes(&mut self) -> crate::function::ReturnAttributes {
+        use crate::function::ReturnAttributes;
+        let mut attrs = ReturnAttributes::default();
+
+        loop {
+            // Skip numbered attribute groups (#0, #1, etc.)
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+                continue;
+            }
+
+            // Parse return attributes
+            match self.peek() {
+                Some(Token::Zeroext) => {
+                    self.advance();
+                    attrs.zeroext = true;
+                    continue;
+                },
+                Some(Token::Signext) => {
+                    self.advance();
+                    attrs.signext = true;
+                    continue;
+                },
+                Some(Token::Inreg) => {
+                    self.advance();
+                    attrs.inreg = true;
+                    continue;
+                },
+                Some(Token::Noalias) => {
+                    self.advance();
+                    attrs.noalias = true;
+                    continue;
+                },
+                Some(Token::Nonnull) => {
+                    self.advance();
+                    attrs.nonnull = true;
+                    continue;
+                },
+                Some(Token::Align) => {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        attrs.align = Some(*n as u32);
+                        self.advance();
+                    }
+                    continue;
+                },
+                _ => {}
+            }
+
+            // Attributes with parameters: dereferenceable(N), dereferenceable_or_null(N)
+            if self.match_token(&Token::Dereferenceable) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        attrs.dereferenceable = Some(*n as u64);
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Skip other attributes we don't parse yet
+            if self.match_token(&Token::Nocapture) ||
+               self.match_token(&Token::Nest) ||
+               self.match_token(&Token::Readonly) ||
+               self.match_token(&Token::Writeonly) ||
+               self.match_token(&Token::Swifterror) ||
+               self.match_token(&Token::Swiftself) ||
+               self.match_token(&Token::Immarg) {
+                continue;
+            }
+
+            // Handle attributes with type parameters we need to skip
+            if self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Inalloca) ||
+               self.match_token(&Token::Preallocated) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Skip dereferenceable_or_null
+            if self.match_token(&Token::Dereferenceable_or_null) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Handle identifier-based attributes (noundef, etc.)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "noundef") {
+                    self.advance();
+                    continue;
+                }
+                // Handle identifier-based attributes with parameters: nofpclass(...), range(...), etc.
+                if matches!(attr.as_str(), "nofpclass" | "range") {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        // Skip tokens until we find )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        attrs
     }
 
     fn skip_attributes(&mut self) {
@@ -3199,6 +3528,217 @@ impl Parser {
             self.advance();
             skip_count += 1;
         }
+    }
+
+    fn parse_parameter_attributes(&mut self) -> crate::function::ParameterAttributes {
+        use crate::function::ParameterAttributes;
+        let mut attrs = ParameterAttributes::default();
+        let mut attr_count = 0;
+        const MAX_ATTR_PARSE: usize = 50;
+
+        while !self.is_at_end() && attr_count < MAX_ATTR_PARSE {
+            // Stop when we hit a local identifier (parameter name), comma, rparen, or type token
+            if self.check_local_ident() || self.check(&Token::Comma) ||
+               self.check(&Token::RParen) || self.check_type_token() {
+                break;
+            }
+
+            // Parse structured parameter attributes
+            match self.peek() {
+                Some(Token::Zeroext) => {
+                    self.advance();
+                    attrs.zeroext = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Signext) => {
+                    self.advance();
+                    attrs.signext = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Inreg) => {
+                    self.advance();
+                    attrs.inreg = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Noalias) => {
+                    self.advance();
+                    attrs.noalias = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Nocapture) => {
+                    self.advance();
+                    attrs.nocapture = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Nest) => {
+                    self.advance();
+                    attrs.nest = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Returned) => {
+                    self.advance();
+                    attrs.returned = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Nonnull) => {
+                    self.advance();
+                    attrs.nonnull = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Swiftself) => {
+                    self.advance();
+                    attrs.swiftself = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Swifterror) => {
+                    self.advance();
+                    attrs.swifterror = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Swiftasync) => {
+                    self.advance();
+                    attrs.swiftasync = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Immarg) => {
+                    self.advance();
+                    attrs.immarg = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Align) => {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        attrs.align = Some(*n as u32);
+                        self.advance();
+                    }
+                    attr_count += 1;
+                    continue;
+                },
+                _ => {}
+            }
+
+            // Handle attributes with type parameters: byval(type), sret(type), inalloca(type)
+            if self.match_token(&Token::Byval) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.byval = Some(ty);
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            if self.match_token(&Token::Sret) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.sret = Some(ty);
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            if self.match_token(&Token::Inalloca) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.inalloca = Some(ty);
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            // Handle dereferenceable(N)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "dereferenceable" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        if let Some(Token::Integer(n)) = self.peek() {
+                            attrs.dereferenceable = Some(*n as u64);
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle other attributes that we need to skip but don't parse yet
+            if self.match_token(&Token::Preallocated) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            // Handle identifier-based attributes with parameters
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated" | "range" | "nofpclass" | "captures") {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+                // Handle initializes with nested parentheses: initializes((0, 4))
+                if attr == "initializes" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume first (
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                                self.advance();
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                                self.advance();
+                            } else {
+                                self.advance();
+                            }
+                        }
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // If we got here, skip this token and move on
+            self.advance();
+            attr_count += 1;
+        }
+
+        attrs
     }
 
     fn parse_function_attributes(&mut self) -> crate::function::FunctionAttributes {
