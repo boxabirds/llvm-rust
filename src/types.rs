@@ -24,7 +24,7 @@ pub(crate) enum TypeData {
     Void,
     Integer { bits: u32 },
     Float { kind: FloatKind },
-    Pointer { pointee: Type },
+    Pointer { pointee: Type, address_space: u32 },
     Array { element: Type, size: usize },
     Vector { element: Type, size: usize },
     Struct { fields: Vec<Type>, name: Option<String>, packed: bool },
@@ -83,8 +83,16 @@ impl Type {
     }
 
     pub fn ptr(ctx: &crate::Context, pointee: Type) -> Self {
-        let key = format!("ptr<{}>", pointee);
-        let data = ctx.intern_type(key, TypeData::Pointer { pointee: pointee.clone() });
+        Self::ptr_addrspace(ctx, pointee, 0)
+    }
+
+    pub fn ptr_addrspace(ctx: &crate::Context, pointee: Type, address_space: u32) -> Self {
+        let key = if address_space == 0 {
+            format!("ptr<{}>", pointee)
+        } else {
+            format!("ptr<{}> addrspace({})", pointee, address_space)
+        };
+        let data = ctx.intern_type(key, TypeData::Pointer { pointee: pointee.clone(), address_space });
         Self { data }
     }
 
@@ -220,7 +228,23 @@ impl Type {
     /// Get the element type of a pointer
     pub fn pointee_type(&self) -> Option<&Type> {
         match &*self.data {
-            TypeData::Pointer { pointee } => Some(pointee),
+            TypeData::Pointer { pointee, .. } => Some(pointee),
+            _ => None,
+        }
+    }
+
+    /// Get the address space of a pointer type
+    pub fn address_space(&self) -> Option<u32> {
+        match &*self.data {
+            TypeData::Pointer { address_space, .. } => Some(*address_space),
+            _ => None,
+        }
+    }
+
+    /// Get both pointee type and address space for a pointer
+    pub fn pointer_info(&self) -> Option<(&Type, u32)> {
+        match &*self.data {
+            TypeData::Pointer { pointee, address_space } => Some((pointee, *address_space)),
             _ => None,
         }
     }
@@ -278,7 +302,13 @@ impl fmt::Display for Type {
                 FloatKind::Float => write!(f, "float"),
                 FloatKind::Double => write!(f, "double"),
             },
-            TypeData::Pointer { pointee } => write!(f, "{}*", pointee),
+            TypeData::Pointer { pointee, address_space } => {
+                if *address_space == 0 {
+                    write!(f, "{}*", pointee)
+                } else {
+                    write!(f, "{} addrspace({})*", pointee, address_space)
+                }
+            }
             TypeData::Array { element, size } => write!(f, "[{} x {}]", size, element),
             TypeData::Vector { element, size } => write!(f, "<{} x {}>", size, element),
             TypeData::Struct { fields, name, packed } => {

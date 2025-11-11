@@ -211,6 +211,78 @@ impl Metadata {
             data: Arc::new(MetadataData::DebugInfo(Box::new(info))),
         }
     }
+
+    // Introspection API
+
+    /// Check if this is a string metadata node
+    pub fn is_string(&self) -> bool {
+        matches!(&*self.data, MetadataData::String(_))
+    }
+
+    /// Check if this is an integer metadata node
+    pub fn is_int(&self) -> bool {
+        matches!(&*self.data, MetadataData::Int(_))
+    }
+
+    /// Check if this is a tuple metadata node
+    pub fn is_tuple(&self) -> bool {
+        matches!(&*self.data, MetadataData::Tuple(_))
+    }
+
+    /// Get string value if this is a string metadata node
+    pub fn as_string(&self) -> Option<&str> {
+        match &*self.data {
+            MetadataData::String(s) => Some(s.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Get integer value if this is an integer metadata node
+    pub fn as_int(&self) -> Option<i64> {
+        match &*self.data {
+            MetadataData::Int(i) => Some(*i),
+            _ => None,
+        }
+    }
+
+    /// Get i32 value if this is an integer metadata node
+    pub fn as_i32(&self) -> Option<i32> {
+        match &*self.data {
+            MetadataData::Int(i) => Some(*i as i32),
+            _ => None,
+        }
+    }
+
+    /// Get tuple operands if this is a tuple metadata node
+    pub fn as_tuple(&self) -> Option<&Vec<Metadata>> {
+        match &*self.data {
+            MetadataData::Tuple(operands) => Some(operands),
+            _ => None,
+        }
+    }
+
+    /// Get operands of this metadata node (works for tuples and named metadata)
+    pub fn operands(&self) -> Option<&Vec<Metadata>> {
+        match &*self.data {
+            MetadataData::Tuple(operands) => Some(operands),
+            MetadataData::Named { operands, .. } => Some(operands),
+            _ => None,
+        }
+    }
+
+    /// Get the number of operands
+    pub fn num_operands(&self) -> usize {
+        match &*self.data {
+            MetadataData::Tuple(operands) => operands.len(),
+            MetadataData::Named { operands, .. } => operands.len(),
+            _ => 0,
+        }
+    }
+
+    /// Get a specific operand by index
+    pub fn get_operand(&self, index: usize) -> Option<&Metadata> {
+        self.operands().and_then(|ops| ops.get(index))
+    }
 }
 
 impl fmt::Display for Metadata {
