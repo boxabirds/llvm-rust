@@ -2207,12 +2207,62 @@ impl Verifier {
     }
 
     /// Verify atomic instruction constraints
-    fn verify_atomic_instruction(&mut self, inst: &Instruction, _location: &str) {
-        // Atomic operations validation would require:
-        // 1. Atomic ordering information (not currently parsed)
-        // 2. Pointer element type information (not readily available)
-        // Placeholder for future implementation
-        let _opcode = inst.opcode();
+    fn verify_atomic_instruction(&mut self, inst: &Instruction, location: &str) {
+        let opcode = inst.opcode();
+        let operands = inst.operands();
+
+        match opcode {
+            Opcode::Load => {
+                // If this is an atomic load, check the loaded type
+                // The result type of load is what's being loaded
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+
+                    // Atomic loads must load integer, pointer, float, or vector types
+                    // Cannot load aggregate types (structs, arrays)
+                    if result_type.is_struct() || result_type.is_array() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "atomic load operand must have integer, pointer, floating point, or vector type!".to_string(),
+                            location: location.to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::Store => {
+                // If this is an atomic store, check the stored value type
+                // First operand is the value being stored
+                if !operands.is_empty() {
+                    let stored_type = operands[0].get_type();
+
+                    // Atomic stores must store integer, pointer, float, or vector types
+                    // Cannot store aggregate types (structs, arrays)
+                    if stored_type.is_struct() || stored_type.is_array() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "atomic store operand must have integer, pointer, floating point, or vector type!".to_string(),
+                            location: location.to_string(),
+                        });
+                    }
+                }
+            }
+            Opcode::AtomicCmpXchg | Opcode::AtomicRMW => {
+                // These atomic operations also have type constraints
+                // AtomicCmpXchg: compare-and-swap, operand 1 is the value
+                // AtomicRMW: read-modify-write, operand 1 is the value
+                if operands.len() >= 2 {
+                    let value_type = operands[1].get_type();
+
+                    if value_type.is_struct() || value_type.is_array() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: format!("atomic {:?} operand must have integer, pointer, floating point, or vector type!", opcode),
+                            location: location.to_string(),
+                        });
+                    }
+                }
+            }
+            _ => {
+                // Not an atomic operation
+            }
+        }
     }
 
     /// Verify type constraints for instructions
