@@ -2797,6 +2797,14 @@ impl Verifier {
                 location: format!("function {}", fn_name),
             });
         }
+
+        // allocsize indices can't be the same
+        if indices.len() == 2 && indices[0] == indices[1] {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'allocsize' indices can't refer to the same parameter".to_string(),
+                location: format!("function {}", fn_name),
+            });
+        }
     }
 }
 

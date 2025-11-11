@@ -3851,9 +3851,54 @@ impl Parser {
 
                     // Handle identifier-based attributes
                     if let Some(Token::Identifier(attr)) = self.peek() {
+                        // Parse allockind("alloc,zeroed") or allockind("free")
+                        if attr == "allockind" {
+                            self.advance(); // consume 'allockind'
+                            if self.check(&Token::LParen) {
+                                self.advance(); // consume (
+                                // Expect a string literal
+                                if let Some(Token::StringLit(s)) = self.peek() {
+                                    // Parse comma-separated kinds
+                                    let kinds: Vec<String> = s.split(',')
+                                        .map(|k| k.trim().to_string())
+                                        .collect();
+                                    attrs.allockind = Some(kinds);
+                                    self.advance(); // consume string
+                                }
+                                self.match_token(&Token::RParen); // consume )
+                            }
+                            continue;
+                        }
+
+                        // Parse allocsize(0) or allocsize(0, 1)
+                        if attr == "allocsize" {
+                            self.advance(); // consume 'allocsize'
+                            if self.check(&Token::LParen) {
+                                self.advance(); // consume (
+                                let mut indices = Vec::new();
+                                // Parse first index
+                                if let Some(Token::Integer(idx)) = self.peek() {
+                                    indices.push(*idx as usize);
+                                    self.advance();
+                                }
+                                // Check for second index
+                                if self.match_token(&Token::Comma) {
+                                    if let Some(Token::Integer(idx)) = self.peek() {
+                                        indices.push(*idx as usize);
+                                        self.advance();
+                                    }
+                                }
+                                self.match_token(&Token::RParen); // consume )
+                                if !indices.is_empty() {
+                                    attrs.allocsize = Some(indices);
+                                }
+                            }
+                            continue;
+                        }
+
                         if matches!(attr.as_str(), "memory" | "convergent" | "inaccessiblememonly" |
                                                   "null_pointer_is_valid" | "optforfuzzing" | "presplitcoroutine" |
-                                                  "sanitize_address_dyninit" | "allockind" | "allocptr" |
+                                                  "sanitize_address_dyninit" | "allocptr" |
                                                   "alloc-family" | "fn_ret_thunk_extern") {
                             attrs.other_attributes.push(attr.clone());
                             self.advance();
