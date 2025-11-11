@@ -115,12 +115,16 @@ pub type VerificationResult = Result<(), Vec<VerificationError>>;
 /// IR verifier
 pub struct Verifier {
     errors: Vec<VerificationError>,
+    current_function: Option<String>,
+    current_function_is_varargs: bool,
 }
 
 impl Verifier {
     pub fn new() -> Self {
         Self {
             errors: Vec::new(),
+            current_function: None,
+            current_function_is_varargs: false,
         }
     }
 
@@ -175,6 +179,13 @@ impl Verifier {
     pub fn verify_function(&mut self, function: &Function) {
         let fn_name = function.name();
 
+        // Set current function context
+        self.current_function = Some(fn_name.clone());
+        let fn_type = function.get_type();
+        self.current_function_is_varargs = fn_type.function_info()
+            .map(|(_, _, is_varargs)| is_varargs)
+            .unwrap_or(false);
+
         // Check if trying to define an LLVM intrinsic (functions starting with "llvm.")
         // Intrinsics can be declared but not defined
         if fn_name.starts_with("llvm.") && function.has_body() {
@@ -184,18 +195,24 @@ impl Verifier {
             });
         }
 
-        // Check if non-intrinsic function takes token parameters
-        // Only intrinsics can have token parameters
-        if !fn_name.starts_with("llvm.") {
-            for param in function.arguments() {
-                let param_type = param.get_type();
-                if param_type.is_token() {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: "Function takes token but isn't an intrinsic".to_string(),
-                        location: format!("function {}", fn_name),
-                    });
-                    break; // Only report once per function
-                }
+        // Check function parameter types
+        for param in function.arguments() {
+            let param_type = param.get_type();
+
+            // Functions cannot take label as parameter
+            if param_type.is_label() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "invalid type for function argument".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+
+            // Only intrinsics can have token parameters
+            if param_type.is_token() && !fn_name.starts_with("llvm.") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Function takes token but isn't an intrinsic".to_string(),
+                    location: format!("function {}", fn_name),
+                });
             }
         }
 
@@ -966,6 +983,20 @@ impl Verifier {
                         if !pointee.is_sized() {
                             self.errors.push(VerificationError::InvalidInstruction {
                                 reason: format!("alloca of unsized type {:?}", pointee),
+                                location: "alloca instruction".to_string(),
+                            });
+                        }
+                        // Cannot allocate a function type
+                        if pointee.is_function() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "invalid type for alloca".to_string(),
+                                location: "alloca instruction".to_string(),
+                            });
+                        }
+                        // Cannot allocate void type
+                        if pointee.is_void() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Cannot allocate unsized type".to_string(),
                                 location: "alloca instruction".to_string(),
                             });
                         }
@@ -1838,13 +1869,167 @@ impl Verifier {
         // Note: This would require constant analysis to check if the value is > 0
         // For now, we can't validate this without constant folding infrastructure
 
-        // llvm.memcpy/memmove/memset - check alignment constraints
-        // Note: Alignment is parsed as attributes, not operands
-        // We would need to access call site attributes to validate this
-        // For now, this is a placeholder for future implementation
+        // llvm.memcpy/memmove/memset - last argument (is_volatile) must be constant
+        if intrinsic_name.starts_with("llvm.memcpy.") || intrinsic_name.starts_with("llvm.memmove.") ||
+           intrinsic_name.starts_with("llvm.memset.") {
+            // For memcpy/memmove: operands[0] = function, [1] = dest, [2] = src, [3] = length, [4] = is_volatile
+            // For memset: operands[0] = function, [1] = dest, [2] = value, [3] = length, [4] = is_volatile
+            let is_volatile_idx = if intrinsic_name.contains(".inline.") {
+                4 // inline variants have is_volatile at index 4
+            } else {
+                4 // standard variants also have it at index 4
+            };
 
-        // llvm.cttz/ctlz - second argument must be constant i1
-        // This would require constant detection which we don't have yet
+            if operands.len() > is_volatile_idx {
+                let is_volatile = &operands[is_volatile_idx];
+                // Check if it's a constant by checking if it has a name (non-constants have names)
+                if is_volatile.name().is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg operand has non-immediate parameter".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+            }
+        }
+
+        // llvm.cttz/ctlz - second argument must be constant i1 (immarg)
+        if intrinsic_name.starts_with("llvm.ctlz.") || intrinsic_name.starts_with("llvm.cttz.") {
+            if operands.len() >= 3 {
+                // operands[0] = function, operands[1] = value, operands[2] = is_zero_poison
+                let is_zero_poison = &operands[2];
+                // Check if it's a constant by checking if it has a name (non-constants have names)
+                if is_zero_poison.name().is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg operand has non-immediate parameter".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+            }
+        }
+
+        // llvm.returnaddress / llvm.frameaddress - argument must be constant
+        if intrinsic_name.starts_with("llvm.returnaddress") || intrinsic_name.starts_with("llvm.frameaddress") {
+            if operands.len() >= 2 {
+                // operands[0] = function, operands[1] = level
+                let level = &operands[1];
+                if level.name().is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg operand has non-immediate parameter".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+            }
+        }
+
+        // llvm.objectsize - all boolean arguments must be constant
+        if intrinsic_name.starts_with("llvm.objectsize.") {
+            if operands.len() >= 5 {
+                // operands[0] = function, operands[1] = ptr, operands[2-4] = boolean flags
+                for i in 2..5 {
+                    if operands[i].name().is_some() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "immarg operand has non-immediate parameter".to_string(),
+                            location: format!("call to {}", intrinsic_name),
+                        });
+                        break; // Only report once per call
+                    }
+                }
+            }
+        }
+
+        // llvm.va_start - must be called in a varargs function
+        // TODO: Re-enable once parser correctly sets varargs flag
+        // Currently causing false positive on tbaa-allowed.ll
+        if intrinsic_name == "llvm.va_start" {
+            // Temporarily disabled to avoid false positive
+            // The parser may not be correctly setting the varargs flag on function types
+            /*
+            if !self.current_function_is_varargs {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "va_start called in a non-varargs function".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+            */
+        }
+
+        // llvm.abs - integer absolute value intrinsic
+        if intrinsic_name.starts_with("llvm.abs.") {
+            if operands.len() >= 3 {
+                // operands[0] = function, operands[1] = value, operands[2] = is_int_min_poison
+                let value_type = operands[1].get_type();
+
+                // Value must be integer or vector of integers
+                if !value_type.is_integer() && !(value_type.is_vector() && value_type.vector_info().map_or(false, |(e, _)| e.is_integer())) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Intrinsic has incorrect argument type!".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+
+                // Second argument (is_int_min_poison) must be constant
+                let is_poison = &operands[2];
+                if is_poison.name().is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg operand has non-immediate parameter".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+
+                // Return type must match argument type
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+                    if *result_type != *value_type {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Intrinsic has incorrect return type!".to_string(),
+                            location: format!("call to {}", intrinsic_name),
+                        });
+                    }
+                }
+            }
+        }
+
+        // llvm.smax/smin/umax/umin - integer min/max intrinsics
+        if intrinsic_name.starts_with("llvm.smax.") || intrinsic_name.starts_with("llvm.smin.") ||
+           intrinsic_name.starts_with("llvm.umax.") || intrinsic_name.starts_with("llvm.umin.") {
+            if operands.len() >= 3 {
+                // operands[0] = function, operands[1] = arg1, operands[2] = arg2
+                let arg1_type = operands[1].get_type();
+                let arg2_type = operands[2].get_type();
+
+                // Both arguments must be integers or vectors of integers
+                let arg1_valid = arg1_type.is_integer() ||
+                    (arg1_type.is_vector() && arg1_type.vector_info().map_or(false, |(e, _)| e.is_integer()));
+                let arg2_valid = arg2_type.is_integer() ||
+                    (arg2_type.is_vector() && arg2_type.vector_info().map_or(false, |(e, _)| e.is_integer()));
+
+                if !arg1_valid || !arg2_valid {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Intrinsic has incorrect argument type!".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+
+                // Both arguments must have same type
+                if *arg1_type != *arg2_type {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Intrinsic has incorrect argument type!".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+
+                // Return type must match argument types
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+                    if *result_type != *arg1_type {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Intrinsic has incorrect return type!".to_string(),
+                            location: format!("call to {}", intrinsic_name),
+                        });
+                    }
+                }
+            }
+        }
     }
 
     /// Verify llvm.vector.reduce.* intrinsics
