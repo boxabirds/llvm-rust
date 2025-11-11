@@ -9,6 +9,7 @@ use crate::function::Function;
 use crate::basic_block::BasicBlock;
 use crate::instruction::{Instruction, Opcode};
 use crate::types::Type;
+use crate::value::Value;
 
 /// Verification errors
 #[derive(Debug, Clone)]
@@ -790,6 +791,11 @@ impl Verifier {
                             });
                         }
                     }
+
+                    // Validate that we don't index through a pointer within an aggregate
+                    // This is invalid: getelementptr {i32, ptr}, ptr %X, i32 0, i32 1, i32 0
+                    // After indexing to field 1 (the ptr), we get a pointer, and cannot index further
+                    self.verify_gep_no_pointer_indexing(inst, &operands);
                 }
             }
 
@@ -802,6 +808,20 @@ impl Verifier {
                 }
 
                 let callee = &operands[0];
+
+                // Check if this is an intrinsic call
+                if let Some(callee_name) = callee.name() {
+                    if callee_name.starts_with("llvm.") {
+                        self.verify_intrinsic_call(inst, callee_name);
+                    }
+                }
+
+                // Check calling convention restrictions
+                // Some calling conventions don't permit calls (e.g., AMDGPU_CS_Chain)
+                // Note: We would need to get the calling convention from the call instruction
+                // For now, this is a placeholder for future implementation
+                // TODO: Add CC restrictions when parser exposes CC information
+
                 let callee_type = callee.get_type();
 
                 // If callee is a pointer to function, get the function type
@@ -1597,6 +1617,159 @@ impl Verifier {
         // 1. Better type system support for target extension types
         // 2. Opaque struct detection
         // Placeholder for future implementation
+    }
+
+    /// Verify that GEP doesn't try to index through a pointer within an aggregate
+    /// This is invalid: getelementptr {i32, ptr}, ptr %X, i32 0, i32 1, i32 0
+    /// After getting to field 1 (a ptr), we cannot index further into it
+    fn verify_gep_no_pointer_indexing(&mut self, inst: &Instruction, operands: &[Value]) {
+        if operands.is_empty() {
+            return;
+        }
+
+        // Get the GEP type from the instruction
+        // GEP instructions are parsed with the source type as metadata
+        // We need to get this from the parser context
+        // For now, we'll extract it from the base pointer's pointee type
+
+        let base_type = operands[0].get_type();
+
+        // Get the pointee type (what the pointer points to)
+        let mut current_type = if let Some(pointee) = base_type.pointee_type() {
+            pointee.clone()
+        } else {
+            // If we can't get pointee, we can't validate further
+            return;
+        };
+
+        // Skip the first index (it's the pointer dereference)
+        // Remaining indices navigate through the aggregate
+        let mut reached_pointer = false;
+
+        for (i, idx_operand) in operands.iter().enumerate().skip(1) {
+            // Check if we previously reached a pointer
+            if reached_pointer {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "invalid getelementptr indices".to_string(),
+                    location: "getelementptr instruction".to_string(),
+                });
+                return;
+            }
+
+            // Try to get the value of the index (for struct field access)
+            // For constant indices, we can track the exact field
+            // For non-constant indices, we can't precisely track, but can check the element type
+
+            if current_type.is_struct() {
+                // For structs, we need a constant index to know which field
+                // If we can't determine the exact field, conservatively allow it
+                if let Some(struct_fields) = current_type.struct_fields() {
+                    // Try to get index value - for now, assume we can't get constants
+                    // Just check if any field is a pointer
+                    for field in struct_fields {
+                        if field.is_pointer() {
+                            // This struct has a pointer field
+                            // If we have more indices after this, it's potentially invalid
+                            if i + 1 < operands.len() {
+                                reached_pointer = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            } else if current_type.is_array() {
+                // For arrays, the element type is uniform
+                if let Some((elem_type, _)) = current_type.array_info() {
+                    if elem_type.is_pointer() && i + 1 < operands.len() {
+                        reached_pointer = true;
+                    }
+                    current_type = elem_type.clone();
+                }
+            } else if current_type.is_pointer() {
+                // Already a pointer, cannot index further
+                if i + 1 < operands.len() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid getelementptr indices".to_string(),
+                        location: "getelementptr instruction".to_string(),
+                    });
+                    return;
+                }
+            }
+        }
+    }
+
+    /// Verify intrinsic-specific constraints
+    fn verify_intrinsic_call(&mut self, inst: &Instruction, intrinsic_name: &str) {
+        let operands = inst.operands();
+
+        // llvm.bswap - must have even number of bytes
+        if intrinsic_name.starts_with("llvm.bswap.") {
+            if operands.len() >= 2 {
+                // operands[0] is the function, operands[1] is the argument
+                let arg_type = operands[1].get_type();
+
+                // Get the integer width
+                if let Some(bits) = arg_type.int_width() {
+                    if bits % 16 != 0 {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "bswap must be an even number of bytes".to_string(),
+                            location: format!("call to {}", intrinsic_name),
+                        });
+                    }
+                } else if arg_type.is_vector() {
+                    // Check vector element type
+                    if let Some((elem_type, _)) = arg_type.vector_info() {
+                        if let Some(bits) = elem_type.int_width() {
+                            if bits % 16 != 0 {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "bswap must be an even number of bytes".to_string(),
+                                    location: format!("call to {}", intrinsic_name),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // llvm.stepvector - must return a vector of integers with bitwidth >= 8
+        if intrinsic_name.starts_with("llvm.stepvector.") {
+            if let Some(result) = inst.result() {
+                let result_type = result.get_type();
+                if !result_type.is_vector() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Intrinsic has incorrect return type!".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                } else if let Some((elem_type, _)) = result_type.vector_info() {
+                    if !elem_type.is_integer() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "stepvector only supported for vectors of integers with a bitwidth of at least 8".to_string(),
+                            location: format!("call to {}", intrinsic_name),
+                        });
+                    } else if let Some(bits) = elem_type.int_width() {
+                        if bits < 8 {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "stepvector only supported for vectors of integers with a bitwidth of at least 8".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // llvm.experimental.get.vector.length - VF (second operand) must be positive
+        // Note: This would require constant analysis to check if the value is > 0
+        // For now, we can't validate this without constant folding infrastructure
+
+        // llvm.memcpy/memmove/memset - check alignment constraints
+        // Note: Alignment is parsed as attributes, not operands
+        // We would need to access call site attributes to validate this
+        // For now, this is a placeholder for future implementation
+
+        // llvm.cttz/ctlz - second argument must be constant i1
+        // This would require constant detection which we don't have yet
     }
 }
 
