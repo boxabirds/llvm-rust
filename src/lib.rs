@@ -29,6 +29,7 @@ pub mod cfg;
 pub mod passes;
 pub mod analysis;
 pub mod transforms;
+pub mod codegen;
 
 pub use context::Context;
 pub use types::Type;
