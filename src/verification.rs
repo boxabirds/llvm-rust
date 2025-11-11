@@ -171,10 +171,147 @@ impl Verifier {
             self.verify_function(&function);
         }
 
+        // Verify module-level metadata
+        self.verify_module_flags(module);
+
         if self.errors.is_empty() {
             Ok(())
         } else {
             Err(self.errors.clone())
+        }
+    }
+
+    /// Verify module flags metadata
+    fn verify_module_flags(&mut self, module: &Module) {
+        use crate::metadata::Metadata;
+        use std::collections::HashMap;
+
+        let flags = module.module_flags();
+        let mut flag_ids = HashMap::new();
+
+        for flag in &flags {
+            // Module flags must be metadata tuples with exactly 3 operands
+            if let Some(operands) = flag.operands() {
+                if operands.len() != 3 {
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "incorrect number of operands in module flag".to_string(),
+                        location: "module flags".to_string(),
+                    });
+                    continue;
+                }
+
+                // First operand: behavior (must be constant integer 1-8)
+                let behavior = if let Some(behavior_val) = operands[0].as_i32() {
+                    if behavior_val < 1 || behavior_val > 8 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: format!("invalid behavior operand in module flag (unexpected constant)"),
+                            location: "module flags".to_string(),
+                        });
+                        continue;
+                    }
+                    behavior_val
+                } else {
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "invalid behavior operand in module flag (expected constant integer)".to_string(),
+                        location: "module flags".to_string(),
+                    });
+                    continue;
+                };
+
+                // Second operand: ID (must be metadata string)
+                let id = if let Some(id_str) = operands[1].as_string() {
+                    id_str.to_string()
+                } else {
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "invalid ID operand in module flag (expected metadata string)".to_string(),
+                        location: "module flags".to_string(),
+                    });
+                    continue;
+                };
+
+                // Check for duplicate IDs (except for 'require' type which is behavior 3)
+                if behavior != 3 {
+                    if let Some(prev_behavior) = flag_ids.get(&id) {
+                        if *prev_behavior != 3 {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "module flag identifiers must be unique (or of 'require' type)".to_string(),
+                                location: format!("module flag '{}'", id),
+                            });
+                        }
+                    }
+                }
+                flag_ids.insert(id.clone(), behavior);
+
+                // Third operand: value (constraints depend on behavior)
+                let value = &operands[2];
+
+                match behavior {
+                    3 => {
+                        // Require: value must be a metadata pair with string first element
+                        if let Some(value_ops) = value.operands() {
+                            if value_ops.len() != 2 {
+                                self.errors.push(VerificationError::InvalidMetadata {
+                                    reason: "invalid value for 'require' module flag (expected metadata pair)".to_string(),
+                                    location: format!("module flag '{}'", id),
+                                });
+                            } else if !value_ops[0].is_string() {
+                                self.errors.push(VerificationError::InvalidMetadata {
+                                    reason: "invalid value for 'require' module flag (first value operand should be a string)".to_string(),
+                                    location: format!("module flag '{}'", id),
+                                });
+                            }
+                        } else {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "invalid value for 'require' module flag (expected metadata pair)".to_string(),
+                                location: format!("module flag '{}'", id),
+                            });
+                        }
+                    }
+                    5 => {
+                        // Append: value must be a metadata node
+                        if !value.is_tuple() {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "invalid value for 'append'-type module flag (expected a metadata node)".to_string(),
+                                location: format!("module flag '{}'", id),
+                            });
+                        }
+                    }
+                    7 => {
+                        // Max: value must be a constant integer
+                        if !value.is_int() {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "invalid value for 'max' module flag (expected constant integer)".to_string(),
+                                location: format!("module flag '{}'", id),
+                            });
+                        }
+                    }
+                    8 => {
+                        // Min: value must be a constant non-negative integer
+                        if let Some(val) = value.as_int() {
+                            if val < 0 {
+                                self.errors.push(VerificationError::InvalidMetadata {
+                                    reason: "invalid value for 'min' module flag (expected constant non-negative integer)".to_string(),
+                                    location: format!("module flag '{}'", id),
+                                });
+                            }
+                        } else {
+                            self.errors.push(VerificationError::InvalidMetadata {
+                                reason: "invalid value for 'min' module flag (expected constant non-negative integer)".to_string(),
+                                location: format!("module flag '{}'", id),
+                            });
+                        }
+                    }
+                    _ => {
+                        // Other behaviors (1=Error, 2=Warning, 4=Override, 6=AppendUnique)
+                        // have no special constraints on the value
+                    }
+                }
+            } else {
+                self.errors.push(VerificationError::InvalidMetadata {
+                    reason: "incorrect number of operands in module flag".to_string(),
+                    location: "module flags".to_string(),
+                });
+            }
         }
     }
 
@@ -2202,79 +2339,90 @@ impl Verifier {
     /// This is invalid: getelementptr {i32, ptr}, ptr %X, i32 0, i32 1, i32 0
     /// After getting to field 1 (a ptr), we cannot index further into it
     fn verify_gep_no_pointer_indexing(&mut self, inst: &Instruction, operands: &[Value]) {
-        if operands.is_empty() {
-            return;
+        if operands.len() < 2 {
+            return; // Need at least base pointer and one index
         }
 
-        // Get the GEP type from the instruction
-        // GEP instructions are parsed with the source type as metadata
-        // We need to get this from the parser context
-        // For now, we'll extract it from the base pointer's pointee type
-
-        let base_type = operands[0].get_type();
-
-        // Get the pointee type (what the pointer points to)
-        let mut current_type = if let Some(pointee) = base_type.pointee_type() {
-            pointee.clone()
+        // Get the GEP source type from the instruction
+        // This is the type specified in: getelementptr {i32, ptr}, ptr %X, ...
+        let mut current_type = if let Some(source_type) = inst.gep_source_type() {
+            source_type.clone()
         } else {
-            // If we can't get pointee, we can't validate further
-            return;
+            // If no source type stored, try to get from base pointer's pointee type
+            let base_type = operands[0].get_type();
+            if let Some(pointee) = base_type.pointee_type() {
+                pointee.clone()
+            } else {
+                return; // Can't validate without type info
+            }
         };
 
-        // Skip the first index (it's the pointer dereference)
+        // First index dereferences the pointer to get to the aggregate
         // Remaining indices navigate through the aggregate
-        let mut reached_pointer = false;
+        // Skip operand 0 (base pointer) and start from operand 1 (first index)
 
-        for (i, idx_operand) in operands.iter().enumerate().skip(1) {
-            // Check if we previously reached a pointer
-            if reached_pointer {
-                self.errors.push(VerificationError::InvalidInstruction {
-                    reason: "invalid getelementptr indices".to_string(),
-                    location: "getelementptr instruction".to_string(),
-                });
-                return;
-            }
-
-            // Try to get the value of the index (for struct field access)
-            // For constant indices, we can track the exact field
-            // For non-constant indices, we can't precisely track, but can check the element type
-
-            if current_type.is_struct() {
-                // For structs, we need a constant index to know which field
-                // If we can't determine the exact field, conservatively check all fields
-                if let Some(struct_fields) = current_type.struct_fields() {
-                    // Try to determine which field is being accessed
-                    // Check if the index constant can give us the field number
-                    // For now, check if ANY field is a pointer and there are more indices
-                    // This is conservative but catches the test case
-                    let has_pointer_field = struct_fields.iter().any(|f| f.is_pointer());
-
-                    if has_pointer_field && i + 1 < operands.len() {
-                        // There's a pointer field in this struct and we're trying to index further
-                        // This is likely the invalid pattern, so mark it
-                        reached_pointer = true;
-                    }
-
-                    // Try to move to the next type (we can't precisely track without constant folding)
-                    // For validation purposes, if there's a pointer field and more indices, catch it next iteration
-                }
-            } else if current_type.is_array() {
-                // For arrays, the element type is uniform
-                if let Some((elem_type, _)) = current_type.array_info() {
-                    if elem_type.is_pointer() && i + 1 < operands.len() {
-                        reached_pointer = true;
-                    }
-                    current_type = elem_type.clone();
-                }
-            } else if current_type.is_pointer() {
-                // Already a pointer, cannot index further
-                if i + 1 < operands.len() {
+        for idx in 1..operands.len() {
+            // Check if current type is already a pointer
+            if current_type.is_pointer() {
+                // We've reached a pointer in the aggregate, cannot index further
+                if idx < operands.len() - 1 || (idx == operands.len() - 1 && idx > 1) {
+                    // There are more indices after reaching a pointer - invalid!
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: "invalid getelementptr indices".to_string(),
                         location: "getelementptr instruction".to_string(),
                     });
                     return;
                 }
+                break;
+            }
+
+            // Navigate to the next type based on current type kind
+            if current_type.is_struct() {
+                // For struct, we need the constant index value to know which field
+                // For now, we can't evaluate constant expressions, so we check conservatively:
+                // If ANY field is a pointer and there are more indices, it's potentially invalid
+                if let Some(struct_fields) = current_type.struct_fields() {
+                    // Check if there are more indices after this one
+                    let has_more_indices = idx < operands.len() - 1;
+
+                    // Check if any field is a pointer
+                    let has_pointer_field = struct_fields.iter().any(|f| f.is_pointer());
+
+                    if has_pointer_field && has_more_indices {
+                        // Potentially invalid: indexing into a struct with pointer field(s)
+                        // and there are more indices. This catches the test case:
+                        // getelementptr {i32, ptr}, ptr %X, i32 0, i32 1, i32 0
+                        //                                            ^      ^    ^
+                        //                                         deref  field  ERROR!
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "invalid getelementptr indices".to_string(),
+                            location: "getelementptr instruction".to_string(),
+                        });
+                        return;
+                    }
+
+                    // Can't precisely track which field without constant evaluation
+                    // so we stop here
+                    break;
+                }
+                break;
+            } else if current_type.is_array() {
+                // For arrays, move to the element type
+                if let Some((elem_type, _)) = current_type.array_info() {
+                    current_type = elem_type.clone();
+                } else {
+                    break;
+                }
+            } else if current_type.is_vector() {
+                // For vectors, move to the element type
+                if let Some((elem_type, _)) = current_type.vector_info() {
+                    current_type = elem_type.clone();
+                } else {
+                    break;
+                }
+            } else {
+                // Other types (integers, etc.) can't be indexed into
+                break;
             }
         }
     }
