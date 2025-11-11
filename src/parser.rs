@@ -540,7 +540,7 @@ impl Parser {
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
         // declare [cc] [ret attrs] [!metadata] type @name([params])
         let cc = self.parse_calling_convention();
-        self.skip_attributes();
+        let ret_attrs = self.parse_return_attributes();
 
         // Skip metadata attachments before return type (e.g., declare !dbg !12 i32 @foo())
         while self.is_metadata_token() {
@@ -551,11 +551,13 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let (param_types, is_vararg) = self.parse_parameter_types()?;
+        let (param_types, param_attrs, is_vararg) = self.parse_parameter_types()?;
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
-        let attrs = self.parse_function_attributes();
+        let mut attrs = self.parse_function_attributes();
+        attrs.return_attributes = ret_attrs;
+        attrs.parameter_attributes = param_attrs;
 
         let fn_type = self.context.function_type(return_type, param_types, is_vararg);
         let function = Function::new(name, fn_type);
@@ -567,7 +569,7 @@ impl Parser {
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
         // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
         let cc = self.parse_calling_convention();
-        self.skip_attributes();
+        let ret_attrs = self.parse_return_attributes();
 
         // Skip metadata attachments before return type
         while self.is_metadata_token() {
@@ -578,11 +580,13 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let params = self.parse_parameters()?;
+        let (params, param_attrs) = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
-        let attrs = self.parse_function_attributes();
+        let mut attrs = self.parse_function_attributes();
+        attrs.return_attributes = ret_attrs;
+        attrs.parameter_attributes = param_attrs;
 
         // Create function
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
@@ -2856,8 +2860,9 @@ impl Parser {
         Ok(Value::instruction(ty, opcode, Some("constexpr".to_string())))
     }
 
-    fn parse_parameters(&mut self) -> ParseResult<Vec<(Type, String)>> {
+    fn parse_parameters(&mut self) -> ParseResult<(Vec<(Type, String)>, Vec<crate::function::ParameterAttributes>)> {
         let mut params = Vec::new();
+        let mut param_attrs = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             // Check for varargs (just ellipsis with no type)
@@ -2868,8 +2873,8 @@ impl Parser {
 
             let ty = self.parse_type()?;
 
-            // Parse parameter attributes (readonly, etc.)
-            self.skip_parameter_attributes();
+            // Parse parameter attributes
+            let attrs = self.parse_parameter_attributes();
 
             let name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
                 self.advance();
@@ -2879,17 +2884,19 @@ impl Parser {
             };
 
             params.push((ty, name));
+            param_attrs.push(attrs);
 
             if !self.match_token(&Token::Comma) {
                 break;
             }
         }
 
-        Ok(params)
+        Ok((params, param_attrs))
     }
 
-    fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, bool)> {
+    fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, Vec<crate::function::ParameterAttributes>, bool)> {
         let mut types = Vec::new();
+        let mut param_attrs = Vec::new();
         let mut is_vararg = false;
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
@@ -2903,8 +2910,9 @@ impl Parser {
             let ty = self.parse_type()?;
             types.push(ty);
 
-            // Skip parameter attributes
-            self.skip_parameter_attributes();
+            // Parse parameter attributes
+            let attrs = self.parse_parameter_attributes();
+            param_attrs.push(attrs);
 
             // Skip local ident if present
             if self.check_local_ident() {
@@ -2916,7 +2924,7 @@ impl Parser {
             }
         }
 
-        Ok((types, is_vararg))
+        Ok((types, param_attrs, is_vararg))
     }
 
     // Helper methods
@@ -3085,6 +3093,120 @@ impl Parser {
                 self.match_token(&Token::RParen);
             }
         }
+    }
+
+    fn parse_return_attributes(&mut self) -> crate::function::ReturnAttributes {
+        use crate::function::ReturnAttributes;
+        let mut attrs = ReturnAttributes::default();
+
+        loop {
+            // Skip numbered attribute groups (#0, #1, etc.)
+            if self.check(&Token::Hash) || self.check_attr_group_id() {
+                self.advance();
+                continue;
+            }
+
+            // Parse return attributes
+            match self.peek() {
+                Some(Token::Zeroext) => {
+                    self.advance();
+                    attrs.zeroext = true;
+                    continue;
+                },
+                Some(Token::Signext) => {
+                    self.advance();
+                    attrs.signext = true;
+                    continue;
+                },
+                Some(Token::Inreg) => {
+                    self.advance();
+                    attrs.inreg = true;
+                    continue;
+                },
+                Some(Token::Noalias) => {
+                    self.advance();
+                    attrs.noalias = true;
+                    continue;
+                },
+                Some(Token::Nonnull) => {
+                    self.advance();
+                    attrs.nonnull = true;
+                    continue;
+                },
+                Some(Token::Align) => {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        attrs.align = Some(*n as u32);
+                        self.advance();
+                    }
+                    continue;
+                },
+                _ => {}
+            }
+
+            // Attributes with parameters: dereferenceable(N), dereferenceable_or_null(N)
+            if self.match_token(&Token::Dereferenceable) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        attrs.dereferenceable = Some(*n as u64);
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Skip other attributes we don't parse yet
+            if self.match_token(&Token::Nocapture) ||
+               self.match_token(&Token::Nest) ||
+               self.match_token(&Token::Readonly) ||
+               self.match_token(&Token::Writeonly) ||
+               self.match_token(&Token::Swifterror) ||
+               self.match_token(&Token::Swiftself) ||
+               self.match_token(&Token::Immarg) {
+                continue;
+            }
+
+            // Handle attributes with type parameters we need to skip
+            if self.match_token(&Token::Byval) ||
+               self.match_token(&Token::Sret) ||
+               self.match_token(&Token::Inalloca) ||
+               self.match_token(&Token::Preallocated) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Skip dereferenceable_or_null
+            if self.match_token(&Token::Dereferenceable_or_null) {
+                if self.check(&Token::LParen) {
+                    self.advance();
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen);
+                }
+                continue;
+            }
+
+            // Handle identifier-based attributes (noundef, etc.)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "noundef") {
+                    self.advance();
+                    continue;
+                }
+            }
+
+            break;
+        }
+
+        attrs
     }
 
     fn skip_attributes(&mut self) {
@@ -3275,6 +3397,217 @@ impl Parser {
             self.advance();
             skip_count += 1;
         }
+    }
+
+    fn parse_parameter_attributes(&mut self) -> crate::function::ParameterAttributes {
+        use crate::function::ParameterAttributes;
+        let mut attrs = ParameterAttributes::default();
+        let mut attr_count = 0;
+        const MAX_ATTR_PARSE: usize = 50;
+
+        while !self.is_at_end() && attr_count < MAX_ATTR_PARSE {
+            // Stop when we hit a local identifier (parameter name), comma, rparen, or type token
+            if self.check_local_ident() || self.check(&Token::Comma) ||
+               self.check(&Token::RParen) || self.check_type_token() {
+                break;
+            }
+
+            // Parse structured parameter attributes
+            match self.peek() {
+                Some(Token::Zeroext) => {
+                    self.advance();
+                    attrs.zeroext = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Signext) => {
+                    self.advance();
+                    attrs.signext = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Inreg) => {
+                    self.advance();
+                    attrs.inreg = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Noalias) => {
+                    self.advance();
+                    attrs.noalias = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Nocapture) => {
+                    self.advance();
+                    attrs.nocapture = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Nest) => {
+                    self.advance();
+                    attrs.nest = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Returned) => {
+                    self.advance();
+                    attrs.returned = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Nonnull) => {
+                    self.advance();
+                    attrs.nonnull = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Swiftself) => {
+                    self.advance();
+                    attrs.swiftself = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Swifterror) => {
+                    self.advance();
+                    attrs.swifterror = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Swiftasync) => {
+                    self.advance();
+                    attrs.swiftasync = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Immarg) => {
+                    self.advance();
+                    attrs.immarg = true;
+                    attr_count += 1;
+                    continue;
+                },
+                Some(Token::Align) => {
+                    self.advance();
+                    if let Some(Token::Integer(n)) = self.peek() {
+                        attrs.align = Some(*n as u32);
+                        self.advance();
+                    }
+                    attr_count += 1;
+                    continue;
+                },
+                _ => {}
+            }
+
+            // Handle attributes with type parameters: byval(type), sret(type), inalloca(type)
+            if self.match_token(&Token::Byval) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.byval = Some(ty);
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            if self.match_token(&Token::Sret) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.sret = Some(ty);
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            if self.match_token(&Token::Inalloca) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.inalloca = Some(ty);
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            // Handle dereferenceable(N)
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "dereferenceable" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        if let Some(Token::Integer(n)) = self.peek() {
+                            attrs.dereferenceable = Some(*n as u64);
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle other attributes that we need to skip but don't parse yet
+            if self.match_token(&Token::Preallocated) {
+                if self.check(&Token::LParen) {
+                    self.advance(); // consume (
+                    while !self.check(&Token::RParen) && !self.is_at_end() {
+                        self.advance();
+                    }
+                    self.match_token(&Token::RParen); // consume )
+                }
+                attr_count += 1;
+                continue;
+            }
+
+            // Handle identifier-based attributes with parameters
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if matches!(attr.as_str(), "byref" | "elementtype" | "preallocated" | "range" | "nofpclass" | "captures") {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+                // Handle initializes with nested parentheses: initializes((0, 4))
+                if attr == "initializes" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume first (
+                        let mut depth = 1;
+                        while depth > 0 && !self.is_at_end() {
+                            if self.check(&Token::LParen) {
+                                depth += 1;
+                                self.advance();
+                            } else if self.check(&Token::RParen) {
+                                depth -= 1;
+                                self.advance();
+                            } else {
+                                self.advance();
+                            }
+                        }
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // If we got here, skip this token and move on
+            self.advance();
+            attr_count += 1;
+        }
+
+        attrs
     }
 
     fn parse_function_attributes(&mut self) -> crate::function::FunctionAttributes {

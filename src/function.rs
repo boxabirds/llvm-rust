@@ -111,6 +111,7 @@ pub struct ReturnAttributes {
     pub noalias: bool,
     pub nonnull: bool,
     pub dereferenceable: Option<u64>,
+    pub align: Option<u32>,
 }
 
 /// Parameter attributes
@@ -132,6 +133,7 @@ pub struct ParameterAttributes {
     pub swifterror: bool,
     pub swiftasync: bool,
     pub immarg: bool,
+    pub align: Option<u32>,
 }
 
 /// A function in LLVM IR

@@ -164,9 +164,12 @@ impl Verifier {
             });
         }
 
+        // Verify parameter attributes (for both declarations and definitions)
+        self.verify_parameter_attributes(function);
+
         // Check if function has a body
         if !function.has_body() {
-            return; // External function, nothing to verify
+            return; // External function, nothing else to verify
         }
 
         // Check if function has an entry block
@@ -193,9 +196,6 @@ impl Verifier {
 
         // Verify calling convention constraints
         self.verify_calling_convention(function);
-
-        // Verify parameter attributes
-        self.verify_parameter_attributes(function);
     }
 
     /// Verify that all return instructions match the function's return type
@@ -1473,15 +1473,111 @@ impl Verifier {
         let is_varargs = fn_type.function_info().map(|(_,_,v)| v).unwrap_or(false);
         let attrs = function.attributes();
 
-        // Check sret attribute with varargs
-        if is_varargs {
-            for (idx, param_attrs) in attrs.parameter_attributes.iter().enumerate() {
-                if param_attrs.sret.is_some() {
+        // Get parameter types from function type
+        let param_types = if let Some((_, params, _)) = fn_type.function_info() {
+            params
+        } else {
+            Vec::new()
+        };
+
+        // Get return type from function type
+        let return_type = if let Some((ret_ty, _, _)) = fn_type.function_info() {
+            ret_ty
+        } else {
+            return;
+        };
+
+        // Verify return type attributes
+        let ret_attrs = &attrs.return_attributes;
+
+        // Check align attribute on return type - must be pointer type
+        if let Some(align_val) = ret_attrs.align {
+            if !return_type.is_pointer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'align {}' applied to incompatible type!", align_val),
+                    location: format!("@{}", fn_name),
+                });
+            }
+        }
+
+        // Check signext on return type - must be integer type
+        if ret_attrs.signext {
+            if !return_type.is_integer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'signext' applied to incompatible type!"),
+                    location: format!("@{}", fn_name),
+                });
+            }
+        }
+
+        // Check zeroext on return type - must be integer type
+        if ret_attrs.zeroext {
+            if !return_type.is_integer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'zeroext' applied to incompatible type!"),
+                    location: format!("@{}", fn_name),
+                });
+            }
+        }
+
+        // Verify parameter attributes
+        for (idx, param_attrs) in attrs.parameter_attributes.iter().enumerate() {
+            // Get the parameter type
+            let param_type = param_types.get(idx);
+            if param_type.is_none() {
+                continue;
+            }
+            let param_type = param_type.unwrap();
+
+            // Check align attribute - must be pointer type
+            if let Some(align_val) = param_attrs.align {
+                if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
-                        reason: format!("Attribute 'sret' does not apply to vararg call!"),
-                        location: format!("function {} parameter {}", fn_name, idx),
+                        reason: format!("Attribute 'align {}' applied to incompatible type!", align_val),
+                        location: format!("@{}", fn_name),
                     });
                 }
+            }
+
+            // Check signext attribute - must be integer type
+            if param_attrs.signext {
+                if !param_type.is_integer() && !param_type.is_pointer() {
+                    // signext on pointer is definitely wrong, on non-integer is wrong
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'signext' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                } else if param_type.is_pointer() {
+                    // Specifically catch signext on pointer which is one of our test cases
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'signext' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check zeroext attribute - must be integer type
+            if param_attrs.zeroext {
+                if !param_type.is_integer() && !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'zeroext' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                } else if param_type.is_pointer() {
+                    // Specifically catch zeroext on pointer
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'zeroext' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check sret attribute with varargs
+            if is_varargs && param_attrs.sret.is_some() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'sret' does not apply to vararg call!"),
+                    location: format!("function {} parameter {}", fn_name, idx),
+                });
             }
         }
     }
