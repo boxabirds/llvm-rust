@@ -26,6 +26,8 @@ pub enum ParseError {
     UnexpectedEOF,
     /// Lexer error
     LexerError(String),
+    /// Invalid attribute
+    InvalidAttribute { message: String },
 }
 
 /// Parse result
@@ -1141,14 +1143,20 @@ impl Parser {
                 result_type = Some(return_type);  // Call result type is the return type
 
                 // Parse function value (which may include dso_local_equivalent, no_cfi, etc.)
-                let func = if let Some(fn_ty) = explicit_fn_type {
-                    self.parse_value_with_type(Some(&fn_ty))?
+                let func = if let Some(ref fn_ty) = explicit_fn_type {
+                    self.parse_value_with_type(Some(fn_ty))?
                 } else {
                     self.parse_value()?
                 };
                 operands.push(func);
                 self.consume(&Token::LParen)?;
-                let args = self.parse_call_arguments()?;
+                // Determine if this is a varargs call
+                let is_varargs = if let Some(fn_ty) = &explicit_fn_type {
+                    fn_ty.function_info().map(|(_, _, varargs)| varargs).unwrap_or(false)
+                } else {
+                    false
+                };
+                let args = self.parse_call_arguments_with_context(is_varargs)?;
                 // Extract values from (Type, Value) pairs
                 for (_, value) in args {
                     operands.push(value);
@@ -1601,7 +1609,9 @@ impl Parser {
                 let func = self.parse_value()?;
                 operands.push(func);
                 self.consume(&Token::LParen)?;
-                let args = self.parse_call_arguments()?;
+                // For invoke, we don't know if it's varargs here, so assume false
+                // TODO: Parse function type for invoke to detect varargs
+                let args = self.parse_call_arguments_with_context(false)?;
                 for (_, value) in args {
                     operands.push(value);
                 }
@@ -1973,7 +1983,7 @@ impl Parser {
         }
     }
 
-    fn parse_call_arguments(&mut self) -> ParseResult<Vec<(Type, Value)>> {
+    fn parse_call_arguments_with_context(&mut self, is_varargs: bool) -> ParseResult<Vec<(Type, Value)>> {
         let mut args = Vec::new();
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
@@ -2027,28 +2037,67 @@ impl Parser {
 
             let ty = self.parse_type()?;
 
-            // Skip parameter attributes (byval, sret, noundef, allocalign, etc.)
+            // Parse and validate parameter attributes (byval, sret, noundef, allocalign, etc.)
+            let mut has_signext = false;
+            let mut has_zeroext = false;
+            let mut has_nest = false;
+            let mut has_swifterror = false;
+            let mut has_noalias = false;
+            let mut has_align = false;
+            let mut has_dereferenceable = false;
+            let mut has_sret = false;
+
             loop {
                 // Attributes without type parameters
-                if self.match_token(&Token::Inreg) ||
-                   self.match_token(&Token::Noalias) ||
-                   self.match_token(&Token::Nocapture) ||
-                   self.match_token(&Token::Nest) ||
-                   self.match_token(&Token::Zeroext) ||
-                   self.match_token(&Token::Signext) ||
-                   self.match_token(&Token::Immarg) ||
-                   self.match_token(&Token::Nonnull) ||
-                   self.match_token(&Token::Readonly) ||
-                   self.match_token(&Token::Writeonly) ||
-                   self.match_token(&Token::Swifterror) ||
-                   self.match_token(&Token::Swiftself) ||
-                   self.match_token(&Token::Swiftasync) {
+                if self.match_token(&Token::Inreg) {
+                    continue;
+                }
+                if self.match_token(&Token::Noalias) {
+                    has_noalias = true;
+                    continue;
+                }
+                if self.match_token(&Token::Nocapture) {
+                    continue;
+                }
+                if self.match_token(&Token::Nest) {
+                    has_nest = true;
+                    continue;
+                }
+                if self.match_token(&Token::Zeroext) {
+                    has_zeroext = true;
+                    continue;
+                }
+                if self.match_token(&Token::Signext) {
+                    has_signext = true;
+                    continue;
+                }
+                if self.match_token(&Token::Immarg) {
+                    continue;
+                }
+                if self.match_token(&Token::Nonnull) {
+                    continue;
+                }
+                if self.match_token(&Token::Readonly) {
+                    continue;
+                }
+                if self.match_token(&Token::Writeonly) {
+                    continue;
+                }
+                if self.match_token(&Token::Swifterror) {
+                    has_swifterror = true;
+                    continue;
+                }
+                if self.match_token(&Token::Swiftself) {
+                    continue;
+                }
+                if self.match_token(&Token::Swiftasync) {
                     continue;
                 }
 
                 // Attributes with parameters: dereferenceable(N), dereferenceable_or_null(N)
                 if self.match_token(&Token::Dereferenceable) ||
                    self.match_token(&Token::Dereferenceable_or_null) {
+                    has_dereferenceable = true;
                     if self.check(&Token::LParen) {
                         self.advance();
                         while !self.check(&Token::RParen) && !self.is_at_end() {
@@ -2060,9 +2109,32 @@ impl Parser {
                 }
 
                 // Attributes with optional type parameters: byval(type), sret(type), inalloca(type), preallocated(type)
-                if self.match_token(&Token::Byval) ||
-                   self.match_token(&Token::Sret) ||
-                   self.match_token(&Token::Inalloca) ||
+                if self.match_token(&Token::Byval) {
+                    // Handle optional (type) syntax
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        // Skip tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+                if self.match_token(&Token::Sret) {
+                    has_sret = true;
+                    // Handle optional (type) syntax
+                    if self.check(&Token::LParen) {
+                        self.advance();
+                        // Skip tokens until )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    }
+                    continue;
+                }
+                if self.match_token(&Token::Inalloca) ||
                    self.match_token(&Token::Preallocated) {
                     // Handle optional (type) syntax
                     if self.check(&Token::LParen) {
@@ -2093,6 +2165,7 @@ impl Parser {
 
                 // Handle align N
                 if self.match_token(&Token::Align) {
+                    has_align = true;
                     if let Some(Token::Integer(_)) = self.peek() {
                         self.advance();
                     }
@@ -2110,6 +2183,51 @@ impl Parser {
 
                 // No more attributes
                 break;
+            }
+
+            // Validate attributes against type
+            // signext/zeroext must be on integer types
+            if has_signext && !ty.is_integer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'signext' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_zeroext && !ty.is_integer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'zeroext' applied to incompatible type!".to_string(),
+                });
+            }
+            // nest, swifterror, noalias, align, dereferenceable must be on pointer types
+            if has_nest && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'nest' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_swifterror && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'swifterror' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_noalias && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'noalias' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_align && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'align' applied to incompatible type!".to_string(),
+                });
+            }
+            if has_dereferenceable && !ty.is_pointer() {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'dereferenceable' applied to incompatible type!".to_string(),
+                });
+            }
+            // sret cannot be used in varargs functions
+            if has_sret && is_varargs {
+                return Err(ParseError::InvalidAttribute {
+                    message: "Attribute 'sret' cannot be used in a varargs function call".to_string(),
+                });
             }
 
             let val = self.parse_value_with_type(Some(&ty))?;
