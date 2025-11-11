@@ -790,8 +790,18 @@ impl Verifier {
                         }
 
                         // Bitcast cannot change address space
-                        // Note: Full address space checking requires Type API support
-                        // This is a placeholder for future implementation
+                        if src_is_ptr && dst_is_ptr {
+                            let src_addrspace = src_type.address_space().unwrap_or(0);
+                            let dst_addrspace = dst_type.address_space().unwrap_or(0);
+                            if src_addrspace != dst_addrspace {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: format!("invalid cast opcode for cast from 'ptr' to 'ptr addrspace({})'", dst_addrspace),
+                                    location: "bitcast instruction".to_string(),
+                                });
+                            }
+                        }
                     }
                 }
             }

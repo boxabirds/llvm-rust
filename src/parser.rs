@@ -2324,17 +2324,24 @@ impl Parser {
                     Ok(self.context.ptr_type(func_type))
                 } else {
                     // Check if followed by addrspace modifier
-                    if self.check(&Token::Addrspace) {
+                    let address_space = if self.check(&Token::Addrspace) {
                         self.advance(); // consume 'addrspace'
                         self.consume(&Token::LParen)?;
                         // Parse address space number
-                        if let Some(Token::Integer(_n)) = self.peek() {
+                        let addrspace = if let Some(Token::Integer(n)) = self.peek() {
+                            let val = *n as u32;
                             self.advance();
-                        }
+                            val
+                        } else {
+                            0
+                        };
                         self.consume(&Token::RParen)?;
-                    }
+                        addrspace
+                    } else {
+                        0
+                    };
                     // Modern LLVM uses opaque pointers (ptr)
-                    Ok(self.context.ptr_type(self.context.int8_type()))
+                    Ok(Type::ptr_addrspace(&self.context, self.context.int8_type(), address_space))
                 }
             }
             Token::Label => {
@@ -2520,20 +2527,27 @@ impl Parser {
         // Handle patterns like: i8*, i8 addrspace(4)*, i8 addrspace(4)* addrspace(4)*
         let mut result_type = base_type;
         loop {
-            // Skip optional addrspace modifier before each star
-            if self.check(&Token::Addrspace) {
+            // Parse optional addrspace modifier before each star
+            let address_space = if self.check(&Token::Addrspace) {
                 self.advance(); // consume 'addrspace'
                 self.consume(&Token::LParen)?;
-                if let Some(Token::Integer(_)) = self.peek() {
+                let addrspace = if let Some(Token::Integer(n)) = self.peek() {
+                    let val = *n as u32;
                     self.advance();
-                }
+                    val
+                } else {
+                    0
+                };
                 self.consume(&Token::RParen)?;
-            }
+                addrspace
+            } else {
+                0
+            };
 
             // Check for * to make it a pointer
             if self.check(&Token::Star) {
                 self.advance(); // consume '*'
-                result_type = self.context.ptr_type(result_type);
+                result_type = Type::ptr_addrspace(&self.context, result_type, address_space);
             } else {
                 break; // No more stars, we're done
             }
