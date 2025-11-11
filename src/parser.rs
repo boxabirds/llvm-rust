@@ -3201,6 +3201,19 @@ impl Parser {
                     self.advance();
                     continue;
                 }
+                // Handle identifier-based attributes with parameters: nofpclass(...), range(...), etc.
+                if matches!(attr.as_str(), "nofpclass" | "range") {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        // Skip tokens until we find )
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    continue;
+                }
             }
 
             break;
