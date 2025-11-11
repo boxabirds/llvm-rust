@@ -5,10 +5,12 @@
 
 use std::sync::{Arc, RwLock};
 use std::fmt;
+use std::collections::HashMap;
 use crate::context::Context;
 use crate::function::Function;
 use crate::types::Type;
 use crate::value::Value;
+use crate::metadata::Metadata;
 
 /// Linkage types for global values
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +103,8 @@ struct ModuleData {
     context: Context,
     functions: Vec<Function>,
     globals: Vec<GlobalVariable>,
+    named_metadata: HashMap<String, Vec<Metadata>>,
+    module_flags: Vec<Metadata>,
 }
 
 /// A global variable in a module
@@ -131,6 +135,8 @@ impl Module {
                 context,
                 functions: Vec::new(),
                 globals: Vec::new(),
+                named_metadata: HashMap::new(),
+                module_flags: Vec::new(),
             })),
         }
     }
@@ -188,6 +194,36 @@ impl Module {
     /// Get all global variables in this module
     pub fn globals(&self) -> Vec<GlobalVariable> {
         self.data.read().unwrap().globals.clone()
+    }
+
+    /// Add named metadata to the module
+    pub fn add_named_metadata(&self, name: String, metadata: Vec<Metadata>) {
+        let mut data = self.data.write().unwrap();
+        data.named_metadata.insert(name, metadata);
+    }
+
+    /// Get named metadata by name
+    pub fn get_named_metadata(&self, name: &str) -> Option<Vec<Metadata>> {
+        self.data.read().unwrap()
+            .named_metadata
+            .get(name)
+            .cloned()
+    }
+
+    /// Get all named metadata
+    pub fn named_metadata(&self) -> HashMap<String, Vec<Metadata>> {
+        self.data.read().unwrap().named_metadata.clone()
+    }
+
+    /// Add module flags metadata
+    pub fn add_module_flag(&self, flag: Metadata) {
+        let mut data = self.data.write().unwrap();
+        data.module_flags.push(flag);
+    }
+
+    /// Get all module flags
+    pub fn module_flags(&self) -> Vec<Metadata> {
+        self.data.read().unwrap().module_flags.clone()
     }
 }
 

@@ -5,6 +5,7 @@
 
 use std::fmt;
 use crate::value::Value;
+use crate::types::Type;
 
 /// Represents an LLVM instruction
 #[derive(Clone)]
@@ -13,6 +14,14 @@ pub struct Instruction {
     operands: Vec<Value>,
     result: Option<Value>,
     metadata_attachments: Vec<String>, // e.g., ["dbg", "llvm.access.group", "align"]
+
+    // GEP-specific metadata
+    gep_source_type: Option<Type>,
+
+    // Atomic/volatile flags
+    is_atomic: bool,
+    is_volatile: bool,
+    atomic_ordering: Option<AtomicOrdering>,
 }
 
 /// Instruction opcodes
@@ -115,6 +124,10 @@ impl Instruction {
             operands,
             result,
             metadata_attachments: Vec::new(),
+            gep_source_type: None,
+            is_atomic: false,
+            is_volatile: false,
+            atomic_ordering: None,
         }
     }
 
@@ -219,6 +232,50 @@ impl Instruction {
     /// Check if this is an aggregate operation
     pub fn is_aggregate_op(&self) -> bool {
         matches!(self.opcode, Opcode::ExtractValue | Opcode::InsertValue)
+    }
+
+    // GEP-specific accessors
+
+    /// Set the GEP source type for GetElementPtr instructions
+    pub fn set_gep_source_type(&mut self, ty: Type) {
+        self.gep_source_type = Some(ty);
+    }
+
+    /// Get the GEP source type if this is a GetElementPtr instruction
+    pub fn gep_source_type(&self) -> Option<&Type> {
+        self.gep_source_type.as_ref()
+    }
+
+    // Atomic/volatile accessors
+
+    /// Set the atomic flag
+    pub fn set_atomic(&mut self, is_atomic: bool) {
+        self.is_atomic = is_atomic;
+    }
+
+    /// Check if this is an atomic operation
+    pub fn is_atomic(&self) -> bool {
+        self.is_atomic
+    }
+
+    /// Set the volatile flag
+    pub fn set_volatile(&mut self, is_volatile: bool) {
+        self.is_volatile = is_volatile;
+    }
+
+    /// Check if this is a volatile operation
+    pub fn is_volatile(&self) -> bool {
+        self.is_volatile
+    }
+
+    /// Set the atomic ordering
+    pub fn set_atomic_ordering(&mut self, ordering: AtomicOrdering) {
+        self.atomic_ordering = Some(ordering);
+    }
+
+    /// Get the atomic ordering
+    pub fn atomic_ordering(&self) -> Option<AtomicOrdering> {
+        self.atomic_ordering
     }
 }
 
