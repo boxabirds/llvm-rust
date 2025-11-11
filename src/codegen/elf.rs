@@ -286,6 +286,8 @@ impl ElfObjectFile {
 pub struct Linker {
     objects: Vec<ElfObjectFile>,
     symbol_table: HashMap<String, u64>,
+    /// Entry point symbol name
+    entry_point: String,
 }
 
 impl Linker {
@@ -294,7 +296,13 @@ impl Linker {
         Self {
             objects: Vec::new(),
             symbol_table: HashMap::new(),
+            entry_point: "_start".to_string(),
         }
+    }
+
+    /// Set the entry point symbol
+    pub fn set_entry_point(&mut self, symbol: String) {
+        self.entry_point = symbol;
     }
 
     /// Add an object file to link
@@ -302,30 +310,143 @@ impl Linker {
         self.objects.push(object);
     }
 
-    /// Link all object files into an executable
-    pub fn link(&mut self) -> Result<Vec<u8>, String> {
-        // Simplified linker - just concatenate sections
-        let mut output = ElfObjectFile::new();
+    /// Build global symbol table
+    fn build_symbol_table(&mut self) -> Result<(), String> {
+        self.symbol_table.clear();
+        let mut current_offset = 0u64;
 
-        // Collect all text sections
-        let mut text_data = Vec::new();
+        // First pass: collect all global symbols
         for obj in &self.objects {
+            for symbol in &obj.symbols {
+                if matches!(symbol.binding, SymbolBinding::Global) {
+                    if self.symbol_table.contains_key(&symbol.name) {
+                        return Err(format!("Duplicate symbol: {}", symbol.name));
+                    }
+                    self.symbol_table.insert(symbol.name.clone(), current_offset + symbol.value);
+                }
+            }
+
+            // Update offset for next object
             for section in &obj.sections {
                 if section.typ == SectionType::Text {
-                    text_data.extend_from_slice(&section.data);
+                    current_offset += section.data.len() as u64;
                 }
             }
         }
 
-        // Add combined text section
-        output.add_section(Section {
-            name: ".text".to_string(),
-            typ: SectionType::Text,
-            data: text_data,
-            alignment: 16,
-        });
+        Ok(())
+    }
+
+    /// Resolve relocations
+    fn resolve_relocations(&mut self, text_data: &mut Vec<u8>) -> Result<(), String> {
+        let mut offset = 0;
+
+        for obj in &self.objects {
+            for reloc in &obj.relocations {
+                let symbol_addr = self.symbol_table.get(&reloc.symbol)
+                    .ok_or_else(|| format!("Undefined symbol: {}", reloc.symbol))?;
+
+                let reloc_offset = offset + reloc.offset as usize;
+
+                // Apply relocation based on type
+                match reloc.typ {
+                    RelocationType::R_X86_64_64 => {
+                        // Direct 64-bit relocation
+                        if reloc_offset + 8 <= text_data.len() {
+                            let value = (*symbol_addr as i64 + reloc.addend) as u64;
+                            text_data[reloc_offset..reloc_offset + 8]
+                                .copy_from_slice(&value.to_le_bytes());
+                        }
+                    }
+                    RelocationType::R_X86_64_PC32 => {
+                        // PC-relative 32-bit relocation
+                        if reloc_offset + 4 <= text_data.len() {
+                            let pc = reloc_offset as i64;
+                            let target = *symbol_addr as i64 + reloc.addend;
+                            let value = (target - pc) as i32;
+                            text_data[reloc_offset..reloc_offset + 4]
+                                .copy_from_slice(&value.to_le_bytes());
+                        }
+                    }
+                    _ => {
+                        // Other relocation types not yet implemented
+                    }
+                }
+            }
+
+            // Update offset for next object
+            for section in &obj.sections {
+                if section.typ == SectionType::Text {
+                    offset += section.data.len();
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Link all object files into an executable
+    pub fn link(&mut self) -> Result<Vec<u8>, String> {
+        // Build symbol table
+        self.build_symbol_table()?;
+
+        // Collect all sections
+        let mut text_data = Vec::new();
+        let mut data_sections = Vec::new();
+
+        for obj in &self.objects {
+            for section in &obj.sections {
+                match section.typ {
+                    SectionType::Text => {
+                        text_data.extend_from_slice(&section.data);
+                    }
+                    SectionType::Data | SectionType::Rodata => {
+                        data_sections.push(section.clone());
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        // Resolve relocations
+        self.resolve_relocations(&mut text_data)?;
+
+        // Create output object file
+        let mut output = ElfObjectFile::new();
+
+        // Add text section
+        if !text_data.is_empty() {
+            output.add_section(Section {
+                name: ".text".to_string(),
+                typ: SectionType::Text,
+                data: text_data,
+                alignment: 16,
+            });
+        }
+
+        // Add data sections
+        for section in data_sections {
+            output.add_section(section);
+        }
+
+        // Add symbols
+        for (name, addr) in &self.symbol_table {
+            output.add_symbol(Symbol {
+                name: name.clone(),
+                value: *addr,
+                size: 0,
+                binding: SymbolBinding::Global,
+                typ: SymbolType::Function,
+                section_index: 1,
+            });
+        }
 
         // Generate executable
         Ok(output.generate())
+    }
+
+    /// Get the entry point address
+    pub fn entry_point_address(&self) -> Option<u64> {
+        self.symbol_table.get(&self.entry_point).copied()
     }
 }
