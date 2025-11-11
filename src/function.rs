@@ -10,6 +10,55 @@ use crate::types::Type;
 use crate::basic_block::BasicBlock;
 use crate::value::Value;
 
+/// Calling convention
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CallingConvention {
+    C,                         // ccc (default)
+    Fast,                      // fastcc
+    Cold,                      // coldcc
+    Webkit_JS,                 // webkit_jscc
+    AnyReg,                    // anyregcc
+    PreserveMost,              // preserve_mostcc
+    PreserveAll,               // preserve_allcc
+    CXX_FastTLS,               // cxx_fast_tlscc
+    Tail,                      // tailcc
+    SwiftTail,                 // swifttailcc
+    Swift,                     // swiftcc
+    CFunc,                     // cfguard_checkcc
+    X86_StdCall,               // x86_stdcallcc
+    X86_FastCall,              // x86_fastcallcc
+    X86_ThisCall,              // x86_thiscallcc
+    X86_VectorCall,            // x86_vectorcallcc
+    X86_RegCall,               // x86_regcallcc
+    ARM_APCS,                  // arm_apcscc
+    ARM_AAPCS,                 // arm_aapcscc
+    ARM_AAPCS_VFP,             // arm_aapcs_vfpcc
+    AArch64_VectorCall,        // aarch64_vector_pcs
+    AArch64_SVE_VectorCall,    // aarch64_sve_vector_pcs
+    AMDGPU_Kernel,             // amdgpu_kernel
+    AMDGPU_VS,                 // amdgpu_vs
+    AMDGPU_GS,                 // amdgpu_gs
+    AMDGPU_PS,                 // amdgpu_ps
+    AMDGPU_CS,                 // amdgpu_cs
+    AMDGPU_HS,                 // amdgpu_hs
+    AMDGPU_LS,                 // amdgpu_ls
+    AMDGPU_ES,                 // amdgpu_es
+    AMDGPU_CS_Chain,           // amdgpu_cs_chain
+    AMDGPU_CS_Chain_Preserve,  // amdgpu_cs_chain_preserve
+    AMDGPU_GFX_Whole_Wave,     // amdgpu_gfx_whole_wave
+    SPIR_Kernel,               // spir_kernel
+    SPIR_Func,                 // spir_func
+    Intel_OCL_BI,              // intel_ocl_bicc
+    PTX_Kernel,                // ptx_kernel
+    PTX_Device,                // ptx_device
+}
+
+impl Default for CallingConvention {
+    fn default() -> Self {
+        CallingConvention::C
+    }
+}
+
 /// Function attributes
 #[derive(Debug, Clone, Default)]
 pub struct FunctionAttributes {
@@ -97,6 +146,7 @@ struct FunctionData {
     basic_blocks: Vec<BasicBlock>,
     arguments: Vec<Value>,
     attributes: FunctionAttributes,
+    calling_convention: CallingConvention,
     linkage: crate::module::Linkage,
     visibility: crate::module::Visibility,
 }
@@ -113,10 +163,21 @@ impl Function {
                 basic_blocks: Vec::new(),
                 arguments: Vec::new(),
                 attributes: FunctionAttributes::default(),
+                calling_convention: CallingConvention::default(),
                 linkage: crate::module::Linkage::External,
                 visibility: crate::module::Visibility::Default,
             })),
         }
+    }
+
+    /// Get the calling convention
+    pub fn calling_convention(&self) -> CallingConvention {
+        self.data.read().unwrap().calling_convention
+    }
+
+    /// Set the calling convention
+    pub fn set_calling_convention(&self, cc: CallingConvention) {
+        self.data.write().unwrap().calling_convention = cc;
     }
 
     /// Get the function attributes

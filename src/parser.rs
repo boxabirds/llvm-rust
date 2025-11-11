@@ -4,7 +4,7 @@
 
 use crate::lexer::{Lexer, Token};
 use crate::module::{Module, GlobalVariable};
-use crate::function::Function;
+use crate::function::{Function, CallingConvention};
 use crate::basic_block::BasicBlock;
 use crate::instruction::{Instruction, Opcode};
 use crate::value::Value;
