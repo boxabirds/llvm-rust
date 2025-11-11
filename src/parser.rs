@@ -916,16 +916,19 @@ impl Parser {
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
 
-        // Skip metadata attachments after instructions
+        // Parse metadata attachments after instructions and track their names
         // Some instructions (like extractvalue) may consume a comma but leave metadata
         // Handle both: ", !foo !0" and "!foo !0" (comma already consumed)
+        let mut metadata_attachments = Vec::new();
         loop {
             if self.match_token(&Token::Comma) {
                 // Comma-prefixed metadata: , !dbg !0
                 if self.is_metadata_token() {
-                    self.skip_metadata();
+                    if let Some(name) = self.skip_metadata() {
+                        metadata_attachments.push(name);
+                    }
                     if self.is_metadata_token() {
-                        self.skip_metadata();
+                        self.skip_metadata(); // Skip the metadata value (!0, !{}, etc.)
                     }
                 } else {
                     // Not metadata, put comma back and stop
@@ -934,9 +937,11 @@ impl Parser {
                 }
             } else if self.is_metadata_token() {
                 // Direct metadata (comma was consumed by operand parsing)
-                self.skip_metadata();
+                if let Some(name) = self.skip_metadata() {
+                    metadata_attachments.push(name);
+                }
                 if self.is_metadata_token() {
-                    self.skip_metadata();
+                    self.skip_metadata(); // Skip the metadata value (!0, !{}, etc.)
                 }
             } else {
                 // No more metadata
@@ -963,7 +968,12 @@ impl Parser {
             None
         };
 
-        Ok(Some(Instruction::new(opcode, operands, result)))
+        let mut inst = Instruction::new(opcode, operands, result);
+        // Attach metadata to the instruction
+        for md_name in metadata_attachments {
+            inst.add_metadata_attachment(md_name);
+        }
+        Ok(Some(inst))
     }
 
     fn parse_opcode(&mut self) -> ParseResult<Option<Opcode>> {
@@ -1923,12 +1933,16 @@ impl Parser {
         }
     }
 
-    fn skip_metadata(&mut self) {
-        // Skip metadata reference: !{...}, !0, !DIExpression(), !foo, etc.
+    fn skip_metadata(&mut self) -> Option<String> {
+        // Parse metadata reference and return the name if it's a named attachment
+        // Returns: !{...}, !0, !DIExpression(), !foo, etc.
         // The lexer combines !foo into Token::MetadataIdent("foo"), so we need to handle both cases
 
+        let metadata_name;
+
         // Case 1: Token::MetadataIdent - lexer already combined ! with identifier/number
-        if let Some(Token::MetadataIdent(_)) = self.peek() {
+        if let Some(Token::MetadataIdent(ref name)) = self.peek() {
+            metadata_name = Some(name.clone());
             self.advance();
             // Check if followed by parentheses like !DIExpression(...)
             if self.check(&Token::LParen) {
@@ -1943,6 +1957,7 @@ impl Parser {
                     self.advance();
                 }
             }
+            return metadata_name;
         }
         // Case 2: Token::Exclaim followed by something else (like !{...})
         else if self.match_token(&Token::Exclaim) {
@@ -1958,8 +1973,10 @@ impl Parser {
                     }
                     self.advance();
                 }
-            } else if let Some(Token::Identifier(_)) = self.peek() {
+                return None;
+            } else if let Some(Token::Identifier(ref name)) = self.peek() {
                 // !DIExpression() - when lexer didn't combine them
+                metadata_name = Some(name.clone());
                 self.advance();
                 if self.check(&Token::LParen) {
                     self.advance();
@@ -1973,14 +1990,18 @@ impl Parser {
                         self.advance();
                     }
                 }
+                return metadata_name;
             } else if let Some(Token::Integer(_)) = self.peek() {
                 // !0, !1, etc. - when lexer didn't combine them
                 self.advance();
+                return None;
             } else if let Some(Token::StringLit(_)) = self.peek() {
                 // !"string" - metadata string literal
                 self.advance();
+                return None;
             }
         }
+        None
     }
 
     fn parse_call_arguments_with_context(&mut self, is_varargs: bool) -> ParseResult<Vec<(Type, Value)>> {
