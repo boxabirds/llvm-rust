@@ -30,6 +30,8 @@ enum MetadataData {
     Named { name: String, operands: Vec<Metadata> },
     /// Debug info metadata
     DebugInfo(Box<DebugInfo>),
+    /// Reference to numbered metadata (!0, !1, etc.) - to be resolved later
+    Reference(String),
 }
 
 /// Debug information kinds
@@ -198,6 +200,13 @@ impl Metadata {
         }
     }
 
+    /// Create reference to numbered metadata (!0, !1, etc.)
+    pub fn reference(name: String) -> Self {
+        Self {
+            data: Arc::new(MetadataData::Reference(name)),
+        }
+    }
+
     /// Create named metadata
     pub fn named(name: String, operands: Vec<Metadata>) -> Self {
         Self {
@@ -227,6 +236,19 @@ impl Metadata {
     /// Check if this is a tuple metadata node
     pub fn is_tuple(&self) -> bool {
         matches!(&*self.data, MetadataData::Tuple(_))
+    }
+
+    /// Check if this is a reference to numbered metadata
+    pub fn is_reference(&self) -> bool {
+        matches!(&*self.data, MetadataData::Reference(_))
+    }
+
+    /// Get reference name if this is a reference metadata node
+    pub fn as_reference(&self) -> Option<&str> {
+        match &*self.data {
+            MetadataData::Reference(name) => Some(name.as_str()),
+            _ => None,
+        }
     }
 
     /// Get string value if this is a string metadata node
@@ -292,6 +314,7 @@ impl fmt::Display for Metadata {
             MetadataData::Int(i) => write!(f, "!{}", i),
             MetadataData::Float(fl) => write!(f, "!{}", fl),
             MetadataData::Value(v) => write!(f, "{}", v),
+            MetadataData::Reference(name) => write!(f, "!{}", name),
             MetadataData::Tuple(operands) => {
                 write!(f, "!{{")?;
                 for (i, op) in operands.iter().enumerate() {

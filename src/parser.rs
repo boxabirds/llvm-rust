@@ -80,8 +80,8 @@ impl Parser {
 
         while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
             iterations += 1;
-            // Skip metadata and attributes at module level
-            if self.check(&Token::Exclaim) || self.check(&Token::Attributes) {
+            // Skip attributes at module level (but not metadata - we parse that below)
+            if self.check(&Token::Attributes) {
                 self.skip_until_newline_or_semicolon();
                 continue;
             }
@@ -209,29 +209,39 @@ impl Parser {
             }
 
             // Parse metadata definitions: !name = !{ ... } or !0 = !{...}
-            if let Some(Token::MetadataIdent(name)) = self.peek().cloned() {
-                let metadata_name = name.clone();
-                self.advance(); // consume metadata name
-                self.match_token(&Token::Equal);
-
-                // Parse the metadata content
-                if let Ok(metadata) = self.parse_metadata_node() {
-                    // Store in registry for later reference
-                    self.metadata_registry.insert(metadata_name.clone(), metadata.clone());
-
-                    // If this is !llvm.module.flags, add to module
-                    if metadata_name == "llvm.module.flags" {
-                        if let Some(flags) = metadata.operands() {
-                            for flag in flags {
-                                module.add_module_flag(flag.clone());
-                            }
-                        }
-                    }
+            let metadata_def_name = if let Some(Token::MetadataIdent(name)) = self.peek().cloned() {
+                // Named metadata: !llvm.module.flags = ...
+                let n = name.clone();
+                self.advance();
+                Some(n)
+            } else if self.check(&Token::Exclaim) {
+                // Might be numbered metadata: !0 = ...
+                self.advance(); // consume !
+                if let Some(Token::Integer(num)) = self.peek() {
+                    let n = num.to_string();
+                    self.advance(); // consume number
+                    Some(n)
                 } else {
-                    // If parsing fails, skip it
-                    self.skip_metadata();
+                    // Not a metadata definition, put ! back
+                    self.current -= 1;
+                    None
                 }
-                continue;
+            } else {
+                None
+            };
+
+            if let Some(metadata_name) = metadata_def_name {
+                if self.match_token(&Token::Equal) {
+                    // Parse the metadata content
+                    if let Ok(metadata) = self.parse_metadata_node() {
+                        // Store in registry for later reference
+                        self.metadata_registry.insert(metadata_name.clone(), metadata.clone());
+                    } else {
+                        // If parsing fails, skip it
+                        self.skip_metadata();
+                    }
+                    continue;
+                }
             }
 
             // Skip unknown tokens
@@ -247,7 +257,61 @@ impl Parser {
             });
         }
 
+        // Second pass: resolve metadata references and populate module
+        self.resolve_metadata_references(&module);
+
         Ok(module)
+    }
+
+    /// Resolve metadata forward references and populate module structures
+    fn resolve_metadata_references(&self, module: &Module) {
+        // Handle !llvm.module.flags
+        // The module flags metadata is a tuple of references like !{!0, !1, !2}
+        // Each reference points to a flag definition like !0 = !{i32 1, !"name", i32 value}
+        if let Some(module_flags_md) = self.metadata_registry.get("llvm.module.flags") {
+            if let Some(flag_list) = module_flags_md.operands() {
+                // Each element in flag_list is a reference to an actual flag
+                // Resolve each reference and add to module
+                for flag_ref in flag_list.iter() {
+                    let resolved = self.resolve_metadata_node(flag_ref);
+                    module.add_module_flag(resolved);
+                }
+            }
+        }
+    }
+
+    /// Recursively resolve a metadata node, replacing references with actual content
+    fn resolve_metadata_node(&self, node: &crate::metadata::Metadata) -> crate::metadata::Metadata {
+        use crate::metadata::Metadata;
+
+        // Check if this is a Reference that needs resolution
+        if let Some(ref_name) = self.get_metadata_ref_name(node) {
+            // Look up the referenced metadata in registry
+            if let Some(target) = self.metadata_registry.get(&ref_name) {
+                // Recursively resolve the target in case it contains more references
+                return self.resolve_metadata_node(target);
+            } else {
+                // Couldn't resolve - return as-is
+                return node.clone();
+            }
+        }
+
+        // If it's a tuple, resolve all operands recursively
+        if let Some(operands) = node.operands() {
+            let resolved_operands: Vec<Metadata> = operands
+                .iter()
+                .map(|op| self.resolve_metadata_node(op))
+                .collect();
+            return Metadata::tuple(resolved_operands);
+        }
+
+        // For other types (String, Int, etc.), return as-is
+        node.clone()
+    }
+
+    /// Helper to check if a metadata node is a Reference and get its name
+    fn get_metadata_ref_name(&self, node: &crate::metadata::Metadata) -> Option<String> {
+        node.as_reference().map(|s| s.to_string())
     }
 
     fn parse_target_directive(&mut self) -> ParseResult<()> {
@@ -2056,9 +2120,8 @@ impl Parser {
                 if let Some(existing) = self.metadata_registry.get(&md_name) {
                     return Ok(existing.clone());
                 } else {
-                    // Forward reference - create placeholder
-                    // For now, return empty tuple as placeholder
-                    return Ok(Metadata::tuple(vec![]));
+                    // Forward reference - store reference to be resolved later
+                    return Ok(Metadata::reference(md_name));
                 }
             }
 
@@ -2110,6 +2173,11 @@ impl Parser {
 
                 while !self.check(&Token::RBrace) && !self.is_at_end() {
                     // Parse each element
+                    // Skip type annotations in metadata (e.g., "i32 1" -> parse just "1")
+                    if self.check_type_token() {
+                        self.parse_type().ok(); // Skip the type
+                    }
+
                     if let Some(Token::MetadataIdent(_)) = self.peek() {
                         elements.push(self.parse_metadata_node()?);
                     } else if self.check(&Token::Exclaim) {
@@ -2153,8 +2221,8 @@ impl Parser {
                 if let Some(existing) = self.metadata_registry.get(&num) {
                     return Ok(existing.clone());
                 } else {
-                    // Forward reference - placeholder
-                    return Ok(Metadata::tuple(vec![]));
+                    // Forward reference - store reference to be resolved later
+                    return Ok(Metadata::reference(num));
                 }
             }
 
