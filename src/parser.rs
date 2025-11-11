@@ -247,7 +247,63 @@ impl Parser {
             });
         }
 
+        // Second pass: resolve metadata references and populate module
+        self.resolve_metadata_references(&module);
+
         Ok(module)
+    }
+
+    /// Resolve metadata forward references and populate module structures
+    fn resolve_metadata_references(&self, module: &Module) {
+        use crate::metadata::Metadata;
+
+        // Handle !llvm.module.flags
+        // The module flags metadata is a tuple of references like !{!0, !1, !2}
+        // Each reference points to a flag definition like !0 = !{i32 1, !"name", i32 value}
+        if let Some(module_flags_md) = self.metadata_registry.get("llvm.module.flags") {
+            if let Some(flag_list) = module_flags_md.operands() {
+                // Each element in flag_list is a reference to an actual flag
+                // Resolve each reference and add to module
+                for flag_ref in flag_list {
+                    let resolved = self.resolve_metadata_node(flag_ref);
+                    module.add_module_flag(resolved);
+                }
+            }
+        }
+    }
+
+    /// Recursively resolve a metadata node, replacing references with actual content
+    fn resolve_metadata_node(&self, node: &crate::metadata::Metadata) -> crate::metadata::Metadata {
+        use crate::metadata::Metadata;
+
+        // Check if this is a Reference that needs resolution
+        if let Some(ref_name) = self.get_metadata_ref_name(node) {
+            // Look up the referenced metadata in registry
+            if let Some(target) = self.metadata_registry.get(&ref_name) {
+                // Recursively resolve the target in case it contains more references
+                return self.resolve_metadata_node(target);
+            } else {
+                // Couldn't resolve - return as-is
+                return node.clone();
+            }
+        }
+
+        // If it's a tuple, resolve all operands recursively
+        if let Some(operands) = node.operands() {
+            let resolved_operands: Vec<Metadata> = operands
+                .iter()
+                .map(|op| self.resolve_metadata_node(op))
+                .collect();
+            return Metadata::tuple(resolved_operands);
+        }
+
+        // For other types (String, Int, etc.), return as-is
+        node.clone()
+    }
+
+    /// Helper to check if a metadata node is a Reference and get its name
+    fn get_metadata_ref_name(&self, node: &crate::metadata::Metadata) -> Option<String> {
+        node.as_reference().map(|s| s.to_string())
     }
 
     fn parse_target_directive(&mut self) -> ParseResult<()> {
@@ -2056,9 +2112,8 @@ impl Parser {
                 if let Some(existing) = self.metadata_registry.get(&md_name) {
                     return Ok(existing.clone());
                 } else {
-                    // Forward reference - create placeholder
-                    // For now, return empty tuple as placeholder
-                    return Ok(Metadata::tuple(vec![]));
+                    // Forward reference - store reference to be resolved later
+                    return Ok(Metadata::reference(md_name));
                 }
             }
 
@@ -2153,8 +2208,8 @@ impl Parser {
                 if let Some(existing) = self.metadata_registry.get(&num) {
                     return Ok(existing.clone());
                 } else {
-                    // Forward reference - placeholder
-                    return Ok(Metadata::tuple(vec![]));
+                    // Forward reference - store reference to be resolved later
+                    return Ok(Metadata::reference(num));
                 }
             }
 
