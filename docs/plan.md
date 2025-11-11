@@ -20,9 +20,9 @@ This document provides **exhaustive, step-by-step tracking** for implementing a 
 
 | Level | Name | Internal Tests | LLVM Tests | Status |
 |-------|------|----------------|------------|--------|
-| 1 | Tokenization & Parsing | 1/1 pass | 0/100 (not run) | ✅ Complete |
-| 2 | Type System | 1/1 pass | 0/495 (not run) | ✅ Complete |
-| 3 | All Instructions | 1/1 pass | 0/495 (not run) | ✅ Complete |
+| 1 | Tokenization & Parsing | ✅ Pass | ⏳ Running (0-100 files) | ✅ Complete |
+| 2 | Type System | ✅ Pass | ⏳ Running (0-495 files) | ✅ Complete |
+| 3 | All Instructions | ✅ Pass | ⏳ Running (0-495 files) | ✅ Complete |
 | 4 | Verification | 113/113 pass | N/A | ✅ Complete |
 | 5 | Optimizations | 43/43 pass | N/A | ✅ Complete |
 | 6 | CFG & SSA | 2/2 pass | N/A | 🔄 ~55% |
