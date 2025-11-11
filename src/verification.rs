@@ -153,6 +153,17 @@ impl Verifier {
 
     /// Verify a function
     pub fn verify_function(&mut self, function: &Function) {
+        let fn_name = function.name();
+
+        // Check if trying to define an LLVM intrinsic (functions starting with "llvm.")
+        // Intrinsics can be declared but not defined
+        if fn_name.starts_with("llvm.") && function.has_body() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "llvm intrinsics cannot be defined".to_string(),
+                location: format!("function {}", fn_name),
+            });
+        }
+
         // Check if function has a body
         if !function.has_body() {
             return; // External function, nothing to verify
@@ -270,9 +281,26 @@ impl Verifier {
             });
         }
 
+        // Check PHI node grouping
+        // All PHI nodes must be contiguous at the top of the block
+        let mut found_non_phi = false;
+        for inst in instructions.iter() {
+            if inst.opcode() == Opcode::PHI {
+                if found_non_phi {
+                    self.errors.push(VerificationError::InvalidPhi {
+                        reason: "PHI nodes not grouped at top of basic block".to_string(),
+                        location: format!("block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
+                    });
+                    break; // Only report once per block
+                }
+            } else {
+                found_non_phi = true;
+            }
+        }
+
         // Check landing pad position
         // Landing pads must be first non-PHI instruction
-        let mut found_non_phi = false;
+        let mut found_non_phi_non_landingpad = false;
         let mut found_landingpad = false;
         for inst in instructions.iter() {
             if inst.opcode() == Opcode::LandingPad {
@@ -282,7 +310,7 @@ impl Verifier {
                         location: format!("block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
                     });
                 }
-                if found_non_phi {
+                if found_non_phi_non_landingpad {
                     self.errors.push(VerificationError::InvalidLandingPad {
                         reason: "landing pad must be first non-PHI instruction in block".to_string(),
                         location: format!("block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
@@ -290,7 +318,27 @@ impl Verifier {
                 }
                 found_landingpad = true;
             } else if inst.opcode() != Opcode::PHI {
-                found_non_phi = true;
+                found_non_phi_non_landingpad = true;
+            }
+        }
+
+        // Check for self-referential instructions (only PHI nodes allowed)
+        for inst in instructions.iter() {
+            if inst.opcode() != Opcode::PHI {
+                // Check if any operand references the instruction's own result
+                if let Some(result) = inst.result() {
+                    let result_name = result.name();
+                    for operand in inst.operands() {
+                        if let Some(op_name) = operand.name() {
+                            if result_name.is_some() && result_name == Some(op_name) {
+                                self.errors.push(VerificationError::InvalidSSA {
+                                    value: op_name.to_string(),
+                                    location: format!("instruction in block {}", bb.name().unwrap_or_else(|| "unnamed".to_string())),
+                                });
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -883,14 +931,64 @@ impl Verifier {
                     });
                 }
 
+                // Check for duplicate basic blocks with different values (ambiguous PHI)
+                let mut seen_blocks: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+                let mut i = 0;
+                while i + 1 < operands.len() {
+                    // Operands are pairs: [value0, block0, value1, block1, ...]
+                    let block = &operands[i + 1];
+                    if let Some(block_name) = block.name() {
+                        if let Some(&first_idx) = seen_blocks.get(block_name) {
+                            // Same block appears twice - check if values are different
+                            let first_value = &operands[first_idx];
+                            let current_value = &operands[i];
+
+                            // Check if the values are different (compare by name or value identity)
+                            let values_different = match (first_value.name(), current_value.name()) {
+                                (Some(name1), Some(name2)) => name1 != name2,
+                                // If names don't exist, consider them different if they're different Value instances
+                                _ => !std::ptr::eq(first_value, current_value),
+                            };
+
+                            if values_different {
+                                self.errors.push(VerificationError::InvalidPhi {
+                                    reason: format!("PHI node has multiple entries for the same basic block with different values"),
+                                    location: format!("phi instruction, block {}", block_name),
+                                });
+                            }
+                        } else {
+                            seen_blocks.insert(block_name.to_string(), i);
+                        }
+                    }
+                    i += 2;
+                }
+
                 if let Some(result) = inst.result() {
                     let result_type = result.get_type();
+
+                    // Token types cannot be used in PHI nodes
+                    if result_type.is_token() {
+                        self.errors.push(VerificationError::InvalidPhi {
+                            reason: "PHI nodes cannot produce token types".to_string(),
+                            location: "phi instruction".to_string(),
+                        });
+                    }
+
                     // PHI operands are pairs: [value1, block1, value2, block2, ...]
                     let mut i = 0;
                     while i < operands.len() {
                         if i % 2 == 0 {
                             // Even indices are values
                             let value_type = operands[i].get_type();
+
+                            // Check if value is a token type
+                            if value_type.is_token() {
+                                self.errors.push(VerificationError::InvalidPhi {
+                                    reason: "PHI nodes cannot have token type operands".to_string(),
+                                    location: format!("phi incoming value {}", i / 2),
+                                });
+                            }
+
                             // Allow pointer type equivalence
                             let types_match = if value_type.is_pointer() && result_type.is_pointer() {
                                 true
