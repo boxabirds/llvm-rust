@@ -179,17 +179,47 @@ impl Verifier {
     }
 
     /// Verify global variable constraints
-    fn verify_global_variable(&mut self, _global: &crate::module::GlobalVariable) {
-        // Check for 'common' linkage in comdat (comdat.ll test)
-        // Common globals cannot be in a comdat
-        // Note: We'd need to check if the global has 'common' linkage
-        // and if it's in a comdat - this requires linkage info
+    fn verify_global_variable(&mut self, global: &crate::module::GlobalVariable) {
+        use crate::module::Linkage;
 
-        // Check for absolute symbols
-        // Absolute symbols must have specific constraints
-        // Note: This requires metadata/attribute support
-
-        // For now, we add placeholder for future validations
+        // Check comdat constraints
+        if global.comdat.is_some() {
+            // Declarations (external/available_externally linkage) may not be in a Comdat
+            match global.linkage {
+                Linkage::External => {
+                    // External without initializer is a declaration
+                    if global.initializer.is_none() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Declaration may not be in a Comdat!".to_string(),
+                            location: format!("global variable @{}", global.name),
+                        });
+                    }
+                }
+                Linkage::AvailableExternally => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Declaration may not be in a Comdat!".to_string(),
+                        location: format!("global variable @{}", global.name),
+                    });
+                }
+                Linkage::Common => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "'common' global may not be in a Comdat!".to_string(),
+                        location: format!("global variable @{}", global.name),
+                    });
+                }
+                Linkage::Private => {
+                    // Private linkage in comdat is target-specific (Windows only)
+                    // For now, we'll flag it as an error
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "comdat global value has private linkage".to_string(),
+                        location: format!("global variable @{}", global.name),
+                    });
+                }
+                _ => {
+                    // Other linkage types are allowed in comdats
+                }
+            }
+        }
     }
 
     /// Verify a function
@@ -433,11 +463,25 @@ impl Verifier {
 
         let location = format!("instruction {:?}", inst.opcode());
 
-        // Note: Self-referential check disabled - requires CFG reachability analysis
-        // Self-reference in unreachable code is VALID (see test 2004-02-27-SelfUseAssertError.ll)
-        // Self-reference in reachable code is INVALID (see test SelfReferential.ll)
-        // Proper implementation requires determining reachability before checking
-        // Without CFG analysis, this check produces false positives and breaks Level 5 tests
+        // Check for self-referential instructions (non-PHI nodes)
+        // PHI nodes can reference themselves in loop contexts, but other instructions cannot
+        if inst.opcode() != Opcode::PHI {
+            if let Some(result) = inst.result() {
+                if let Some(result_name) = result.name() {
+                    for operand in inst.operands() {
+                        if let Some(operand_name) = operand.name() {
+                            if result_name == operand_name {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "Only PHI nodes may reference their own value".to_string(),
+                                    location: format!("instruction {:?}", inst.opcode()),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
