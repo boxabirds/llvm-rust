@@ -190,6 +190,12 @@ impl Verifier {
 
         // Verify control flow
         self.verify_control_flow(function);
+
+        // Verify calling convention constraints
+        self.verify_calling_convention(function);
+
+        // Verify parameter attributes
+        self.verify_parameter_attributes(function);
     }
 
     /// Verify that all return instructions match the function's return type
@@ -336,6 +342,35 @@ impl Verifier {
     /// Verify an instruction
     pub fn verify_instruction(&mut self, inst: &Instruction) {
         // Focus on semantic validation, not strict operand count checks
+
+        let location = format!("instruction {:?}", inst.opcode());
+
+        // Check self-referential instructions (only PHI nodes can reference themselves)
+        if inst.opcode() != Opcode::PHI {
+            if let Some(result) = inst.result() {
+                if let Some(result_name) = result.name() {
+                    if !result_name.is_empty() {
+                        for operand in inst.operands() {
+                            if let Some(operand_name) = operand.name() {
+                                if result_name == operand_name {
+                                    self.errors.push(VerificationError::InvalidInstruction {
+                                        reason: "Only PHI nodes may reference their own value".to_string(),
+                                        location: location.clone(),
+                                    });
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify atomic instructions
+        self.verify_atomic_instruction(inst, &location);
+
+        // Verify instruction type constraints
+        self.verify_instruction_types(inst, &location);
 
         match inst.opcode() {
             // === CAST OPERATIONS ===
@@ -1365,6 +1400,108 @@ impl Verifier {
             }
         }
     }
+
+    /// Verify calling convention constraints
+    fn verify_calling_convention(&mut self, function: &Function) {
+        use crate::function::CallingConvention;
+
+        let cc = function.calling_convention();
+        let fn_type = function.get_type();
+        let ret_type = fn_type.function_return_type().unwrap_or_else(|| fn_type.clone());
+        let fn_name = function.name();
+
+        // Check return type constraints
+        match cc {
+            CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel |
+            CallingConvention::AMDGPU_CS_Chain | CallingConvention::AMDGPU_CS_Chain_Preserve => {
+                if !ret_type.is_void() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention requires void return type".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            },
+            _ => {},
+        }
+
+        // Check varargs restrictions
+        if fn_type.function_info().map(|(_,_,v)| v).unwrap_or(false) {
+            match cc {
+                CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel |
+                CallingConvention::AMDGPU_VS | CallingConvention::AMDGPU_GS |
+                CallingConvention::AMDGPU_PS | CallingConvention::AMDGPU_CS |
+                CallingConvention::AMDGPU_CS_Chain | CallingConvention::AMDGPU_CS_Chain_Preserve => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not support varargs or perfect forwarding!".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                },
+                CallingConvention::AMDGPU_GFX_Whole_Wave => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not support varargs".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                },
+                _ => {},
+            }
+        }
+
+        // Check AMDGPU_GFX_Whole_Wave first parameter constraint
+        if cc == CallingConvention::AMDGPU_GFX_Whole_Wave {
+            let params = function.arguments();
+            if params.is_empty() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Calling convention requires first argument to be i1".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            } else {
+                let first_param_type = params[0].get_type();
+                if !first_param_type.is_integer() || first_param_type.int_width() != Some(1) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention requires first argument to be i1".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Verify parameter attributes
+    fn verify_parameter_attributes(&mut self, function: &Function) {
+        let fn_name = function.name();
+        let fn_type = function.get_type();
+        let is_varargs = fn_type.function_info().map(|(_,_,v)| v).unwrap_or(false);
+        let attrs = function.attributes();
+
+        // Check sret attribute with varargs
+        if is_varargs {
+            for (idx, param_attrs) in attrs.parameter_attributes.iter().enumerate() {
+                if param_attrs.sret.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'sret' does not apply to vararg call!"),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Verify atomic instruction constraints
+    fn verify_atomic_instruction(&mut self, inst: &Instruction, _location: &str) {
+        // Atomic operations validation would require:
+        // 1. Atomic ordering information (not currently parsed)
+        // 2. Pointer element type information (not readily available)
+        // Placeholder for future implementation
+        let _opcode = inst.opcode();
+    }
+
+    /// Verify type constraints for instructions
+    fn verify_instruction_types(&mut self, _inst: &Instruction, _location: &str) {
+        // Type constraint validation would require:
+        // 1. Better type system support for target extension types
+        // 2. Opaque struct detection
+        // Placeholder for future implementation
+    }
 }
 
 impl Default for Verifier {
@@ -1425,64 +1562,3 @@ mod tests {
         }
     }
 }
-
-    fn verify_calling_convention(&mut self, function: &crate::function::Function) {
-        use crate::function::CallingConvention;
-
-        let cc = function.calling_convention();
-        let fn_type = function.get_type();
-        let ret_type = fn_type.return_type();
-        let fn_name = function.name();
-
-        match cc {
-            CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel |
-            CallingConvention::AMDGPU_CS_Chain | CallingConvention::AMDGPU_CS_Chain_Preserve => {
-                if !ret_type.is_void() {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: "Calling convention requires void return type".to_string(),
-                        location: format!("function {}", fn_name),
-                    });
-                }
-            },
-            _ => {},
-        }
-
-        if fn_type.is_vararg() {
-            match cc {
-                CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel |
-                CallingConvention::AMDGPU_VS | CallingConvention::AMDGPU_GS |
-                CallingConvention::AMDGPU_PS | CallingConvention::AMDGPU_CS |
-                CallingConvention::AMDGPU_CS_Chain | CallingConvention::AMDGPU_CS_Chain_Preserve => {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: "Calling convention does not support varargs or perfect forwarding!".to_string(),
-                        location: format!("function {}", fn_name),
-                    });
-                },
-                CallingConvention::AMDGPU_GFX_Whole_Wave => {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: "Calling convention does not support varargs".to_string(),
-                        location: format!("function {}", fn_name),
-                    });
-                },
-                _ => {},
-            }
-        }
-
-        if cc == CallingConvention::AMDGPU_GFX_Whole_Wave {
-            let params = function.arguments();
-            if params.is_empty() {
-                self.errors.push(VerificationError::InvalidInstruction {
-                    reason: "Calling convention requires first argument to be i1".to_string(),
-                    location: format!("function {}", fn_name),
-                });
-            } else {
-                let first_param_type = params[0].get_type();
-                if !first_param_type.is_integer() || first_param_type.int_width() != Some(1) {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: "Calling convention requires first argument to be i1".to_string(),
-                        location: format!("function {}", fn_name),
-                    });
-                }
-            }
-        }
-    }
