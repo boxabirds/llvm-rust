@@ -433,11 +433,25 @@ impl Verifier {
 
         let location = format!("instruction {:?}", inst.opcode());
 
-        // Note: Self-referential check disabled - requires CFG reachability analysis
-        // Self-reference in unreachable code is VALID (see test 2004-02-27-SelfUseAssertError.ll)
-        // Self-reference in reachable code is INVALID (see test SelfReferential.ll)
-        // Proper implementation requires determining reachability before checking
-        // Without CFG analysis, this check produces false positives and breaks Level 5 tests
+        // Check for self-referential instructions (non-PHI nodes)
+        // PHI nodes can reference themselves in loop contexts, but other instructions cannot
+        if inst.opcode() != Opcode::PHI {
+            if let Some(result) = inst.result() {
+                if let Some(result_name) = result.name() {
+                    for operand in inst.operands() {
+                        if let Some(operand_name) = operand.name() {
+                            if result_name == operand_name {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "Only PHI nodes may reference their own value".to_string(),
+                                    location: format!("instruction {:?}", inst.opcode()),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
