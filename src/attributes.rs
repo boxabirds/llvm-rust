@@ -122,11 +122,28 @@ pub enum CallingConvention {
     X86RegCall = 92,
 }
 
+/// Complex string attributes with parameters
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StringAttribute {
+    /// allockind("alloc"), allockind("realloc,zeroed"), etc.
+    AllocKind(Vec<String>),
+    /// allocsize(0), allocsize(0, 1)
+    AllocSize(Vec<usize>),
+    /// align(8)
+    Align(u64),
+    /// dereferenceable(16)
+    Dereferenceable(u64),
+    /// dereferenceable_or_null(16)
+    DereferenceableOrNull(u64),
+    /// Generic string attribute with optional value
+    Generic(String, Option<String>),
+}
+
 /// A set of function attributes
 #[derive(Clone, Default)]
 pub struct FunctionAttributeSet {
     attributes: HashSet<FunctionAttribute>,
-    string_attributes: Vec<(String, String)>,
+    string_attributes: Vec<StringAttribute>,
 }
 
 impl FunctionAttributeSet {
@@ -138,12 +155,42 @@ impl FunctionAttributeSet {
         self.attributes.insert(attr);
     }
 
-    pub fn add_string_attribute(&mut self, key: String, value: String) {
-        self.string_attributes.push((key, value));
+    pub fn add_string_attribute(&mut self, attr: StringAttribute) {
+        self.string_attributes.push(attr);
     }
 
     pub fn contains(&self, attr: &FunctionAttribute) -> bool {
         self.attributes.contains(attr)
+    }
+
+    pub fn has_string_attribute(&self, name: &str) -> bool {
+        self.string_attributes.iter().any(|a| {
+            match a {
+                StringAttribute::AllocKind(_) => name == "allockind",
+                StringAttribute::AllocSize(_) => name == "allocsize",
+                StringAttribute::Align(_) => name == "align",
+                StringAttribute::Dereferenceable(_) => name == "dereferenceable",
+                StringAttribute::DereferenceableOrNull(_) => name == "dereferenceable_or_null",
+                StringAttribute::Generic(n, _) => n == name,
+            }
+        })
+    }
+
+    pub fn get_string_attribute(&self, name: &str) -> Option<&StringAttribute> {
+        self.string_attributes.iter().find(|a| {
+            match a {
+                StringAttribute::AllocKind(_) => name == "allockind",
+                StringAttribute::AllocSize(_) => name == "allocsize",
+                StringAttribute::Align(_) => name == "align",
+                StringAttribute::Dereferenceable(_) => name == "dereferenceable",
+                StringAttribute::DereferenceableOrNull(_) => name == "dereferenceable_or_null",
+                StringAttribute::Generic(n, _) => n == name,
+            }
+        })
+    }
+
+    pub fn string_attributes(&self) -> &[StringAttribute] {
+        &self.string_attributes
     }
 
     pub fn is_empty(&self) -> bool {

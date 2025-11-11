@@ -242,6 +242,16 @@ impl Verifier {
             });
         }
 
+        // Validate allockind attribute
+        if let Some(ref kinds) = attrs.allockind {
+            self.verify_allockind_attribute(kinds, &fn_name);
+        }
+
+        // Validate allocsize attribute
+        if let Some(ref indices) = attrs.allocsize {
+            self.verify_allocsize_attribute(indices, function);
+        }
+
         // Verify parameter attributes (for both declarations and definitions)
         self.verify_parameter_attributes(function);
 
@@ -718,10 +728,26 @@ impl Verifier {
                             });
                         }
 
+                        // Bitcast between pointers and non-pointers requires compatible sizes
+                        let src_is_ptr = src_type.is_pointer();
+                        let dst_is_ptr = dst_type.is_pointer();
+
+                        if src_is_ptr != dst_is_ptr {
+                            // One is pointer, other is not - check if non-pointer is integer
+                            let non_ptr_type = if src_is_ptr { dst_type.clone() } else { src_type.clone() };
+                            if !non_ptr_type.is_integer() && !non_ptr_type.is_vector() {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: "bitcast between pointer and non-integer type is invalid".to_string(),
+                                    location: "bitcast instruction".to_string(),
+                                });
+                            }
+                        }
+
                         // Bitcast cannot change address space
-                        // Note: Checking address space would require Type API support
-                        // For now, we check if both are pointers but have different representations
-                        // This catches some basic bitcast errors
+                        // Note: Full address space checking requires Type API support
+                        // This is a placeholder for future implementation
                     }
                 }
             }
@@ -936,6 +962,15 @@ impl Verifier {
                     // Check argument types match parameter types
                     for (i, (arg, param_type)) in args.iter().zip(param_types.iter()).enumerate() {
                         let arg_type = arg.get_type();
+
+                        // Check for invalid argument types (label, token)
+                        if arg_type.is_label() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "invalid type for function argument".to_string(),
+                                location: format!("call argument {}", i),
+                            });
+                        }
+
                         // Allow pointer type equivalence and metadata type equivalence
                         let types_match = if arg_type.is_pointer() && param_type.is_pointer() {
                             true
@@ -2681,6 +2716,119 @@ impl Verifier {
                     location: format!("call to {}", intrinsic_name),
                 });
             }
+        }
+    }
+
+    /// Verify allockind attribute
+    fn verify_allockind_attribute(&mut self, kinds: &[String], fn_name: &str) {
+        let mut has_alloc = false;
+        let mut has_realloc = false;
+        let mut has_free = false;
+        let mut has_zeroed = false;
+        let mut has_uninitialized = false;
+        let mut has_aligned = false;
+
+        for kind in kinds {
+            match kind.as_str() {
+                "alloc" => has_alloc = true,
+                "realloc" => has_realloc = true,
+                "free" => has_free = true,
+                "zeroed" => has_zeroed = true,
+                "uninitialized" => has_uninitialized = true,
+                "aligned" => has_aligned = true,
+                _ => {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("'allockind' has unknown value '{}'", kind),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            }
+        }
+
+        // Must have exactly one of alloc, realloc, or free
+        let primary_count = [has_alloc, has_realloc, has_free].iter().filter(|&&x| x).count();
+        if primary_count != 1 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'allockind()' requires exactly one of alloc, realloc, and free".to_string(),
+                location: format!("function {}", fn_name),
+            });
+        }
+
+        // free doesn't allow uninitialized, zeroed, or aligned
+        if has_free && (has_uninitialized || has_zeroed || has_aligned) {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'allockind(\"free\")' doesn't allow uninitialized, zeroed, or aligned modifiers".to_string(),
+                location: format!("function {}", fn_name),
+            });
+        }
+
+        // Can't be both zeroed and uninitialized
+        if has_zeroed && has_uninitialized {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'allockind()' can't be both zeroed and uninitialized".to_string(),
+                location: format!("function {}", fn_name),
+            });
+        }
+    }
+
+    /// Verify allocsize attribute
+    fn verify_allocsize_attribute(&mut self, indices: &[usize], function: &Function) {
+        let fn_name = function.name();
+        let fn_type = function.get_type();
+
+        // Get parameter types
+        let param_types = if let Some((_, params, _)) = fn_type.function_info() {
+            params
+        } else {
+            return; // Not a function type, can't validate
+        };
+
+        // Validate element size argument (first index)
+        if !indices.is_empty() {
+            let elem_idx = indices[0];
+            if elem_idx >= param_types.len() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'allocsize' element size argument is out of bounds".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            } else if !param_types[elem_idx].is_integer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'allocsize' element size argument must refer to an integer parameter".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate number of elements argument (second index, if present)
+        if indices.len() > 1 {
+            let count_idx = indices[1];
+            if count_idx >= param_types.len() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'allocsize' number of elements argument is out of bounds".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            } else if !param_types[count_idx].is_integer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'allocsize' number of elements argument must refer to an integer parameter".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // allocsize should have at most 2 indices
+        if indices.len() > 2 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'allocsize' takes at most 2 arguments".to_string(),
+                location: format!("function {}", fn_name),
+            });
+        }
+
+        // allocsize indices can't be the same
+        if indices.len() == 2 && indices[0] == indices[1] {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'allocsize' indices can't refer to the same parameter".to_string(),
+                location: format!("function {}", fn_name),
+            });
         }
     }
 }

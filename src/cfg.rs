@@ -38,21 +38,81 @@ impl CFG {
             }
         }
 
+        // Build mutable versions for edge building
+        let mut successors = successors;
+        let mut predecessors = predecessors;
+
         // Build successor/predecessor edges
-        for (_i, bb) in blocks.iter().enumerate() {
+        for (i, bb) in blocks.iter().enumerate() {
             if let Some(term) = bb.terminator() {
                 match term.opcode() {
                     Opcode::Br => {
                         // Unconditional branch - one successor
-                        // In a real implementation, we'd extract the target from operands
+                        // Operand 0 is the target block
+                        let operands = term.operands();
+                        if !operands.is_empty() {
+                            if let Some(target_name) = operands[0].name() {
+                                if let Some(&target_idx) = block_indices.get(target_name) {
+                                    successors[i].push(target_idx);
+                                    predecessors[target_idx].push(i);
+                                }
+                            }
+                        }
                     }
                     Opcode::CondBr => {
                         // Conditional branch - two successors
-                        // In a real implementation, we'd extract the targets from operands
+                        // Operand 1 is true target, operand 2 is false target
+                        let operands = term.operands();
+                        if operands.len() >= 3 {
+                            // True branch
+                            if let Some(target_name) = operands[1].name() {
+                                if let Some(&target_idx) = block_indices.get(target_name) {
+                                    successors[i].push(target_idx);
+                                    predecessors[target_idx].push(i);
+                                }
+                            }
+                            // False branch
+                            if let Some(target_name) = operands[2].name() {
+                                if let Some(&target_idx) = block_indices.get(target_name) {
+                                    successors[i].push(target_idx);
+                                    predecessors[target_idx].push(i);
+                                }
+                            }
+                        }
                     }
                     Opcode::Switch => {
                         // Switch - multiple successors
-                        // In a real implementation, we'd extract the targets from operands
+                        // Operand 1 is default target, then pairs of (value, target)
+                        let operands = term.operands();
+                        if operands.len() >= 2 {
+                            // Default target
+                            if let Some(target_name) = operands[1].name() {
+                                if let Some(&target_idx) = block_indices.get(target_name) {
+                                    successors[i].push(target_idx);
+                                    predecessors[target_idx].push(i);
+                                }
+                            }
+                            // Case targets (every odd index after 2)
+                            let mut idx = 3;
+                            while idx < operands.len() {
+                                if let Some(target_name) = operands[idx].name() {
+                                    if let Some(&target_idx) = block_indices.get(target_name) {
+                                        if !successors[i].contains(&target_idx) {
+                                            successors[i].push(target_idx);
+                                            predecessors[target_idx].push(i);
+                                        }
+                                    }
+                                }
+                                idx += 2; // Skip value, move to next target
+                            }
+                        }
+                    }
+                    Opcode::Invoke => {
+                        // Invoke - two successors (normal and unwind)
+                        let operands = term.operands();
+                        // Need to find "to label" and "unwind label" operands
+                        // Typically they're near the end of the operand list
+                        // For now, we'll skip this as it requires more sophisticated parsing
                     }
                     Opcode::Ret | Opcode::Unreachable => {
                         // No successors
