@@ -962,6 +962,15 @@ impl Verifier {
                     // Check argument types match parameter types
                     for (i, (arg, param_type)) in args.iter().zip(param_types.iter()).enumerate() {
                         let arg_type = arg.get_type();
+
+                        // Check for invalid argument types (label, token)
+                        if arg_type.is_label() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "invalid type for function argument".to_string(),
+                                location: format!("call argument {}", i),
+                            });
+                        }
+
                         // Allow pointer type equivalence and metadata type equivalence
                         let types_match = if arg_type.is_pointer() && param_type.is_pointer() {
                             true
