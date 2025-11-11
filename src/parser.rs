@@ -44,6 +44,8 @@ pub struct Parser {
     function_decls: std::collections::HashMap<String, Type>,
     /// Type table for tracking numbered type definitions (%0, %1, etc.)
     type_table: std::collections::HashMap<String, Type>,
+    /// Metadata registry for numbered metadata nodes (!0, !1, etc.)
+    metadata_registry: std::collections::HashMap<String, crate::metadata::Metadata>,
 }
 
 impl Parser {
@@ -55,6 +57,7 @@ impl Parser {
             symbol_table: std::collections::HashMap::new(),
             function_decls: std::collections::HashMap::new(),
             type_table: std::collections::HashMap::new(),
+            metadata_registry: std::collections::HashMap::new(),
         }
     }
 
