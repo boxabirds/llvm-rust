@@ -823,8 +823,8 @@ impl Parser {
         let mut inst_count = 0;
         let mut last_position = self.current;
         let mut stuck_count = 0;
-        const MAX_INSTRUCTIONS_PER_BLOCK: usize = 10000;
-        const MAX_STUCK_ITERATIONS: usize = 3;
+        const MAX_INSTRUCTIONS_PER_BLOCK: usize = 50000;  // Increased for large basic blocks
+        const MAX_STUCK_ITERATIONS: usize = 10;  // Increased to handle complex edge cases
 
         loop {
             if inst_count >= MAX_INSTRUCTIONS_PER_BLOCK {
