@@ -1591,6 +1591,60 @@ impl Verifier {
                 }
             }
         }
+
+        // Check calling conventions that don't allow sret
+        let cc_disallows_sret = matches!(cc,
+            CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel
+        );
+
+        if cc_disallows_sret {
+            let attrs = function.attributes();
+            for param_attrs in &attrs.parameter_attributes {
+                if param_attrs.sret.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not allow sret".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                    return;
+                }
+            }
+        }
+
+        // Check calling conventions that disallow byval
+        let cc_disallows_byval = matches!(cc,
+            CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel
+        );
+
+        if cc_disallows_byval {
+            let attrs = function.attributes();
+            for param_attrs in &attrs.parameter_attributes {
+                if param_attrs.byval.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention disallows byval".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                    return;
+                }
+            }
+        }
+
+        // Check calling conventions that require byval parameter
+        if cc == CallingConvention::AMDGPU_GFX_Whole_Wave {
+            let attrs = function.attributes();
+            if !attrs.parameter_attributes.is_empty() {
+                // Check first parameter has byval (if it's a pointer)
+                let params = function.arguments();
+                if !params.is_empty() {
+                    let first_param_type = params[0].get_type();
+                    if first_param_type.is_pointer() && attrs.parameter_attributes[0].byval.is_none() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention parameter requires byval".to_string(),
+                            location: format!("function {}", fn_name),
+                        });
+                    }
+                }
+            }
+        }
     }
 
     /// Verify parameter attributes
@@ -1647,6 +1701,12 @@ impl Verifier {
             }
         }
 
+        // Track counts of special attributes that can only appear once
+        let mut sret_count = 0;
+        let mut sret_idx = None;
+        let mut swifterror_count = 0;
+        let mut swiftself_count = 0;
+
         // Verify parameter attributes
         for (idx, param_attrs) in attrs.parameter_attributes.iter().enumerate() {
             // Get the parameter type
@@ -1655,6 +1715,22 @@ impl Verifier {
                 continue;
             }
             let param_type = param_type.unwrap();
+
+            // Track sret for multi-parameter check
+            if param_attrs.sret.is_some() {
+                sret_count += 1;
+                sret_idx = Some(idx);
+            }
+
+            // Track swifterror for multi-parameter check
+            if param_attrs.swifterror {
+                swifterror_count += 1;
+            }
+
+            // Track swiftself for multi-parameter check
+            if param_attrs.swiftself {
+                swiftself_count += 1;
+            }
 
             // Check align attribute - must be pointer type
             if let Some(align_val) = param_attrs.align {
@@ -1707,6 +1783,16 @@ impl Verifier {
                 });
             }
 
+            // Check sret attribute - must be pointer type
+            if param_attrs.sret.is_some() {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'sret(i32)' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
             // Check byval attribute - must be pointer type
             if let Some(_byval_ty) = &param_attrs.byval {
                 if !param_type.is_pointer() {
@@ -1719,6 +1805,14 @@ impl Verifier {
 
             // Check inalloca attribute - must be on last argument (unless it's varargs)
             if param_attrs.inalloca.is_some() {
+                // Must be pointer type
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'inalloca(i8)' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+
                 // Check if this is NOT the last parameter
                 // For varargs functions, inalloca must be on the last fixed parameter
                 if idx + 1 < param_types.len() {
@@ -1728,6 +1822,109 @@ impl Verifier {
                     });
                 }
             }
+
+            // Check swifterror attribute - must be pointer type
+            if param_attrs.swifterror {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'swifterror' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check noalias attribute - must be pointer type
+            if param_attrs.noalias {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'noalias' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check nest attribute - must be pointer type
+            if param_attrs.nest {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'nest' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check dereferenceable attribute - must be pointer type
+            if param_attrs.dereferenceable.is_some() {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'dereferenceable' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check for incompatible attribute combinations
+            // inalloca is incompatible with: byval, inreg, sret, nest
+            if param_attrs.inalloca.is_some() {
+                if param_attrs.byval.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.inreg {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.sret.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.nest {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+        }
+
+        // Check for multiple sret parameters
+        if sret_count > 1 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Cannot have multiple 'sret' parameters!".to_string(),
+                location: format!("@{}", fn_name),
+            });
+        }
+
+        // Check sret position - must be on first or second parameter
+        if let Some(idx) = sret_idx {
+            if idx > 1 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Attribute 'sret' is not on first or second parameter!".to_string(),
+                    location: format!("@{}", fn_name),
+                });
+            }
+        }
+
+        // Check for multiple swifterror parameters
+        if swifterror_count > 1 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Cannot have multiple 'swifterror' parameters!".to_string(),
+                location: format!("@{}", fn_name),
+            });
+        }
+
+        // Check for multiple swiftself parameters
+        if swiftself_count > 1 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Cannot have multiple 'swiftself' parameters!".to_string(),
+                location: format!("@{}", fn_name),
+            });
         }
     }
 
