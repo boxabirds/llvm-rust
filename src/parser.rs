@@ -525,8 +525,8 @@ impl Parser {
 
         // Parse initializer if present
         let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) {
-            // Try to parse the initializer
-            self.parse_global_initializer(&ty).ok()
+            // Parse the initializer and propagate errors
+            Some(self.parse_global_initializer(&ty)?)
         } else {
             None
         };
