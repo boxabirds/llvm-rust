@@ -5,7 +5,7 @@ use std::time::Instant;
 fn test_parse_assembler_tests() {
     // Use environment variable or default to relative path
     let test_dir = std::env::var("LLVM_TEST_DIR")
-        .unwrap_or_else(|_| "llvm-tests/llvm-project/test/Assembler".to_string());
+        .unwrap_or_else(|_| "llvm-tests/llvm-project/llvm/test/Assembler".to_string());
 
     let mut entries: Vec<_> = match std::fs::read_dir(&test_dir) {
         Ok(dir) => dir.filter_map(|e| e.ok()).collect(),

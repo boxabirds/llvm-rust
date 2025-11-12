@@ -64,7 +64,7 @@ impl std::fmt::Display for VerificationError {
             VerificationError::TypeMismatch { expected, found, location } =>
                 write!(f, "Type mismatch at {}: expected {}, found {}", location, expected, found),
             VerificationError::InvalidSSA { value, location } =>
-                write!(f, "Invalid SSA form at {}: value {} assigned multiple times", location, value),
+                write!(f, "multiple definition of local value named '{}'", value),
             VerificationError::MissingTerminator { block } =>
                 write!(f, "Block {} missing terminator instruction", block),
             VerificationError::MultipleTerminators { block } =>
@@ -169,6 +169,19 @@ impl Verifier {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("redefinition of global '@{}'", name),
                         location: format!("function {}", name),
+                    });
+                }
+            }
+        }
+
+        for alias in module.aliases() {
+            let name = &alias.name;
+            // Skip duplicate check for empty/numbered names
+            if !name.is_empty() && !name.chars().all(|c| c.is_ascii_digit()) {
+                if !global_names.insert(name.to_string()) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("redefinition of global '@{}'", name),
+                        location: format!("alias @{}", name),
                     });
                 }
             }
@@ -506,6 +519,44 @@ impl Verifier {
         // Verify each basic block
         for bb in function.basic_blocks() {
             self.verify_basic_block(&bb);
+        }
+
+        // Check for duplicate local variable definitions and type consistency
+        use std::collections::HashMap;
+        let mut local_names: HashMap<String, Type> = HashMap::new();
+        for bb in function.basic_blocks() {
+            for inst in bb.instructions() {
+                if let Some(result) = inst.result() {
+                    if let Some(name) = result.name() {
+                        // Skip empty names
+                        if !name.is_empty() {
+                            let result_type = result.get_type();
+
+                            if let Some(existing_type) = local_names.get(name) {
+                                // Check if it's the same type (allow same name with same type in different branches)
+                                // But flag it as an error if types differ
+                                if format!("{:?}", existing_type) != format!("{:?}", result_type) {
+                                    self.errors.push(VerificationError::TypeMismatch {
+                                        expected: format!("{:?}", existing_type),
+                                        found: format!("{:?}", result_type),
+                                        location: format!("'%{}' defined with type", name),
+                                    });
+                                } else {
+                                    // Same type - this is a duplicate definition (SSA violation)
+                                    if !name.chars().all(|c| c.is_ascii_digit()) {
+                                        self.errors.push(VerificationError::InvalidSSA {
+                                            value: name.to_string(),
+                                            location: format!("function {}", fn_name),
+                                        });
+                                    }
+                                }
+                            } else {
+                                local_names.insert(name.to_string(), result_type.clone());
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         // Verify return types match function signature
