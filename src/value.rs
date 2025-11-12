@@ -93,6 +93,11 @@ impl Value {
         matches!(&self.data.kind, ValueKind::Instruction { .. })
     }
 
+    /// Check if this value is a global variable
+    pub fn is_global(&self) -> bool {
+        matches!(&self.data.kind, ValueKind::GlobalVariable { .. })
+    }
+
     // Constant constructors
 
     /// Create a constant integer value

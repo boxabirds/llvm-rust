@@ -25,11 +25,9 @@ fn main() {
         }
     };
 
-    // Parse the file (without verification)
+    // Parse the file with verification
     let ctx = Context::new();
-    use llvm_rust::parser::Parser;
-    let mut parser = Parser::new(ctx);
-    match parser.parse_module(&content) {
+    match parse(&content, ctx) {
         Ok(_module) => {
             // Success - silent exit
             process::exit(0);

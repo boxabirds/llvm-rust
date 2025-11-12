@@ -606,6 +606,11 @@ impl Verifier {
             if let Some(result) = inst.result() {
                 if let Some(result_name) = result.name() {
                     for operand in inst.operands() {
+                        // Don't flag global variables as self-references even if names match
+                        // e.g., %vec = load <3 x float>, ptr @vec is valid (local %vec != global @vec)
+                        if operand.is_global() {
+                            continue;
+                        }
                         if let Some(operand_name) = operand.name() {
                             if result_name == operand_name {
                                 self.errors.push(VerificationError::InvalidInstruction {
@@ -2213,36 +2218,18 @@ impl Verifier {
 
         match opcode {
             Opcode::Load => {
-                // If this is an atomic load, check the loaded type
-                // The result type of load is what's being loaded
-                if let Some(result) = inst.result() {
-                    let result_type = result.get_type();
-
-                    // Atomic loads must load integer, pointer, float, or vector types
-                    // Cannot load aggregate types (structs, arrays)
-                    if result_type.is_struct() || result_type.is_array() {
-                        self.errors.push(VerificationError::InvalidInstruction {
-                            reason: "atomic load operand must have integer, pointer, floating point, or vector type!".to_string(),
-                            location: location.to_string(),
-                        });
-                    }
-                }
+                // TODO: Atomic loads must load integer, pointer, float, or vector types
+                // Cannot load aggregate types (structs, arrays)
+                // However, we currently don't track which loads are atomic vs non-atomic,
+                // so we can't enforce this validation rule correctly.
+                // Regular (non-atomic) loads CAN load any type including structs/arrays.
             }
             Opcode::Store => {
-                // If this is an atomic store, check the stored value type
-                // First operand is the value being stored
-                if !operands.is_empty() {
-                    let stored_type = operands[0].get_type();
-
-                    // Atomic stores must store integer, pointer, float, or vector types
-                    // Cannot store aggregate types (structs, arrays)
-                    if stored_type.is_struct() || stored_type.is_array() {
-                        self.errors.push(VerificationError::InvalidInstruction {
-                            reason: "atomic store operand must have integer, pointer, floating point, or vector type!".to_string(),
-                            location: location.to_string(),
-                        });
-                    }
-                }
+                // TODO: Atomic stores must store integer, pointer, float, or vector types
+                // Cannot store aggregate types (structs, arrays)
+                // However, we currently don't track which stores are atomic vs non-atomic,
+                // so we can't enforce this validation rule correctly.
+                // Regular (non-atomic) stores CAN store any type including structs/arrays.
             }
             Opcode::AtomicCmpXchg | Opcode::AtomicRMW => {
                 // These atomic operations also have type constraints
