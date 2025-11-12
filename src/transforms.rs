@@ -689,31 +689,36 @@ impl FunctionPass for Mem2RegPass {
     fn run_on_function(&mut self, function: &mut Function) -> PassResult<bool> {
         let mut changed = false;
 
-        // Find allocas that can be promoted
-        let mut promotable_allocas = Vec::new();
+        // Build dominator tree for phi placement
+        let domtree = DominatorTree::new(function);
 
-        for bb in function.basic_blocks() {
-            for inst in bb.instructions() {
-                if inst.opcode() == Opcode::Alloca {
-                    if self.is_promotable(&inst) {
-                        promotable_allocas.push(inst.clone());
-                    }
-                }
-            }
+        // Step 1: Find promotable allocas
+        let promotable_allocas = self.find_promotable_allocas(function);
+
+        if promotable_allocas.is_empty() {
+            return Ok(false);
         }
 
-        // Promote allocas to SSA form using phi nodes
-        // This is a simplified version - real mem2reg is complex
-        if !promotable_allocas.is_empty() {
-            changed = true;
+        // Step 2: For each promotable alloca, collect all uses (loads/stores)
+        for alloca in &promotable_allocas {
+            if let Some(alloca_name) = alloca.result().and_then(|v| v.name()) {
+                let uses = self.collect_uses(function, alloca_name);
 
-            // Build dominator tree
-            let _domtree = DominatorTree::new(function);
+                // Step 3: Compute dominance frontiers and insert phi nodes
+                let phi_locations = self.compute_phi_locations(function, &uses, &domtree);
 
-            // Insert phi nodes at dominance frontiers
-            // Replace loads with values
-            // Remove stores
-            // Remove allocas
+                // Step 4: Rename variables (SSA construction)
+                // In a full implementation, this would:
+                // - Insert phi nodes at phi_locations
+                // - Perform variable renaming
+                // - Replace loads with the current SSA value
+                // - Remove stores and the alloca
+
+                // For now, mark as changed if we found promotable allocas
+                if !phi_locations.is_empty() {
+                    changed = true;
+                }
+            }
         }
 
         Ok(changed)
@@ -721,14 +726,116 @@ impl FunctionPass for Mem2RegPass {
 }
 
 impl Mem2RegPass {
-    fn is_promotable(&self, inst: &Instruction) -> bool {
-        // Check if alloca is promotable:
-        // - Only loads and stores use the alloca
-        // - Stores only store simple values
-        // - No address is taken
+    /// Find all allocas that can be promoted to registers
+    fn find_promotable_allocas(&self, function: &Function) -> Vec<Instruction> {
+        let mut promotable = Vec::new();
 
-        // Simplified check
-        inst.opcode() == Opcode::Alloca
+        // Only look in entry block for single-def allocas
+        if let Some(entry) = function.basic_blocks().first() {
+            for inst in entry.instructions() {
+                if inst.opcode() == Opcode::Alloca {
+                    if self.is_promotable(function, &inst) {
+                        promotable.push(inst.clone());
+                    }
+                }
+            }
+        }
+
+        promotable
+    }
+
+    /// Check if an alloca can be promoted
+    fn is_promotable(&self, function: &Function, alloca: &Instruction) -> bool {
+        // An alloca is promotable if:
+        // 1. It's in the entry block (single-def)
+        // 2. Only used by loads and stores (no address taken)
+        // 3. Stores are simple values (not aggregates)
+
+        if alloca.opcode() != Opcode::Alloca {
+            return false;
+        }
+
+        let Some(alloca_name) = alloca.result().and_then(|v| v.name()) else {
+            return false;
+        };
+
+        // Check all uses
+        for bb in function.basic_blocks() {
+            for inst in bb.instructions() {
+                // Check if this instruction uses the alloca
+                for operand in inst.operands() {
+                    if let Some(op_name) = operand.name() {
+                        if op_name == alloca_name {
+                            // Only allow loads and stores
+                            if !matches!(inst.opcode(), Opcode::Load | Opcode::Store) {
+                                return false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        true
+    }
+
+    /// Collect all load/store uses of an alloca
+    fn collect_uses(&self, function: &Function, alloca_name: &str) -> HashMap<usize, Vec<Instruction>> {
+        let mut uses = HashMap::new();
+
+        for (idx, bb) in function.basic_blocks().iter().enumerate() {
+            let mut bb_uses = Vec::new();
+            for inst in bb.instructions() {
+                for operand in inst.operands() {
+                    if let Some(op_name) = operand.name() {
+                        if op_name == alloca_name {
+                            bb_uses.push(inst.clone());
+                        }
+                    }
+                }
+            }
+            if !bb_uses.is_empty() {
+                uses.insert(idx, bb_uses);
+            }
+        }
+
+        uses
+    }
+
+    /// Compute where phi nodes need to be inserted
+    fn compute_phi_locations(
+        &self,
+        function: &Function,
+        uses: &HashMap<usize, Vec<Instruction>>,
+        domtree: &DominatorTree
+    ) -> HashSet<usize> {
+        let mut phi_locations = HashSet::new();
+
+        // Find all blocks that contain stores (definitions)
+        let mut def_blocks = HashSet::new();
+        for (block_idx, insts) in uses {
+            for inst in insts {
+                if inst.opcode() == Opcode::Store {
+                    def_blocks.insert(*block_idx);
+                }
+            }
+        }
+
+        // Simplified phi placement: insert at blocks dominated by multiple defs
+        // A full implementation would compute dominance frontiers
+        for block_idx in 0..function.basic_blocks().len() {
+            let mut dominating_defs = 0;
+            for &def_block in &def_blocks {
+                if domtree.dominates(def_block, block_idx) {
+                    dominating_defs += 1;
+                }
+            }
+            if dominating_defs > 1 {
+                phi_locations.insert(block_idx);
+            }
+        }
+
+        phi_locations
     }
 }
 
