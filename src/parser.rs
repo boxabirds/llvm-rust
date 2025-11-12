@@ -658,6 +658,10 @@ impl Parser {
                 // Complex aggregate constant - parse with expected type for validation
                 self.parse_value_with_type(Some(ty))
             },
+            Some(Token::Identifier(_)) => {
+                // Could be splat, asm, or other special identifiers
+                self.parse_value_with_type(Some(ty))
+            },
             _ => {
                 // Try parsing as a constant expression
                 self.parse_constant_expression()
