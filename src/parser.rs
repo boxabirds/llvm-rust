@@ -636,8 +636,8 @@ impl Parser {
                 }
             },
             Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
-                // Complex aggregate constant - use constant expression parser
-                self.parse_constant_expression()
+                // Complex aggregate constant - parse with expected type for validation
+                self.parse_value_with_type(Some(ty))
             },
             _ => {
                 // Try parsing as a constant expression
@@ -3211,17 +3211,94 @@ impl Parser {
             Token::LBrace => {
                 // Struct constant: { type val1, type val2, ... }
                 self.advance(); // consume '{'
+
+                // Get expected field types if we have a struct expected type
+                let expected_fields = if let Some(expected_ty) = expected_type {
+                    if expected_ty.is_struct() {
+                        expected_ty.struct_fields()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let mut field_values = Vec::new();
+                let mut field_index = 0;
+
                 while !self.check(&Token::RBrace) && !self.is_at_end() {
-                    let _ty = self.parse_type()?;
-                    let _val = self.parse_value()?;
+                    let elem_ty = self.parse_type()?;
+                    let elem_val = self.parse_value()?;
+
+                    // Validate that value type matches declared type in initializer
+                    if elem_val.get_type() != &elem_ty {
+                        return Err(ParseError::InvalidSyntax {
+                            message: format!(
+                                "initializer value type mismatch: declared {:?}, got {:?}",
+                                elem_ty, elem_val.get_type()
+                            ),
+                            position: self.current,
+                        });
+                    }
+
+                    // Validate against expected struct field type if we have one
+                    if let Some(ref fields) = expected_fields {
+                        if field_index >= fields.len() {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!(
+                                    "too many elements in struct initializer: struct has {} fields",
+                                    fields.len()
+                                ),
+                                position: self.current,
+                            });
+                        }
+
+                        if elem_val.get_type() != &fields[field_index] {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!(
+                                    "struct initializer doesn't match struct element type: field {} expected {:?}, got {:?}",
+                                    field_index, fields[field_index], elem_val.get_type()
+                                ),
+                                position: self.current,
+                            });
+                        }
+                    }
+
+                    field_values.push(elem_val);
+                    field_index += 1;
+
                     if !self.match_token(&Token::Comma) {
                         break;
                     }
                 }
                 self.consume(&Token::RBrace)?;
-                // Return placeholder struct constant with expected type
-                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
-                Ok(Value::zero_initializer(ty))
+
+                // Final validation: check we got enough elements
+                if let Some(ref fields) = expected_fields {
+                    if field_values.len() != fields.len() {
+                        return Err(ParseError::InvalidSyntax {
+                            message: format!(
+                                "initializer with struct type has wrong # elements: expected {}, got {}",
+                                fields.len(), field_values.len()
+                            ),
+                            position: self.current,
+                        });
+                    }
+                }
+
+                // Return the appropriate value
+                if let Some(expected_ty) = expected_type {
+                    if expected_ty.is_struct() {
+                        Ok(Value::const_struct(expected_ty.clone(), field_values))
+                    } else {
+                        Ok(Value::zero_initializer(expected_ty.clone()))
+                    }
+                } else {
+                    // No expected type - create anonymous struct from field values
+                    let field_types: Vec<Type> = field_values.iter().map(|v| v.get_type().clone()).collect();
+                    let struct_ty = Type::struct_type(&self.context, field_types, None);
+                    Ok(Value::const_struct(struct_ty, field_values))
+                }
             }
             // Constant expressions - instructions that can appear in constant contexts
             Token::PtrToInt | Token::IntToPtr | Token::PtrToAddr | Token::AddrToPtr |
