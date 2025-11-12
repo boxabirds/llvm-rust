@@ -31,7 +31,7 @@ for file in "$TEST_DIR"/*.ll; do
 
     # Check if this is a negative test (should fail to parse)
     is_negative=0
-    if head -20 "$file" | grep -q "RUN:.*not.*llvm-as"; then
+    if head -20 "$file" | grep -qE "RUN:.*not.*(llvm-as|opt|llc)"; then
         is_negative=1
         negative_tests=$((negative_tests + 1))
     else
