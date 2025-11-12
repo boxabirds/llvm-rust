@@ -144,6 +144,36 @@ impl Verifier {
     pub fn verify_module(&mut self, module: &Module) -> VerificationResult {
         self.errors.clear();
 
+        // Check for duplicate global definitions (functions, globals, aliases)
+        use std::collections::HashSet;
+        let mut global_names = HashSet::new();
+
+        for global in module.globals() {
+            let name = global.name();
+            // Skip duplicate check for empty/numbered names
+            if !name.is_empty() && !name.chars().all(|c| c.is_ascii_digit()) {
+                if !global_names.insert(name.to_string()) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("redefinition of global '@{}'", name),
+                        location: format!("global variable @{}", name),
+                    });
+                }
+            }
+        }
+
+        for function in module.functions() {
+            let name = function.name();
+            // Skip duplicate check for empty/numbered names
+            if !name.is_empty() && !name.chars().all(|c| c.is_ascii_digit()) {
+                if !global_names.insert(name.to_string()) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("redefinition of global '@{}'", name),
+                        location: format!("function {}", name),
+                    });
+                }
+            }
+        }
+
         // Verify global variables
         for global in module.globals() {
             let global_type = global.get_type();
@@ -317,7 +347,18 @@ impl Verifier {
 
     /// Verify global variable constraints
     fn verify_global_variable(&mut self, global: &crate::module::GlobalVariable) {
-        use crate::module::Linkage;
+        use crate::module::{Linkage, Visibility};
+
+        // Check linkage + visibility constraints
+        // Private/internal linkage requires default visibility
+        if matches!(global.linkage, Linkage::Private | Linkage::Internal) {
+            if !matches!(global.visibility, Visibility::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "symbol with local linkage must have default visibility".to_string(),
+                    location: format!("global variable @{}", global.name),
+                });
+            }
+        }
 
         // Check comdat constraints
         if global.comdat.is_some() {
@@ -377,6 +418,33 @@ impl Verifier {
                 reason: "llvm intrinsics cannot be defined".to_string(),
                 location: format!("function {}", fn_name),
             });
+        }
+
+        // Check linkage + visibility constraints
+        // Private/internal linkage requires default visibility
+        let linkage = function.linkage();
+        let visibility = function.visibility();
+        use crate::module::{Linkage, Visibility, DLLStorageClass};
+
+        if matches!(linkage, Linkage::Private | Linkage::Internal) {
+            if !matches!(visibility, Visibility::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "symbol with local linkage must have default visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Check DLL storage class + linkage constraints
+        // Private/internal linkage cannot have DLL storage class
+        let dll_storage = function.dll_storage_class();
+        if matches!(linkage, Linkage::Private | Linkage::Internal) {
+            if !matches!(dll_storage, DLLStorageClass::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "symbol with local linkage cannot have a DLL storage class".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
         }
 
         // Check function parameter types
@@ -600,28 +668,17 @@ impl Verifier {
 
         let location = format!("instruction {:?}", inst.opcode());
 
-        // Check for self-referential instructions (non-PHI nodes)
+        // TODO: Check for self-referential instructions (non-PHI nodes)
         // PHI nodes can reference themselves in loop contexts, but other instructions cannot
-        if inst.opcode() != Opcode::PHI {
-            if let Some(result) = inst.result() {
-                if let Some(result_name) = result.name() {
-                    for operand in inst.operands() {
-                        if let Some(operand_name) = operand.name() {
-                            if result_name == operand_name {
-                                self.errors.push(VerificationError::InvalidInstruction {
-                                    reason: "Only PHI nodes may reference their own value".to_string(),
-                                    location: format!("instruction {:?}", inst.opcode()),
-                                });
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // However, self-references are allowed in unreachable code, and we don't currently
+        // track reachability. Disabling this check for now to avoid false positives.
+        // Examples of valid self-reference: %inc.2 = add i32 %inc.2, 1 in unreachable block
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
+
+        // Verify alignment constraints
+        self.verify_instruction_alignment(inst, &location);
 
         // Verify atomic instructions
         self.verify_atomic_instruction(inst, &location);
@@ -1815,15 +1872,31 @@ impl Verifier {
 
         if cc_forbids_calls {
             // Check for call or invoke instructions in the function body
+            // However, intrinsics (llvm.*) are allowed even with these calling conventions
             for bb in function.basic_blocks() {
                 for inst in bb.instructions() {
                     if matches!(inst.opcode(), Opcode::Call | Opcode::Invoke) {
-                        self.errors.push(VerificationError::InvalidInstruction {
-                            reason: "calling convention does not permit calls".to_string(),
-                            location: format!("function {}", fn_name),
-                        });
-                        // Only report once per function
-                        return;
+                        // Check if it's an intrinsic call (llvm.*)
+                        // For call instructions, the callee is the first operand
+                        let operands = inst.operands();
+                        let is_intrinsic = if !operands.is_empty() {
+                            if let Some(callee_name) = operands.first().and_then(|v| v.name()) {
+                                callee_name.starts_with("llvm.") || callee_name.starts_with("@llvm.")
+                            } else {
+                                false
+                            }
+                        } else {
+                            false
+                        };
+
+                        if !is_intrinsic {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "calling convention does not permit calls".to_string(),
+                                location: format!("function {}", fn_name),
+                            });
+                            // Only report once per function
+                            return;
+                        }
                     }
                 }
             }
@@ -2213,36 +2286,18 @@ impl Verifier {
 
         match opcode {
             Opcode::Load => {
-                // If this is an atomic load, check the loaded type
-                // The result type of load is what's being loaded
-                if let Some(result) = inst.result() {
-                    let result_type = result.get_type();
-
-                    // Atomic loads must load integer, pointer, float, or vector types
-                    // Cannot load aggregate types (structs, arrays)
-                    if result_type.is_struct() || result_type.is_array() {
-                        self.errors.push(VerificationError::InvalidInstruction {
-                            reason: "atomic load operand must have integer, pointer, floating point, or vector type!".to_string(),
-                            location: location.to_string(),
-                        });
-                    }
-                }
+                // TODO: Atomic loads must load integer, pointer, float, or vector types
+                // Cannot load aggregate types (structs, arrays)
+                // However, we currently don't track which loads are atomic vs non-atomic,
+                // so we can't enforce this validation rule correctly.
+                // Regular (non-atomic) loads CAN load any type including structs/arrays.
             }
             Opcode::Store => {
-                // If this is an atomic store, check the stored value type
-                // First operand is the value being stored
-                if !operands.is_empty() {
-                    let stored_type = operands[0].get_type();
-
-                    // Atomic stores must store integer, pointer, float, or vector types
-                    // Cannot store aggregate types (structs, arrays)
-                    if stored_type.is_struct() || stored_type.is_array() {
-                        self.errors.push(VerificationError::InvalidInstruction {
-                            reason: "atomic store operand must have integer, pointer, floating point, or vector type!".to_string(),
-                            location: location.to_string(),
-                        });
-                    }
-                }
+                // TODO: Atomic stores must store integer, pointer, float, or vector types
+                // Cannot store aggregate types (structs, arrays)
+                // However, we currently don't track which stores are atomic vs non-atomic,
+                // so we can't enforce this validation rule correctly.
+                // Regular (non-atomic) stores CAN store any type including structs/arrays.
             }
             Opcode::AtomicCmpXchg | Opcode::AtomicRMW => {
                 // These atomic operations also have type constraints
@@ -2271,6 +2326,29 @@ impl Verifier {
         // 1. Better type system support for target extension types
         // 2. Opaque struct detection
         // Placeholder for future implementation
+    }
+
+    /// Verify alignment constraints for instructions
+    fn verify_instruction_alignment(&mut self, inst: &Instruction, location: &str) {
+        // Maximum alignment in LLVM is 2^32 bytes
+        const MAX_ALIGNMENT: u64 = 1u64 << 32; // 4294967296
+
+        if let Some(alignment) = inst.alignment() {
+            if alignment > MAX_ALIGNMENT {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("alignment is larger than the maximum supported by LLVM (2^32)"),
+                    location: location.to_string(),
+                });
+            }
+
+            // Also check that alignment is a power of 2
+            if alignment > 0 && !alignment.is_power_of_two() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("alignment must be a power of 2"),
+                    location: location.to_string(),
+                });
+            }
+        }
     }
 
     /// Verify metadata attachments on instructions

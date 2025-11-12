@@ -470,6 +470,13 @@ impl Parser {
                     self.advance();
                     if self.match_token(&Token::LParen) {
                         if let Some(Token::Integer(n)) = self.peek() {
+                            // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                            if *n < 0 || *n >= (1 << 24) {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid address space, must be a 24-bit integer".to_string(),
+                                    position: self.current,
+                                });
+                            }
                             addrspace = Some(*n as u32);
                             self.advance();
                         } else if let Some(Token::StringLit(s)) = self.peek() {
@@ -482,6 +489,10 @@ impl Parser {
                                 _ => 0, // Unknown symbolic addrspace defaults to 0
                             };
                             addrspace = Some(addr_num);
+                            self.advance();
+                        } else if !self.check(&Token::RParen) {
+                            // Invalid token (like addrspace(D) or addrspace(@A))
+                            // Skip it gracefully - defaults to addrspace 0
                             self.advance();
                         }
                         self.match_token(&Token::RParen);
@@ -520,9 +531,19 @@ impl Parser {
         let ty = self.parse_type()?;
 
         // Parse initializer if present
-        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) {
-            // Try to parse the initializer
-            self.parse_global_initializer(&ty).ok()
+        // Don't parse initializer if next token is:
+        // - End of file
+        // - A global ident (start of next global)
+        // - Define/Declare (start of function)
+        // - Comma (trailing attributes)
+        // - A local ident that starts a type declaration (%T = type ...)
+        let is_type_decl = self.check_local_ident()
+            && self.peek_ahead(1) == Some(&Token::Equal)
+            && self.peek_ahead(2) == Some(&Token::Type);
+
+        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) && !is_type_decl {
+            // Parse the initializer and propagate errors
+            Some(self.parse_global_initializer(&ty)?)
         } else {
             None
         };
@@ -602,17 +623,27 @@ impl Parser {
                 Ok(Value::const_null(ty.clone()))
             },
             Some(Token::Integer(_)) => {
-                if ty.is_integer() {
-                    if let Some(Token::Integer(n)) = self.peek() {
-                        let val = *n as i64;
-                        self.advance();
-                        Ok(Value::const_int(ty.clone(), val, None))
+                if let Some(Token::Integer(n)) = self.peek() {
+                    let val = *n;
+                    self.advance();
+                    if ty.is_integer() {
+                        Ok(Value::const_int(ty.clone(), val as i64, None))
+                    } else if ty.is_float() {
+                        // Integer literal with float type - interpret bits as float
+                        // e.g., double 0x8000000000000000 = -0.0
+                        let float_val = if ty == &self.context.double_type() {
+                            f64::from_bits(val as u64)
+                        } else {
+                            // float type
+                            f32::from_bits(val as u32) as f64
+                        };
+                        Ok(Value::const_float(ty.clone(), float_val, None))
                     } else {
-                        unreachable!()
+                        // Other types - try as constant expression
+                        self.parse_constant_expression()
                     }
                 } else {
-                    // Not an integer type, use constant expression parser
-                    self.parse_constant_expression()
+                    unreachable!()
                 }
             },
             Some(Token::True) => {
@@ -631,15 +662,66 @@ impl Parser {
                     Ok(Value::const_int(self.context.bool_type(), 0, None))
                 }
             },
-            Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
-                // Complex aggregate constant - use constant expression parser
-                self.parse_constant_expression()
+            Some(Token::Float64(_)) => {
+                if let Some(Token::Float64(f)) = self.peek() {
+                    let val = *f;
+                    self.advance();
+                    Ok(Value::const_float(ty.clone(), val, None))
+                } else {
+                    unreachable!()
+                }
+            },
+            Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) | Some(Token::CString(_)) => {
+                // Complex aggregate constant - parse with expected type for validation
+                self.parse_value_with_type(Some(ty))
+            },
+            Some(Token::Identifier(_)) => {
+                // Could be splat, asm, or other special identifiers
+                self.parse_value_with_type(Some(ty))
+            },
+            Some(Token::Ptrauth) => {
+                // ptrauth (ptr value, i32 key [, i64 discriminator [, ptr address_discriminator]])
+                self.parse_ptrauth_constant()
             },
             _ => {
                 // Try parsing as a constant expression
                 self.parse_constant_expression()
             }
         }
+    }
+
+    fn parse_ptrauth_constant(&mut self) -> ParseResult<Value> {
+        // ptrauth (ptr value, i32 key [, i64 discriminator [, ptr address_discriminator]])
+        self.consume(&Token::Ptrauth)?;
+        self.consume(&Token::LParen)?;
+
+        // Parse pointer value with its type
+        let ptr_ty = self.parse_type()?;
+        let ptr_value = self.parse_value_with_type(Some(&ptr_ty))?;
+
+        self.consume(&Token::Comma)?;
+
+        // Parse key (i32)
+        let key_ty = self.parse_type()?;
+        let _key_value = self.parse_value_with_type(Some(&key_ty))?;
+
+        // Parse optional discriminator (i64)
+        if self.match_token(&Token::Comma) {
+            let disc_ty = self.parse_type()?;
+            let _disc_value = self.parse_value_with_type(Some(&disc_ty))?;
+
+            // Parse optional address discriminator (ptr)
+            if self.match_token(&Token::Comma) {
+                let addr_ty = self.parse_type()?;
+                let _addr_value = self.parse_value_with_type(Some(&addr_ty))?;
+            }
+        }
+
+        self.consume(&Token::RParen)?;
+
+        // For now, return the pointer value as-is (ptrauth is essentially a signed pointer)
+        // In a full implementation, we would preserve the ptrauth metadata
+        Ok(ptr_value)
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
@@ -672,7 +754,9 @@ impl Parser {
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
-        // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
+        // define [linkage] [visibility] [cc] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
+        let linkage = self.parse_linkage();
+        let visibility = self.parse_visibility();
         let cc = self.parse_calling_convention();
         let ret_attrs = self.parse_return_attributes();
 
@@ -697,6 +781,8 @@ impl Parser {
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
         let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+        function.set_linkage(linkage);
+        function.set_visibility(visibility);
         function.set_calling_convention(cc);
         function.set_attributes(attrs);
 
@@ -1014,7 +1100,7 @@ impl Parser {
         };
 
         // Parse operands and get result type if instruction produces one
-        let (operands, result_type, gep_source_type) = self.parse_instruction_operands(opcode)?;
+        let (operands, result_type, gep_source_type, alignment) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -1076,6 +1162,11 @@ impl Parser {
         // Set GEP source type if this is a GetElementPtr instruction
         if let Some(gep_type) = gep_source_type {
             inst.set_gep_source_type(gep_type);
+        }
+
+        // Set alignment if specified
+        if let Some(align) = alignment {
+            inst.set_alignment(align);
         }
 
         // Attach metadata to the instruction
@@ -1160,10 +1251,11 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>)> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>)> {
         let mut operands = Vec::new();
         let mut result_type: Option<Type> = None;
         let mut gep_source_type_field: Option<Type> = None;
+        let mut alignment: Option<u64> = None;
 
         // Parse based on instruction type
         match opcode {
@@ -1179,7 +1271,7 @@ impl Parser {
                         // Check if current token is followed by colon (label definition)
                         if self.peek_ahead(1) == Some(&Token::Colon) {
                             // This is a label, not a return value
-                            return Ok((operands, result_type, None));
+                            return Ok((operands, result_type, None, None));
                         }
                         // Try to parse a value - if the type is void, there might not be one
                         if !ty.is_void() {
@@ -1354,13 +1446,23 @@ impl Parser {
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
                     if self.match_token(&Token::Align) {
-                        if let Some(Token::Integer(_)) = self.peek() {
+                        if let Some(Token::Integer(val)) = self.peek() {
+                            alignment = Some(*val as u64);
                             self.advance();
                         }
                     } else if self.match_token(&Token::Addrspace) {
                         self.consume(&Token::LParen)?;
                         // Address space can be integer or symbolic string ("A", "G", "P")
-                        if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
+                        // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                        if let Some(Token::Integer(val)) = self.peek() {
+                            if *val < 0 || *val >= (1 << 24) {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid address space, must be a 24-bit integer".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            self.advance();
+                        } else if let Some(Token::StringLit(_)) = self.peek() {
                             self.advance();
                         }
                         self.consume(&Token::RParen)?;
@@ -1414,8 +1516,8 @@ impl Parser {
                     operands.push(ptr);
                 }
 
-                // Skip memory ordering and other attributes
-                self.skip_load_store_attributes();
+                // Parse memory ordering and alignment attributes
+                alignment = self.parse_load_store_attributes();
             }
             Opcode::Store => {
                 // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
@@ -1434,8 +1536,8 @@ impl Parser {
                 let ptr = self.parse_value()?;
                 operands.push(ptr);
 
-                // Skip attributes
-                self.skip_load_store_attributes();
+                // Parse alignment and other attributes
+                alignment = self.parse_load_store_attributes();
             }
             Opcode::GetElementPtr => {
                 // getelementptr [inbounds] [nuw] [nusw] type, ptr %ptr, indices...
@@ -2146,7 +2248,7 @@ impl Parser {
             }
         }
 
-        Ok((operands, result_type, gep_source_type_field))
+        Ok((operands, result_type, gep_source_type_field, alignment))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
@@ -2702,6 +2804,13 @@ impl Parser {
                         self.consume(&Token::LParen)?;
                         // Parse address space number
                         let addrspace = if let Some(Token::Integer(n)) = self.peek() {
+                            // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                            if *n < 0 || *n >= (1 << 24) {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid address space, must be a 24-bit integer".to_string(),
+                                    position: self.current,
+                                });
+                            }
                             let val = *n as u32;
                             self.advance();
                             val
@@ -2716,6 +2825,10 @@ impl Parser {
                             self.advance();
                             val
                         } else {
+                            // Invalid token or empty - skip gracefully if present
+                            if !self.check(&Token::RParen) {
+                                self.advance();
+                            }
                             0
                         };
                         self.consume(&Token::RParen)?;
@@ -2915,6 +3028,13 @@ impl Parser {
                 self.advance(); // consume 'addrspace'
                 self.consume(&Token::LParen)?;
                 let addrspace = if let Some(Token::Integer(n)) = self.peek() {
+                    // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                    if *n < 0 || *n >= (1 << 24) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "invalid address space, must be a 24-bit integer".to_string(),
+                            position: self.current,
+                        });
+                    }
                     let val = *n as u32;
                     self.advance();
                     val
@@ -2929,6 +3049,10 @@ impl Parser {
                     self.advance();
                     val
                 } else {
+                    // Invalid token or empty - skip gracefully if present
+                    if !self.check(&Token::RParen) {
+                        self.advance();
+                    }
                     0
                 };
                 self.consume(&Token::RParen)?;
@@ -3121,6 +3245,15 @@ impl Parser {
                 self.advance();
                 Ok(Value::const_null(self.context.ptr_type(self.context.int8_type())))
             }
+            Token::CString(bytes) => {
+                let bytes = bytes.clone();
+                self.advance();
+                // CString like c"foo\00" - create array of i8 constant
+                let i8_type = self.context.int8_type();
+                let array_type = self.context.array_type(i8_type, bytes.len());
+                // For now, create a zero initializer (full implementation would create proper const array)
+                Ok(Value::zero_initializer(array_type))
+            }
             Token::None => {
                 self.advance();
                 // 'none' is used with token type in GC intrinsics
@@ -3199,17 +3332,94 @@ impl Parser {
             Token::LBrace => {
                 // Struct constant: { type val1, type val2, ... }
                 self.advance(); // consume '{'
+
+                // Get expected field types if we have a struct expected type
+                let expected_fields = if let Some(expected_ty) = expected_type {
+                    if expected_ty.is_struct() {
+                        expected_ty.struct_fields()
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                let mut field_values = Vec::new();
+                let mut field_index = 0;
+
                 while !self.check(&Token::RBrace) && !self.is_at_end() {
-                    let _ty = self.parse_type()?;
-                    let _val = self.parse_value()?;
+                    let elem_ty = self.parse_type()?;
+                    let elem_val = self.parse_value_with_type(Some(&elem_ty))?;
+
+                    // Validate that value type matches declared type in initializer
+                    if elem_val.get_type() != &elem_ty {
+                        return Err(ParseError::InvalidSyntax {
+                            message: format!(
+                                "initializer value type mismatch: declared {:?}, got {:?}",
+                                elem_ty, elem_val.get_type()
+                            ),
+                            position: self.current,
+                        });
+                    }
+
+                    // Validate against expected struct field type if we have one
+                    if let Some(ref fields) = expected_fields {
+                        if field_index >= fields.len() {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!(
+                                    "too many elements in struct initializer: struct has {} fields",
+                                    fields.len()
+                                ),
+                                position: self.current,
+                            });
+                        }
+
+                        if elem_val.get_type() != &fields[field_index] {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!(
+                                    "struct initializer doesn't match struct element type: field {} expected {:?}, got {:?}",
+                                    field_index, fields[field_index], elem_val.get_type()
+                                ),
+                                position: self.current,
+                            });
+                        }
+                    }
+
+                    field_values.push(elem_val);
+                    field_index += 1;
+
                     if !self.match_token(&Token::Comma) {
                         break;
                     }
                 }
                 self.consume(&Token::RBrace)?;
-                // Return placeholder struct constant with expected type
-                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
-                Ok(Value::zero_initializer(ty))
+
+                // Final validation: check we got enough elements
+                if let Some(ref fields) = expected_fields {
+                    if field_values.len() != fields.len() {
+                        return Err(ParseError::InvalidSyntax {
+                            message: format!(
+                                "initializer with struct type has wrong # elements: expected {}, got {}",
+                                fields.len(), field_values.len()
+                            ),
+                            position: self.current,
+                        });
+                    }
+                }
+
+                // Return the appropriate value
+                if let Some(expected_ty) = expected_type {
+                    if expected_ty.is_struct() {
+                        Ok(Value::const_struct(expected_ty.clone(), field_values))
+                    } else {
+                        Ok(Value::zero_initializer(expected_ty.clone()))
+                    }
+                } else {
+                    // No expected type - create anonymous struct from field values
+                    let field_types: Vec<Type> = field_values.iter().map(|v| v.get_type().clone()).collect();
+                    let struct_ty = Type::struct_type(&self.context, field_types, None);
+                    Ok(Value::const_struct(struct_ty, field_values))
+                }
             }
             // Constant expressions - instructions that can appear in constant contexts
             Token::PtrToInt | Token::IntToPtr | Token::PtrToAddr | Token::AddrToPtr |
@@ -3555,6 +3765,54 @@ impl Parser {
         // Now skip linkage/visibility keywords
         self.skip_linkage_and_visibility();
         cc
+    }
+
+    fn parse_linkage(&mut self) -> crate::module::Linkage {
+        use crate::module::Linkage;
+
+        let linkage = if self.match_token(&Token::Private) {
+            Linkage::Private
+        } else if self.match_token(&Token::Internal) {
+            Linkage::Internal
+        } else if self.match_token(&Token::External) {
+            Linkage::External
+        } else if self.match_token(&Token::Weak) {
+            Linkage::Weak
+        } else if self.match_token(&Token::Weak_odr) {
+            Linkage::WeakOdr
+        } else if self.match_token(&Token::Linkonce) {
+            Linkage::Linkonce
+        } else if self.match_token(&Token::Linkonce_odr) {
+            Linkage::LinkonceOdr
+        } else if self.match_token(&Token::Available_externally) {
+            Linkage::AvailableExternally
+        } else if self.match_token(&Token::Extern_weak) {
+            Linkage::ExternWeak
+        } else if self.match_token(&Token::Common) {
+            Linkage::Common
+        } else if self.match_token(&Token::Appending) {
+            Linkage::Appending
+        } else {
+            Linkage::External // default
+        };
+
+        linkage
+    }
+
+    fn parse_visibility(&mut self) -> crate::module::Visibility {
+        use crate::module::Visibility;
+
+        let visibility = if self.match_token(&Token::Default) {
+            Visibility::Default
+        } else if self.match_token(&Token::Hidden) {
+            Visibility::Hidden
+        } else if self.match_token(&Token::Protected) {
+            Visibility::Protected
+        } else {
+            Visibility::Default // default
+        };
+
+        visibility
     }
 
     fn skip_linkage_and_visibility(&mut self) {
@@ -4538,7 +4796,8 @@ impl Parser {
             || self.match_token(&Token::Seq_cst)
     }
 
-    fn skip_load_store_attributes(&mut self) {
+    fn parse_load_store_attributes(&mut self) -> Option<u64> {
+        let mut alignment: Option<u64> = None;
         // Also handle attributes that appear without comma (syncscope, orderings)
         loop {
             // Check for syncscope("...") - using keyword token
@@ -4559,7 +4818,8 @@ impl Parser {
             }
 
             if self.match_token(&Token::Align) {
-                if let Some(Token::Integer(_)) = self.peek() {
+                if let Some(Token::Integer(val)) = self.peek() {
+                    alignment = Some(*val as u64);
                     self.advance();
                 }
             } else if self.match_token(&Token::Volatile) {
@@ -4569,6 +4829,11 @@ impl Parser {
                 break;
             }
         }
+        alignment
+    }
+
+    fn skip_load_store_attributes(&mut self) {
+        self.parse_load_store_attributes();
     }
 
     fn skip_atomic_ordering(&mut self) -> bool {

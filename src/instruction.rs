@@ -22,6 +22,9 @@ pub struct Instruction {
     is_atomic: bool,
     is_volatile: bool,
     atomic_ordering: Option<AtomicOrdering>,
+
+    // Alignment for load, store, alloca instructions
+    alignment: Option<u64>,
 }
 
 /// Instruction opcodes
@@ -128,6 +131,7 @@ impl Instruction {
             is_atomic: false,
             is_volatile: false,
             atomic_ordering: None,
+            alignment: None,
         }
     }
 
@@ -244,6 +248,16 @@ impl Instruction {
     /// Get the GEP source type if this is a GetElementPtr instruction
     pub fn gep_source_type(&self) -> Option<&Type> {
         self.gep_source_type.as_ref()
+    }
+
+    /// Set the alignment for this instruction
+    pub fn set_alignment(&mut self, alignment: u64) {
+        self.alignment = Some(alignment);
+    }
+
+    /// Get the alignment for this instruction
+    pub fn alignment(&self) -> Option<u64> {
+        self.alignment
     }
 
     // Atomic/volatile accessors
