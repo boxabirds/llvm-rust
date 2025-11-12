@@ -524,7 +524,17 @@ impl Parser {
         let ty = self.parse_type()?;
 
         // Parse initializer if present
-        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) {
+        // Don't parse initializer if next token is:
+        // - End of file
+        // - A global ident (start of next global)
+        // - Define/Declare (start of function)
+        // - Comma (trailing attributes)
+        // - A local ident that starts a type declaration (%T = type ...)
+        let is_type_decl = self.check_local_ident()
+            && self.peek_ahead(1) == Some(&Token::Equal)
+            && self.peek_ahead(2) == Some(&Token::Type);
+
+        let initializer = if !self.is_at_end() && !self.check_global_ident() && !self.check(&Token::Define) && !self.check(&Token::Declare) && !self.check(&Token::Comma) && !is_type_decl {
             // Parse the initializer and propagate errors
             Some(self.parse_global_initializer(&ty)?)
         } else {
@@ -3260,7 +3270,7 @@ impl Parser {
 
                 while !self.check(&Token::RBrace) && !self.is_at_end() {
                     let elem_ty = self.parse_type()?;
-                    let elem_val = self.parse_value()?;
+                    let elem_val = self.parse_value_with_type(Some(&elem_ty))?;
 
                     // Validate that value type matches declared type in initializer
                     if elem_val.get_type() != &elem_ty {
