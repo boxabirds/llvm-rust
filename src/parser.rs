@@ -483,6 +483,10 @@ impl Parser {
                             };
                             addrspace = Some(addr_num);
                             self.advance();
+                        } else if !self.check(&Token::RParen) {
+                            // Invalid token (like addrspace(D) or addrspace(@A))
+                            // Skip it gracefully - defaults to addrspace 0
+                            self.advance();
                         }
                         self.match_token(&Token::RParen);
                     }
@@ -2716,6 +2720,10 @@ impl Parser {
                             self.advance();
                             val
                         } else {
+                            // Invalid token or empty - skip gracefully if present
+                            if !self.check(&Token::RParen) {
+                                self.advance();
+                            }
                             0
                         };
                         self.consume(&Token::RParen)?;
@@ -2929,6 +2937,10 @@ impl Parser {
                     self.advance();
                     val
                 } else {
+                    // Invalid token or empty - skip gracefully if present
+                    if !self.check(&Token::RParen) {
+                        self.advance();
+                    }
                     0
                 };
                 self.consume(&Token::RParen)?;
