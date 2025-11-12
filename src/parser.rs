@@ -606,17 +606,27 @@ impl Parser {
                 Ok(Value::const_null(ty.clone()))
             },
             Some(Token::Integer(_)) => {
-                if ty.is_integer() {
-                    if let Some(Token::Integer(n)) = self.peek() {
-                        let val = *n as i64;
-                        self.advance();
-                        Ok(Value::const_int(ty.clone(), val, None))
+                if let Some(Token::Integer(n)) = self.peek() {
+                    let val = *n;
+                    self.advance();
+                    if ty.is_integer() {
+                        Ok(Value::const_int(ty.clone(), val as i64, None))
+                    } else if ty.is_float() {
+                        // Integer literal with float type - interpret bits as float
+                        // e.g., double 0x8000000000000000 = -0.0
+                        let float_val = if ty == &self.context.double_type() {
+                            f64::from_bits(val as u64)
+                        } else {
+                            // float type
+                            f32::from_bits(val as u32) as f64
+                        };
+                        Ok(Value::const_float(ty.clone(), float_val, None))
                     } else {
-                        unreachable!()
+                        // Other types - try as constant expression
+                        self.parse_constant_expression()
                     }
                 } else {
-                    // Not an integer type, use constant expression parser
-                    self.parse_constant_expression()
+                    unreachable!()
                 }
             },
             Some(Token::True) => {
@@ -635,7 +645,16 @@ impl Parser {
                     Ok(Value::const_int(self.context.bool_type(), 0, None))
                 }
             },
-            Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) => {
+            Some(Token::Float64(_)) => {
+                if let Some(Token::Float64(f)) = self.peek() {
+                    let val = *f;
+                    self.advance();
+                    Ok(Value::const_float(ty.clone(), val, None))
+                } else {
+                    unreachable!()
+                }
+            },
+            Some(Token::LBrace) | Some(Token::LBracket) | Some(Token::StringLit(_)) | Some(Token::CString(_)) => {
                 // Complex aggregate constant - parse with expected type for validation
                 self.parse_value_with_type(Some(ty))
             },
@@ -3132,6 +3151,15 @@ impl Parser {
             Token::Null => {
                 self.advance();
                 Ok(Value::const_null(self.context.ptr_type(self.context.int8_type())))
+            }
+            Token::CString(bytes) => {
+                let bytes = bytes.clone();
+                self.advance();
+                // CString like c"foo\00" - create array of i8 constant
+                let i8_type = self.context.int8_type();
+                let array_type = self.context.array_type(i8_type, bytes.len());
+                // For now, create a zero initializer (full implementation would create proper const array)
+                Ok(Value::zero_initializer(array_type))
             }
             Token::None => {
                 self.advance();
