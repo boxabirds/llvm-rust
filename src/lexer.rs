@@ -215,6 +215,7 @@ pub enum Token {
     Cleanup,
     Catch,
     Filter,
+    Ptrauth,
 
     // Comparison predicates
     Eq,
@@ -878,6 +879,7 @@ impl Lexer {
             "cleanup" => Token::Cleanup,
             "catch" => Token::Catch,
             "filter" => Token::Filter,
+            "ptrauth" => Token::Ptrauth,
 
             // Comparison predicates
             "eq" => Token::Eq,

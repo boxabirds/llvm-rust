@@ -672,11 +672,49 @@ impl Parser {
                 // Could be splat, asm, or other special identifiers
                 self.parse_value_with_type(Some(ty))
             },
+            Some(Token::Ptrauth) => {
+                // ptrauth (ptr value, i32 key [, i64 discriminator [, ptr address_discriminator]])
+                self.parse_ptrauth_constant()
+            },
             _ => {
                 // Try parsing as a constant expression
                 self.parse_constant_expression()
             }
         }
+    }
+
+    fn parse_ptrauth_constant(&mut self) -> ParseResult<Value> {
+        // ptrauth (ptr value, i32 key [, i64 discriminator [, ptr address_discriminator]])
+        self.consume(&Token::Ptrauth)?;
+        self.consume(&Token::LParen)?;
+
+        // Parse pointer value with its type
+        let ptr_ty = self.parse_type()?;
+        let ptr_value = self.parse_value_with_type(Some(&ptr_ty))?;
+
+        self.consume(&Token::Comma)?;
+
+        // Parse key (i32)
+        let key_ty = self.parse_type()?;
+        let _key_value = self.parse_value_with_type(Some(&key_ty))?;
+
+        // Parse optional discriminator (i64)
+        if self.match_token(&Token::Comma) {
+            let disc_ty = self.parse_type()?;
+            let _disc_value = self.parse_value_with_type(Some(&disc_ty))?;
+
+            // Parse optional address discriminator (ptr)
+            if self.match_token(&Token::Comma) {
+                let addr_ty = self.parse_type()?;
+                let _addr_value = self.parse_value_with_type(Some(&addr_ty))?;
+            }
+        }
+
+        self.consume(&Token::RParen)?;
+
+        // For now, return the pointer value as-is (ptrauth is essentially a signed pointer)
+        // In a full implementation, we would preserve the ptrauth metadata
+        Ok(ptr_value)
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
