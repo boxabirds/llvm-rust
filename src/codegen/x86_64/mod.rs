@@ -6,6 +6,7 @@ pub mod registers;
 pub mod instructions;
 pub mod calling_convention;
 pub mod asm_printer;
+pub mod instruction_selection;
 
 use crate::module::Module;
 use crate::function::Function;
@@ -458,6 +459,10 @@ pub enum MachineInstr {
     Pop(X86Register),
     /// Return
     Ret,
+    /// Sign extend RAX to RDX:RAX (for division)
+    Cqo,
+    /// Move with zero extension
+    Movzx { dest: X86Register, src: MachineOperand },
 }
 
 impl std::fmt::Display for MachineInstr {
@@ -485,6 +490,8 @@ impl std::fmt::Display for MachineInstr {
             MachineInstr::Push(reg) => write!(f, "push {}", reg),
             MachineInstr::Pop(reg) => write!(f, "pop {}", reg),
             MachineInstr::Ret => write!(f, "ret"),
+            MachineInstr::Cqo => write!(f, "cqo"),
+            MachineInstr::Movzx { dest, src } => write!(f, "movzx {}, {}", dest, src),
         }
     }
 }

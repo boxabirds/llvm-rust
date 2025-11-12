@@ -10,6 +10,8 @@ pub mod stack_frame;
 pub mod elf;
 pub mod external_functions;
 pub mod runtime;
+pub mod value_tracker;
+pub mod linker;
 
 use crate::module::Module;
 use crate::function::Function;

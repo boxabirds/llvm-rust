@@ -472,6 +472,17 @@ impl Parser {
                         if let Some(Token::Integer(n)) = self.peek() {
                             addrspace = Some(*n as u32);
                             self.advance();
+                        } else if let Some(Token::StringLit(s)) = self.peek() {
+                            // Symbolic address space: map to number
+                            // Default mapping: A=1 (alloca), G=2 (global), P=3 (program)
+                            let addr_num = match s.as_str() {
+                                "A" => 1,
+                                "G" => 2,
+                                "P" => 3,
+                                _ => 0, // Unknown symbolic addrspace defaults to 0
+                            };
+                            addrspace = Some(addr_num);
+                            self.advance();
                         }
                         self.match_token(&Token::RParen);
                     }
@@ -2279,6 +2290,9 @@ impl Parser {
                                 self.advance(); // skip unknown value
                             }
                         }
+                    } else if !self.check(&Token::Comma) && !self.check(&Token::RParen) {
+                        // Unknown token - skip to avoid infinite loop
+                        self.advance();
                     }
 
                     self.match_token(&Token::Comma);
@@ -2691,6 +2705,16 @@ impl Parser {
                             let val = *n as u32;
                             self.advance();
                             val
+                        } else if let Some(Token::StringLit(s)) = self.peek() {
+                            // Symbolic address space: map to number
+                            let val = match s.as_str() {
+                                "A" => 1,
+                                "G" => 2,
+                                "P" => 3,
+                                _ => 0,
+                            };
+                            self.advance();
+                            val
                         } else {
                             0
                         };
@@ -2892,6 +2916,16 @@ impl Parser {
                 self.consume(&Token::LParen)?;
                 let addrspace = if let Some(Token::Integer(n)) = self.peek() {
                     let val = *n as u32;
+                    self.advance();
+                    val
+                } else if let Some(Token::StringLit(s)) = self.peek() {
+                    // Symbolic address space: map to number
+                    let val = match s.as_str() {
+                        "A" => 1,
+                        "G" => 2,
+                        "P" => 3,
+                        _ => 0,
+                    };
                     self.advance();
                     val
                 } else {
