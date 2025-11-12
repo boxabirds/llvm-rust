@@ -317,7 +317,18 @@ impl Verifier {
 
     /// Verify global variable constraints
     fn verify_global_variable(&mut self, global: &crate::module::GlobalVariable) {
-        use crate::module::Linkage;
+        use crate::module::{Linkage, Visibility};
+
+        // Check linkage + visibility constraints
+        // Private/internal linkage requires default visibility
+        if matches!(global.linkage, Linkage::Private | Linkage::Internal) {
+            if !matches!(global.visibility, Visibility::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "symbol with local linkage must have default visibility".to_string(),
+                    location: format!("global variable @{}", global.name),
+                });
+            }
+        }
 
         // Check comdat constraints
         if global.comdat.is_some() {
@@ -377,6 +388,21 @@ impl Verifier {
                 reason: "llvm intrinsics cannot be defined".to_string(),
                 location: format!("function {}", fn_name),
             });
+        }
+
+        // Check linkage + visibility constraints
+        // Private/internal linkage requires default visibility
+        let linkage = function.linkage();
+        let visibility = function.visibility();
+        use crate::module::{Linkage, Visibility};
+
+        if matches!(linkage, Linkage::Private | Linkage::Internal) {
+            if !matches!(visibility, Visibility::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "symbol with local linkage must have default visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
         }
 
         // Check function parameter types
