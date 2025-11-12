@@ -719,11 +719,27 @@ impl Verifier {
 
         let location = format!("instruction {:?}", inst.opcode());
 
-        // TODO: Check for self-referential instructions (non-PHI nodes)
-        // PHI nodes can reference themselves in loop contexts, but other instructions cannot
-        // However, self-references are allowed in unreachable code, and we don't currently
-        // track reachability. Disabling this check for now to avoid false positives.
-        // Examples of valid self-reference: %inc.2 = add i32 %inc.2, 1 in unreachable block
+        // Check for self-referential instructions (non-PHI nodes)
+        // Only PHI nodes may reference their own value
+        if inst.opcode() != Opcode::PHI {
+            if let Some(result) = inst.result() {
+                if let Some(result_name) = result.name() {
+                    // Check if any operand references this result
+                    for operand in inst.operands() {
+                        if let Some(operand_name) = operand.name() {
+                            if operand_name == result_name && !result_name.is_empty() {
+                                // Self-reference detected in non-PHI instruction
+                                self.errors.push(VerificationError::InvalidSSA {
+                                    value: result_name.to_string(),
+                                    location: format!("instruction {:?}", inst.opcode()),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
