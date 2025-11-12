@@ -144,9 +144,9 @@ impl Parser {
                 }
             }
 
-            // Skip alias and ifunc declarations: @name = [linkage] alias/ifunc ...
+            // Parse alias declarations: @name = [linkage] alias type, aliasee
             if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal) {
-                // Check if it's an alias or ifunc by looking ahead
+                // Check if it's an alias by looking ahead
                 let mut idx = 2;
                 // Skip linkage/visibility keywords
                 while let Some(tok) = self.peek_ahead(idx) {
@@ -154,11 +154,16 @@ impl Parser {
                         idx += 1;
                         continue;
                     }
-                    if matches!(tok, Token::Alias | Token::Ifunc) {
-                        // Skip the entire declaration
+                    if matches!(tok, Token::Alias) {
+                        // Parse the alias
+                        let alias = self.parse_alias()?;
+                        module.add_alias(alias);
+                        break;
+                    }
+                    if matches!(tok, Token::Ifunc) {
+                        // Skip ifunc declarations for now
                         self.advance(); // skip @name
                         self.advance(); // skip =
-                        // Skip to end of line/declaration
                         while !self.is_at_end() && !self.check(&Token::Define) && !self.check(&Token::Declare) &&
                               !self.peek_global_ident().is_some() {
                             self.advance();
@@ -166,9 +171,6 @@ impl Parser {
                         break;
                     }
                     break;
-                }
-                if idx > 2 && self.current < self.tokens.len() {
-                    continue;
                 }
             }
 
@@ -605,6 +607,95 @@ impl Parser {
             alignment,
             comdat,
         ))
+    }
+
+    fn parse_alias(&mut self) -> ParseResult<crate::module::Alias> {
+        use crate::module::{Linkage, Visibility, DLLStorageClass, ThreadLocalMode, UnnamedAddr, Alias};
+
+        // @name = [linkage] [visibility] [dll_storage] [thread_local] [unnamed_addr] alias type, aliasee
+        let name = self.expect_global_ident()?;
+        self.consume(&Token::Equal)?;
+
+        // Parse linkage, visibility, and other attributes
+        let mut linkage = Linkage::External;
+        let mut visibility = Visibility::Default;
+        let mut dll_storage_class = DLLStorageClass::Default;
+        let mut thread_local_mode = ThreadLocalMode::NotThreadLocal;
+        let mut unnamed_addr = UnnamedAddr::None;
+
+        // Parse attributes in a loop since they can appear in any order
+        loop {
+            match self.peek() {
+                Some(Token::Private) => { self.advance(); linkage = Linkage::Private; },
+                Some(Token::Internal) => { self.advance(); linkage = Linkage::Internal; },
+                Some(Token::External) => { self.advance(); linkage = Linkage::External; },
+                Some(Token::Weak) => { self.advance(); linkage = Linkage::Weak; },
+                Some(Token::Linkonce) => { self.advance(); linkage = Linkage::Linkonce; },
+                Some(Token::Linkonce_odr) => { self.advance(); linkage = Linkage::LinkonceOdr; },
+                Some(Token::Weak_odr) => { self.advance(); linkage = Linkage::WeakOdr; },
+                Some(Token::Available_externally) => { self.advance(); linkage = Linkage::AvailableExternally; },
+                Some(Token::Extern_weak) => { self.advance(); linkage = Linkage::ExternWeak; },
+                Some(Token::Common) => { self.advance(); linkage = Linkage::Common; },
+                Some(Token::Appending) => { self.advance(); linkage = Linkage::Appending; },
+
+                Some(Token::Hidden) => { self.advance(); visibility = Visibility::Hidden; },
+                Some(Token::Protected) => { self.advance(); visibility = Visibility::Protected; },
+                Some(Token::Default) => { self.advance(); visibility = Visibility::Default; },
+
+                Some(Token::Dllimport) => { self.advance(); dll_storage_class = DLLStorageClass::DllImport; },
+                Some(Token::Dllexport) => { self.advance(); dll_storage_class = DLLStorageClass::DllExport; },
+
+                Some(Token::Thread_local) => {
+                    self.advance();
+                    if self.match_token(&Token::LParen) {
+                        if let Some(Token::Identifier(mode)) = self.peek() {
+                            match mode.as_str() {
+                                "generaldynamic" => thread_local_mode = ThreadLocalMode::GeneralDynamic,
+                                "localdynamic" => thread_local_mode = ThreadLocalMode::LocalDynamic,
+                                "initialexec" => thread_local_mode = ThreadLocalMode::InitialExec,
+                                "localexec" => thread_local_mode = ThreadLocalMode::LocalExec,
+                                _ => thread_local_mode = ThreadLocalMode::GeneralDynamic,
+                            }
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen);
+                    } else {
+                        thread_local_mode = ThreadLocalMode::GeneralDynamic;
+                    }
+                },
+
+                Some(Token::Unnamed_addr) => { self.advance(); unnamed_addr = UnnamedAddr::Global; },
+                Some(Token::Local_unnamed_addr) => { self.advance(); unnamed_addr = UnnamedAddr::Local; },
+
+                Some(Token::Dso_local) | Some(Token::Dso_preemptable) => { self.advance(); },
+
+                _ => break,
+            }
+        }
+
+        // Expect 'alias' keyword
+        self.consume(&Token::Alias)?;
+
+        // Parse alias type
+        let alias_type = self.parse_type()?;
+
+        // Expect comma
+        self.consume(&Token::Comma)?;
+
+        // Parse aliasee type and value
+        let aliasee_type = self.parse_type()?;
+        let aliasee = self.parse_value_with_type(Some(&aliasee_type))?;
+
+        Ok(Alias {
+            name,
+            ty: alias_type,
+            aliasee,
+            linkage,
+            visibility,
+            dll_storage_class,
+            thread_local_mode,
+            unnamed_addr,
+        })
     }
 
     fn parse_global_initializer(&mut self, ty: &Type) -> ParseResult<Value> {

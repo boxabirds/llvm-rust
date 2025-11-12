@@ -174,6 +174,19 @@ impl Verifier {
             }
         }
 
+        for alias in module.aliases() {
+            let name = &alias.name;
+            // Skip duplicate check for empty/numbered names
+            if !name.is_empty() && !name.chars().all(|c| c.is_ascii_digit()) {
+                if !global_names.insert(name.to_string()) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("redefinition of global '@{}'", name),
+                        location: format!("alias @{}", name),
+                    });
+                }
+            }
+        }
+
         // Verify global variables
         for global in module.globals() {
             let global_type = global.get_type();

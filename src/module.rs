@@ -103,6 +103,7 @@ struct ModuleData {
     context: Context,
     functions: Vec<Function>,
     globals: Vec<GlobalVariable>,
+    aliases: Vec<Alias>,
     named_metadata: HashMap<String, Vec<Metadata>>,
     module_flags: Vec<Metadata>,
 }
@@ -126,6 +127,19 @@ pub struct GlobalVariable {
     pub comdat: Option<String>,
 }
 
+/// An alias in a module
+#[derive(Clone)]
+pub struct Alias {
+    pub name: String,
+    pub ty: Type,  // Type of the alias
+    pub aliasee: Value,  // The value being aliased
+    pub linkage: Linkage,
+    pub visibility: Visibility,
+    pub dll_storage_class: DLLStorageClass,
+    pub thread_local_mode: ThreadLocalMode,
+    pub unnamed_addr: UnnamedAddr,
+}
+
 impl Module {
     /// Create a new module with the given name and context
     pub fn new(name: String, context: Context) -> Self {
@@ -135,6 +149,7 @@ impl Module {
                 context,
                 functions: Vec::new(),
                 globals: Vec::new(),
+                aliases: Vec::new(),
                 named_metadata: HashMap::new(),
                 module_flags: Vec::new(),
             })),
@@ -194,6 +209,26 @@ impl Module {
     /// Get all global variables in this module
     pub fn globals(&self) -> Vec<GlobalVariable> {
         self.data.read().unwrap().globals.clone()
+    }
+
+    /// Add an alias to this module
+    pub fn add_alias(&self, alias: Alias) {
+        let mut data = self.data.write().unwrap();
+        data.aliases.push(alias);
+    }
+
+    /// Get an alias by name
+    pub fn get_alias(&self, name: &str) -> Option<Alias> {
+        self.data.read().unwrap()
+            .aliases
+            .iter()
+            .find(|a| a.name == name)
+            .cloned()
+    }
+
+    /// Get all aliases in this module
+    pub fn aliases(&self) -> Vec<Alias> {
+        self.data.read().unwrap().aliases.clone()
     }
 
     /// Add named metadata to the module
