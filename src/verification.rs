@@ -719,11 +719,27 @@ impl Verifier {
 
         let location = format!("instruction {:?}", inst.opcode());
 
-        // TODO: Check for self-referential instructions (non-PHI nodes)
-        // PHI nodes can reference themselves in loop contexts, but other instructions cannot
-        // However, self-references are allowed in unreachable code, and we don't currently
-        // track reachability. Disabling this check for now to avoid false positives.
-        // Examples of valid self-reference: %inc.2 = add i32 %inc.2, 1 in unreachable block
+        // Check for self-referential instructions (non-PHI nodes)
+        // Only PHI nodes may reference their own value
+        if inst.opcode() != Opcode::PHI {
+            if let Some(result) = inst.result() {
+                if let Some(result_name) = result.name() {
+                    // Check if any operand references this result
+                    for operand in inst.operands() {
+                        if let Some(operand_name) = operand.name() {
+                            if operand_name == result_name && !result_name.is_empty() {
+                                // Self-reference detected in non-PHI instruction
+                                self.errors.push(VerificationError::InvalidSSA {
+                                    value: result_name.to_string(),
+                                    location: format!("instruction {:?}", inst.opcode()),
+                                });
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
@@ -2335,20 +2351,52 @@ impl Verifier {
         let opcode = inst.opcode();
         let operands = inst.operands();
 
+        // Check if this is an atomic operation
+        let is_atomic = inst.is_atomic();
+
         match opcode {
             Opcode::Load => {
-                // TODO: Atomic loads must load integer, pointer, float, or vector types
+                // Atomic loads must load integer, pointer, float, or vector types
                 // Cannot load aggregate types (structs, arrays)
-                // However, we currently don't track which loads are atomic vs non-atomic,
-                // so we can't enforce this validation rule correctly.
-                // Regular (non-atomic) loads CAN load any type including structs/arrays.
+                if is_atomic {
+                    // Get the loaded type from the instruction result
+                    if let Some(result) = inst.result() {
+                        let loaded_type = result.get_type();
+
+                        // Check if the type is valid for atomic operations
+                        let is_valid = loaded_type.is_integer() ||
+                                       loaded_type.is_pointer() ||
+                                       loaded_type.is_float() ||
+                                       loaded_type.is_vector();
+
+                        if !is_valid {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "atomic load operand must have integer, pointer, floating point, or vector type!".to_string(),
+                                location: location.to_string(),
+                            });
+                        }
+                    }
+                }
             }
             Opcode::Store => {
-                // TODO: Atomic stores must store integer, pointer, float, or vector types
+                // Atomic stores must store integer, pointer, float, or vector types
                 // Cannot store aggregate types (structs, arrays)
-                // However, we currently don't track which stores are atomic vs non-atomic,
-                // so we can't enforce this validation rule correctly.
-                // Regular (non-atomic) stores CAN store any type including structs/arrays.
+                if is_atomic && operands.len() >= 1 {
+                    let stored_type = operands[0].get_type();
+
+                    // Check if the type is valid for atomic operations
+                    let is_valid = stored_type.is_integer() ||
+                                   stored_type.is_pointer() ||
+                                   stored_type.is_float() ||
+                                   stored_type.is_vector();
+
+                    if !is_valid {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "atomic store operand must have integer, pointer, floating point, or vector type!".to_string(),
+                            location: location.to_string(),
+                        });
+                    }
+                }
             }
             Opcode::AtomicCmpXchg | Opcode::AtomicRMW => {
                 // These atomic operations also have type constraints
