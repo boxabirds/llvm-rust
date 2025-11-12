@@ -747,7 +747,9 @@ impl Parser {
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
-        // define [linkage] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
+        // define [linkage] [visibility] [cc] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
+        let linkage = self.parse_linkage();
+        let visibility = self.parse_visibility();
         let cc = self.parse_calling_convention();
         let ret_attrs = self.parse_return_attributes();
 
@@ -772,6 +774,8 @@ impl Parser {
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
         let fn_type = self.context.function_type(return_type, param_types, false);
         let function = Function::new(name, fn_type);
+        function.set_linkage(linkage);
+        function.set_visibility(visibility);
         function.set_calling_convention(cc);
         function.set_attributes(attrs);
 
@@ -3724,6 +3728,54 @@ impl Parser {
         // Now skip linkage/visibility keywords
         self.skip_linkage_and_visibility();
         cc
+    }
+
+    fn parse_linkage(&mut self) -> crate::module::Linkage {
+        use crate::module::Linkage;
+
+        let linkage = if self.match_token(&Token::Private) {
+            Linkage::Private
+        } else if self.match_token(&Token::Internal) {
+            Linkage::Internal
+        } else if self.match_token(&Token::External) {
+            Linkage::External
+        } else if self.match_token(&Token::Weak) {
+            Linkage::Weak
+        } else if self.match_token(&Token::Weak_odr) {
+            Linkage::WeakOdr
+        } else if self.match_token(&Token::Linkonce) {
+            Linkage::Linkonce
+        } else if self.match_token(&Token::Linkonce_odr) {
+            Linkage::LinkonceOdr
+        } else if self.match_token(&Token::Available_externally) {
+            Linkage::AvailableExternally
+        } else if self.match_token(&Token::Extern_weak) {
+            Linkage::ExternWeak
+        } else if self.match_token(&Token::Common) {
+            Linkage::Common
+        } else if self.match_token(&Token::Appending) {
+            Linkage::Appending
+        } else {
+            Linkage::External // default
+        };
+
+        linkage
+    }
+
+    fn parse_visibility(&mut self) -> crate::module::Visibility {
+        use crate::module::Visibility;
+
+        let visibility = if self.match_token(&Token::Default) {
+            Visibility::Default
+        } else if self.match_token(&Token::Hidden) {
+            Visibility::Hidden
+        } else if self.match_token(&Token::Protected) {
+            Visibility::Protected
+        } else {
+            Visibility::Default // default
+        };
+
+        visibility
     }
 
     fn skip_linkage_and_visibility(&mut self) {

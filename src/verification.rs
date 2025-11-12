@@ -144,6 +144,36 @@ impl Verifier {
     pub fn verify_module(&mut self, module: &Module) -> VerificationResult {
         self.errors.clear();
 
+        // Check for duplicate global definitions (functions, globals, aliases)
+        use std::collections::HashSet;
+        let mut global_names = HashSet::new();
+
+        for global in module.globals() {
+            let name = global.name();
+            // Skip duplicate check for empty/numbered names
+            if !name.is_empty() && !name.chars().all(|c| c.is_ascii_digit()) {
+                if !global_names.insert(name.to_string()) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("redefinition of global '@{}'", name),
+                        location: format!("global variable @{}", name),
+                    });
+                }
+            }
+        }
+
+        for function in module.functions() {
+            let name = function.name();
+            // Skip duplicate check for empty/numbered names
+            if !name.is_empty() && !name.chars().all(|c| c.is_ascii_digit()) {
+                if !global_names.insert(name.to_string()) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("redefinition of global '@{}'", name),
+                        location: format!("function {}", name),
+                    });
+                }
+            }
+        }
+
         // Verify global variables
         for global in module.globals() {
             let global_type = global.get_type();
