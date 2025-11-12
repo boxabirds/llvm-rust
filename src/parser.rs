@@ -1191,7 +1191,7 @@ impl Parser {
         };
 
         // Parse operands and get result type if instruction produces one
-        let (operands, result_type, gep_source_type, alignment) = self.parse_instruction_operands(opcode)?;
+        let (operands, result_type, gep_source_type, alignment, is_atomic) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -1258,6 +1258,11 @@ impl Parser {
         // Set alignment if specified
         if let Some(align) = alignment {
             inst.set_alignment(align);
+        }
+
+        // Set atomic flag if specified
+        if is_atomic {
+            inst.set_atomic(true);
         }
 
         // Attach metadata to the instruction
@@ -1342,11 +1347,12 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>)> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool)> {
         let mut operands = Vec::new();
         let mut result_type: Option<Type> = None;
         let mut gep_source_type_field: Option<Type> = None;
         let mut alignment: Option<u64> = None;
+        let mut is_atomic = false;
 
         // Parse based on instruction type
         match opcode {
@@ -1362,7 +1368,7 @@ impl Parser {
                         // Check if current token is followed by colon (label definition)
                         if self.peek_ahead(1) == Some(&Token::Colon) {
                             // This is a label, not a return value
-                            return Ok((operands, result_type, None, None));
+                            return Ok((operands, result_type, None, None, false));
                         }
                         // Try to parse a value - if the type is void, there might not be one
                         if !ty.is_void() {
@@ -1589,7 +1595,7 @@ impl Parser {
                 // load [atomic] [volatile] type, ptr %ptr [unordered|monotonic|acquire|...] [, align ...]
                 // Old syntax: load atomic i32* %ptr (no comma, typed pointer)
                 // New syntax: load atomic i32, ptr %ptr (comma-separated)
-                self.match_token(&Token::Atomic);
+                is_atomic = self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
                 let ty = self.parse_type()?;
@@ -1614,7 +1620,7 @@ impl Parser {
                 // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
                 // Old syntax: store i32 %val, i32* %ptr (typed pointer)
                 // New syntax: store i32 %val, ptr %ptr (opaque pointer)
-                self.match_token(&Token::Atomic);
+                is_atomic = self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
                 let _val_ty = self.parse_type()?;
@@ -2339,7 +2345,7 @@ impl Parser {
             }
         }
 
-        Ok((operands, result_type, gep_source_type_field, alignment))
+        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
