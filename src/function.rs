@@ -155,6 +155,7 @@ struct FunctionData {
     calling_convention: CallingConvention,
     linkage: crate::module::Linkage,
     visibility: crate::module::Visibility,
+    dll_storage_class: crate::module::DLLStorageClass,
 }
 
 impl Function {
@@ -172,6 +173,7 @@ impl Function {
                 calling_convention: CallingConvention::default(),
                 linkage: crate::module::Linkage::External,
                 visibility: crate::module::Visibility::Default,
+                dll_storage_class: crate::module::DLLStorageClass::Default,
             })),
         }
     }
@@ -214,6 +216,16 @@ impl Function {
     /// Set the function visibility
     pub fn set_visibility(&self, visibility: crate::module::Visibility) {
         self.data.write().unwrap().visibility = visibility;
+    }
+
+    /// Get the function DLL storage class
+    pub fn dll_storage_class(&self) -> crate::module::DLLStorageClass {
+        self.data.read().unwrap().dll_storage_class
+    }
+
+    /// Set the function DLL storage class
+    pub fn set_dll_storage_class(&self, dll_storage_class: crate::module::DLLStorageClass) {
+        self.data.write().unwrap().dll_storage_class = dll_storage_class;
     }
 
     /// Get the name of this function

@@ -424,12 +424,24 @@ impl Verifier {
         // Private/internal linkage requires default visibility
         let linkage = function.linkage();
         let visibility = function.visibility();
-        use crate::module::{Linkage, Visibility};
+        use crate::module::{Linkage, Visibility, DLLStorageClass};
 
         if matches!(linkage, Linkage::Private | Linkage::Internal) {
             if !matches!(visibility, Visibility::Default) {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: "symbol with local linkage must have default visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Check DLL storage class + linkage constraints
+        // Private/internal linkage cannot have DLL storage class
+        let dll_storage = function.dll_storage_class();
+        if matches!(linkage, Linkage::Private | Linkage::Internal) {
+            if !matches!(dll_storage, DLLStorageClass::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "symbol with local linkage cannot have a DLL storage class".to_string(),
                     location: format!("function {}", fn_name),
                 });
             }
@@ -664,6 +676,9 @@ impl Verifier {
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
+
+        // Verify alignment constraints
+        self.verify_instruction_alignment(inst, &location);
 
         // Verify atomic instructions
         self.verify_atomic_instruction(inst, &location);
@@ -2311,6 +2326,29 @@ impl Verifier {
         // 1. Better type system support for target extension types
         // 2. Opaque struct detection
         // Placeholder for future implementation
+    }
+
+    /// Verify alignment constraints for instructions
+    fn verify_instruction_alignment(&mut self, inst: &Instruction, location: &str) {
+        // Maximum alignment in LLVM is 2^32 bytes
+        const MAX_ALIGNMENT: u64 = 1u64 << 32; // 4294967296
+
+        if let Some(alignment) = inst.alignment() {
+            if alignment > MAX_ALIGNMENT {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("alignment is larger than the maximum supported by LLVM (2^32)"),
+                    location: location.to_string(),
+                });
+            }
+
+            // Also check that alignment is a power of 2
+            if alignment > 0 && !alignment.is_power_of_two() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("alignment must be a power of 2"),
+                    location: location.to_string(),
+                });
+            }
+        }
     }
 
     /// Verify metadata attachments on instructions

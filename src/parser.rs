@@ -1093,7 +1093,7 @@ impl Parser {
         };
 
         // Parse operands and get result type if instruction produces one
-        let (operands, result_type, gep_source_type) = self.parse_instruction_operands(opcode)?;
+        let (operands, result_type, gep_source_type, alignment) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -1155,6 +1155,11 @@ impl Parser {
         // Set GEP source type if this is a GetElementPtr instruction
         if let Some(gep_type) = gep_source_type {
             inst.set_gep_source_type(gep_type);
+        }
+
+        // Set alignment if specified
+        if let Some(align) = alignment {
+            inst.set_alignment(align);
         }
 
         // Attach metadata to the instruction
@@ -1239,10 +1244,11 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>)> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>)> {
         let mut operands = Vec::new();
         let mut result_type: Option<Type> = None;
         let mut gep_source_type_field: Option<Type> = None;
+        let mut alignment: Option<u64> = None;
 
         // Parse based on instruction type
         match opcode {
@@ -1258,7 +1264,7 @@ impl Parser {
                         // Check if current token is followed by colon (label definition)
                         if self.peek_ahead(1) == Some(&Token::Colon) {
                             // This is a label, not a return value
-                            return Ok((operands, result_type, None));
+                            return Ok((operands, result_type, None, None));
                         }
                         // Try to parse a value - if the type is void, there might not be one
                         if !ty.is_void() {
@@ -1433,7 +1439,8 @@ impl Parser {
                 // Handle optional attributes in any order
                 while self.match_token(&Token::Comma) {
                     if self.match_token(&Token::Align) {
-                        if let Some(Token::Integer(_)) = self.peek() {
+                        if let Some(Token::Integer(val)) = self.peek() {
+                            alignment = Some(*val as u64);
                             self.advance();
                         }
                     } else if self.match_token(&Token::Addrspace) {
@@ -1493,8 +1500,8 @@ impl Parser {
                     operands.push(ptr);
                 }
 
-                // Skip memory ordering and other attributes
-                self.skip_load_store_attributes();
+                // Parse memory ordering and alignment attributes
+                alignment = self.parse_load_store_attributes();
             }
             Opcode::Store => {
                 // store [atomic] [volatile] type %val, ptr %ptr [, align ...]
@@ -1513,8 +1520,8 @@ impl Parser {
                 let ptr = self.parse_value()?;
                 operands.push(ptr);
 
-                // Skip attributes
-                self.skip_load_store_attributes();
+                // Parse alignment and other attributes
+                alignment = self.parse_load_store_attributes();
             }
             Opcode::GetElementPtr => {
                 // getelementptr [inbounds] [nuw] [nusw] type, ptr %ptr, indices...
@@ -2225,7 +2232,7 @@ impl Parser {
             }
         }
 
-        Ok((operands, result_type, gep_source_type_field))
+        Ok((operands, result_type, gep_source_type_field, alignment))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
@@ -4759,7 +4766,8 @@ impl Parser {
             || self.match_token(&Token::Seq_cst)
     }
 
-    fn skip_load_store_attributes(&mut self) {
+    fn parse_load_store_attributes(&mut self) -> Option<u64> {
+        let mut alignment: Option<u64> = None;
         // Also handle attributes that appear without comma (syncscope, orderings)
         loop {
             // Check for syncscope("...") - using keyword token
@@ -4780,7 +4788,8 @@ impl Parser {
             }
 
             if self.match_token(&Token::Align) {
-                if let Some(Token::Integer(_)) = self.peek() {
+                if let Some(Token::Integer(val)) = self.peek() {
+                    alignment = Some(*val as u64);
                     self.advance();
                 }
             } else if self.match_token(&Token::Volatile) {
@@ -4790,6 +4799,11 @@ impl Parser {
                 break;
             }
         }
+        alignment
+    }
+
+    fn skip_load_store_attributes(&mut self) {
+        self.parse_load_store_attributes();
     }
 
     fn skip_atomic_ordering(&mut self) -> bool {
