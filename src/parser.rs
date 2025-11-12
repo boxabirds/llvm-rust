@@ -470,6 +470,13 @@ impl Parser {
                     self.advance();
                     if self.match_token(&Token::LParen) {
                         if let Some(Token::Integer(n)) = self.peek() {
+                            // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                            if *n < 0 || *n >= (1 << 24) {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid address space, must be a 24-bit integer".to_string(),
+                                    position: self.current,
+                                });
+                            }
                             addrspace = Some(*n as u32);
                             self.advance();
                         } else if let Some(Token::StringLit(s)) = self.peek() {
@@ -1446,7 +1453,16 @@ impl Parser {
                     } else if self.match_token(&Token::Addrspace) {
                         self.consume(&Token::LParen)?;
                         // Address space can be integer or symbolic string ("A", "G", "P")
-                        if let Some(Token::Integer(_)) | Some(Token::StringLit(_)) = self.peek() {
+                        // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                        if let Some(Token::Integer(val)) = self.peek() {
+                            if *val < 0 || *val >= (1 << 24) {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid address space, must be a 24-bit integer".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            self.advance();
+                        } else if let Some(Token::StringLit(_)) = self.peek() {
                             self.advance();
                         }
                         self.consume(&Token::RParen)?;
@@ -2788,6 +2804,13 @@ impl Parser {
                         self.consume(&Token::LParen)?;
                         // Parse address space number
                         let addrspace = if let Some(Token::Integer(n)) = self.peek() {
+                            // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                            if *n < 0 || *n >= (1 << 24) {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid address space, must be a 24-bit integer".to_string(),
+                                    position: self.current,
+                                });
+                            }
                             let val = *n as u32;
                             self.advance();
                             val
@@ -3005,6 +3028,13 @@ impl Parser {
                 self.advance(); // consume 'addrspace'
                 self.consume(&Token::LParen)?;
                 let addrspace = if let Some(Token::Integer(n)) = self.peek() {
+                    // Address space must fit in 24 bits: max value is 16,777,215 (2^24 - 1)
+                    if *n < 0 || *n >= (1 << 24) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "invalid address space, must be a 24-bit integer".to_string(),
+                            position: self.current,
+                        });
+                    }
                     let val = *n as u32;
                     self.advance();
                     val
