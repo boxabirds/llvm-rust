@@ -117,6 +117,7 @@ pub struct Verifier {
     errors: Vec<VerificationError>,
     current_function: Option<String>,
     current_function_is_varargs: bool,
+    current_function_has_personality: bool,
 }
 
 impl Verifier {
@@ -125,6 +126,7 @@ impl Verifier {
             errors: Vec::new(),
             current_function: None,
             current_function_is_varargs: false,
+            current_function_has_personality: false,
         }
     }
 
@@ -437,6 +439,7 @@ impl Verifier {
         self.current_function_is_varargs = fn_type.function_info()
             .map(|(_, _, is_varargs)| is_varargs)
             .unwrap_or(false);
+        self.current_function_has_personality = function.personality().is_some();
 
         // Check if trying to define an LLVM intrinsic (functions starting with "llvm.")
         // Intrinsics can be declared but not defined
@@ -1882,6 +1885,14 @@ impl Verifier {
                 }
             }
             Opcode::Resume => {
+                // Resume: must be in a function with a personality
+                if !self.current_function_has_personality {
+                    self.errors.push(VerificationError::InvalidExceptionHandling {
+                        reason: "ResumeInst needs to be in a function with a personality.".to_string(),
+                        location: "resume instruction".to_string(),
+                    });
+                }
+
                 // Resume: must have exactly one operand of aggregate type
                 let operands = inst.operands();
                 if operands.len() != 1 {

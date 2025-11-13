@@ -156,6 +156,7 @@ struct FunctionData {
     linkage: crate::module::Linkage,
     visibility: crate::module::Visibility,
     dll_storage_class: crate::module::DLLStorageClass,
+    personality: Option<Value>,
 }
 
 impl Function {
@@ -174,6 +175,7 @@ impl Function {
                 linkage: crate::module::Linkage::External,
                 visibility: crate::module::Visibility::Default,
                 dll_storage_class: crate::module::DLLStorageClass::Default,
+                personality: None,
             })),
         }
     }
@@ -226,6 +228,16 @@ impl Function {
     /// Set the function DLL storage class
     pub fn set_dll_storage_class(&self, dll_storage_class: crate::module::DLLStorageClass) {
         self.data.write().unwrap().dll_storage_class = dll_storage_class;
+    }
+
+    /// Get the personality function
+    pub fn personality(&self) -> Option<Value> {
+        self.data.read().unwrap().personality.clone()
+    }
+
+    /// Set the personality function
+    pub fn set_personality(&self, personality: Option<Value>) {
+        self.data.write().unwrap().personality = personality;
     }
 
     /// Get the name of this function
