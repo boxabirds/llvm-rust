@@ -388,6 +388,14 @@ impl Verifier {
             });
         }
 
+        // Global variables cannot have x86_amx type
+        if global.ty.is_x86_amx() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "invalid type for global variable".to_string(),
+                location: format!("global variable @{}", global.name),
+            });
+        }
+
         // Global variable initializer must be sized
         if global.initializer.is_some() && !global.ty.is_sized() {
             self.errors.push(VerificationError::InvalidInstruction {

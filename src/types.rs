@@ -32,6 +32,7 @@ pub(crate) enum TypeData {
     Label,
     Token,
     Metadata,
+    X86_AMX,
 }
 
 /// Floating point type kinds
@@ -159,6 +160,12 @@ impl Type {
         Self { data }
     }
 
+    pub fn x86_amx(ctx: &crate::Context) -> Self {
+        let key = "x86_amx".to_string();
+        let data = ctx.intern_type(key, TypeData::X86_AMX);
+        Self { data }
+    }
+
     // Type queries
 
     pub fn is_void(&self) -> bool {
@@ -205,15 +212,20 @@ impl Type {
         matches!(&*self.data, TypeData::Metadata)
     }
 
+    pub fn is_x86_amx(&self) -> bool {
+        matches!(&*self.data, TypeData::X86_AMX)
+    }
+
     /// Check if this type is sized (can be allocated)
-    /// Void, function, label, token, and metadata types are not sized
+    /// Void, function, label, token, metadata, and x86_amx types are not sized
     pub fn is_sized(&self) -> bool {
         !matches!(&*self.data,
             TypeData::Void |
             TypeData::Function { .. } |
             TypeData::Label |
             TypeData::Token |
-            TypeData::Metadata
+            TypeData::Metadata |
+            TypeData::X86_AMX
         )
     }
 
@@ -296,7 +308,7 @@ impl Type {
     /// Returns an approximate size for struct types (sum of field sizes, no padding)
     pub fn size_in_bytes(&self) -> Option<u64> {
         match &*self.data {
-            TypeData::Void | TypeData::Function { .. } | TypeData::Label | TypeData::Token | TypeData::Metadata => None,
+            TypeData::Void | TypeData::Function { .. } | TypeData::Label | TypeData::Token | TypeData::Metadata | TypeData::X86_AMX => None,
             TypeData::Integer { bits } => Some((*bits as u64 + 7) / 8), // Round up to nearest byte
             TypeData::Float { kind } => Some(match kind {
                 FloatKind::Half => 2,
@@ -382,6 +394,7 @@ impl fmt::Display for Type {
             TypeData::Label => write!(f, "label"),
             TypeData::Token => write!(f, "token"),
             TypeData::Metadata => write!(f, "metadata"),
+            TypeData::X86_AMX => write!(f, "x86_amx"),
         }
     }
 }

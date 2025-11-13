@@ -112,4 +112,9 @@ impl Context {
     pub fn metadata_type(&self) -> crate::types::Type {
         crate::types::Type::metadata(self)
     }
+
+    /// Get an x86_amx type
+    pub fn x86_amx_type(&self) -> crate::types::Type {
+        crate::types::Type::x86_amx(self)
+    }
 }

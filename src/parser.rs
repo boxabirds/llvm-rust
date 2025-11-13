@@ -2956,6 +2956,10 @@ impl Parser {
                 self.advance();
                 Ok(self.context.metadata_type())
             }
+            Token::X86_amx => {
+                self.advance();
+                Ok(self.context.x86_amx_type())
+            }
             Token::Target => {
                 // target("typename", params...) - target-specific types with optional type/integer params
                 self.advance(); // consume 'target'
