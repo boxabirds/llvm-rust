@@ -450,6 +450,28 @@ impl Verifier {
                     location: format!("global variable @{}", global.name),
                 });
             }
+
+            // Check initializer - cannot be zeroinitializer or contain null
+            if let Some(initializer) = &global.initializer {
+                // Check if it's zeroinitializer (all elements are zero/null)
+                if initializer.is_zero() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("invalid {}", global.name),
+                        location: "ptr null".to_string(),
+                    });
+                }
+                // Check for null members in array
+                if let Some(elements) = initializer.array_elements() {
+                    for elem in elements.iter() {
+                        if elem.is_null() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: format!("invalid {} member", global.name),
+                                location: "ptr null".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
         }
 
         // Check linkage + visibility constraints

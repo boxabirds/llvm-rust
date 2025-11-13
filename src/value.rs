@@ -249,6 +249,14 @@ impl Value {
             _ => false,
         }
     }
+
+    /// Get array elements if this is a constant array
+    pub fn array_elements(&self) -> Option<&Vec<Value>> {
+        match &self.data.kind {
+            ValueKind::ConstantArray { elements } => Some(elements),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for Value {
