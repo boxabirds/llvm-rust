@@ -1574,6 +1574,13 @@ impl Verifier {
                                 location: "alloca instruction".to_string(),
                             });
                         }
+                        // Cannot allocate token type
+                        if pointee.is_token() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "invalid type for alloca".to_string(),
+                                location: "alloca instruction".to_string(),
+                            });
+                        }
                     }
                 }
             }
