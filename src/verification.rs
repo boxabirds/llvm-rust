@@ -2414,6 +2414,27 @@ impl<'a> Verifier<'a> {
                 location: "DISubrange".to_string(),
             });
         }
+
+        // Validate field types: count, lowerBound, upperBound, stride must be signed constant, DIVariable, or DIExpression
+        let fields_to_check = ["count", "lowerBound", "upperBound", "stride"];
+        for field_name in &fields_to_check {
+            if let Some(field_value) = metadata.get_field(field_name) {
+                // Check if it's an integer (signed constant)
+                let is_valid = field_value.as_int().is_some() ||
+                              // Check if it's DIVariable or DIExpression
+                              field_value.get_name().map_or(false, |name| {
+                                  name == "DIVariable" || name == "DIExpression"
+                              });
+
+                if !is_valid {
+                    let capitalized = field_name.chars().next().unwrap().to_uppercase().to_string() + &field_name[1..];
+                    self.errors.push(VerificationError::InvalidDebugInfo {
+                        reason: format!("{} must be signed constant or DIVariable or DIExpression", capitalized),
+                        location: "DISubrange".to_string(),
+                    });
+                }
+            }
+        }
     }
 
     fn verify_digenericsubrange(&mut self, metadata: &crate::metadata::Metadata) {
