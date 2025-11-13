@@ -33,6 +33,7 @@ pub(crate) enum TypeData {
     Token,
     Metadata,
     X86_AMX,
+    Opaque { name: String },
 }
 
 /// Floating point type kinds
@@ -166,6 +167,12 @@ impl Type {
         Self { data }
     }
 
+    pub fn opaque(ctx: &crate::Context, name: String) -> Self {
+        let key = format!("opaque {}", name);
+        let data = ctx.intern_type(key, TypeData::Opaque { name });
+        Self { data }
+    }
+
     // Type queries
 
     pub fn is_void(&self) -> bool {
@@ -217,7 +224,7 @@ impl Type {
     }
 
     /// Check if this type is sized (can be allocated)
-    /// Void, function, label, token, metadata, and x86_amx types are not sized
+    /// Void, function, label, token, metadata, opaque, and x86_amx types are not sized
     pub fn is_sized(&self) -> bool {
         !matches!(&*self.data,
             TypeData::Void |
@@ -225,7 +232,8 @@ impl Type {
             TypeData::Label |
             TypeData::Token |
             TypeData::Metadata |
-            TypeData::X86_AMX
+            TypeData::X86_AMX |
+            TypeData::Opaque { .. }
         )
     }
 
@@ -304,11 +312,11 @@ impl Type {
     }
 
     /// Calculate the size of this type in bytes
-    /// Returns None for unsized types (void, function, label, token, metadata)
+    /// Returns None for unsized types (void, function, label, token, metadata, opaque)
     /// Returns an approximate size for struct types (sum of field sizes, no padding)
     pub fn size_in_bytes(&self) -> Option<u64> {
         match &*self.data {
-            TypeData::Void | TypeData::Function { .. } | TypeData::Label | TypeData::Token | TypeData::Metadata | TypeData::X86_AMX => None,
+            TypeData::Void | TypeData::Function { .. } | TypeData::Label | TypeData::Token | TypeData::Metadata | TypeData::X86_AMX | TypeData::Opaque { .. } => None,
             TypeData::Integer { bits } => Some((*bits as u64 + 7) / 8), // Round up to nearest byte
             TypeData::Float { kind } => Some(match kind {
                 FloatKind::Half => 2,
@@ -395,6 +403,7 @@ impl fmt::Display for Type {
             TypeData::Token => write!(f, "token"),
             TypeData::Metadata => write!(f, "metadata"),
             TypeData::X86_AMX => write!(f, "x86_amx"),
+            TypeData::Opaque { name } => write!(f, "%{}", name),
         }
     }
 }
