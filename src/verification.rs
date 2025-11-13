@@ -474,6 +474,27 @@ impl Verifier {
             }
         }
 
+        // Check DLL storage class + visibility constraints
+        // dllexport must have default or protected visibility
+        if matches!(dll_storage, DLLStorageClass::DllExport) {
+            if matches!(visibility, Visibility::Hidden) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "dllexport GlobalValue must have default or protected visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // dllimport must have default visibility
+        if matches!(dll_storage, DLLStorageClass::DllImport) {
+            if !matches!(visibility, Visibility::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "dllimport GlobalValue must have default visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
         // Check function parameter types
         for param in function.arguments() {
             let param_type = param.get_type();
