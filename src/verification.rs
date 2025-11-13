@@ -234,6 +234,7 @@ impl Verifier {
 
         // Verify module-level metadata
         self.verify_module_flags(module);
+        self.verify_named_metadata(module);
 
         if self.errors.is_empty() {
             Ok(())
@@ -453,13 +454,6 @@ impl Verifier {
 
             // Check initializer - cannot be zeroinitializer or contain null
             if let Some(initializer) = &global.initializer {
-                // Check if it's zeroinitializer (all elements are zero/null)
-                if initializer.is_zero() {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: format!("invalid {}", global.name),
-                        location: "ptr null".to_string(),
-                    });
-                }
                 // Check for null members in array
                 if let Some(elements) = initializer.array_elements() {
                     for elem in elements.iter() {
@@ -471,6 +465,8 @@ impl Verifier {
                         }
                     }
                 }
+                // TODO: Also check for explicit zeroinitializer, but need to handle
+                // the case where valid array initializers aren't being confused with zero
             }
         }
 
@@ -724,8 +720,8 @@ impl Verifier {
                         location: format!("function {} parameter {}", fn_name, idx),
                     });
                 }
-                // Parameters cannot have metadata type
-                if param_type.is_metadata() {
+                // Parameters cannot have metadata type (except for intrinsics)
+                if param_type.is_metadata() && !fn_name.starts_with("llvm.") {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: "invalid type for function argument".to_string(),
                         location: format!("function {} parameter {}", fn_name, idx),
@@ -2262,6 +2258,75 @@ impl Verifier {
         self.verify_exception_handling_cfg(function);
     }
 
+    /// Verify named module metadata (llvm.commandline, etc.)
+    fn verify_named_metadata(&mut self, module: &Module) {
+        // Verify llvm.commandline metadata structure
+        if let Some(cmdline_entries) = module.get_named_metadata("llvm.commandline") {
+            // cmdline_entries is a Vec<Metadata>
+            // Each entry must be a metadata tuple with exactly one string operand
+            for entry in &cmdline_entries {
+                if let Some(entry_ops) = entry.operands() {
+                    if entry_ops.len() == 0 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "incorrect number of operands in llvm.commandline metadata".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    } else if entry_ops.len() > 1 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "incorrect number of operands in llvm.commandline metadata".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    } else if !entry_ops[0].is_string() {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "llvm.commandline metadata operand must be a string".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    }
+                } else if !entry.is_string() {
+                    // Not a tuple - must be a direct string
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "llvm.commandline entry must be a metadata node with one string".to_string(),
+                        location: "llvm.commandline".to_string(),
+                    });
+                }
+            }
+        }
+
+        // Verify llvm.ident metadata structure
+        if let Some(ident_entries) = module.get_named_metadata("llvm.ident") {
+            for entry in &ident_entries {
+                // Skip reference nodes - they would need to be resolved first
+                if entry.as_reference().is_some() {
+                    continue;
+                }
+
+                if let Some(entry_ops) = entry.operands() {
+                    if entry_ops.len() != 1 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "incorrect number of operands in llvm.ident metadata".to_string(),
+                            location: format!("{:?}", entry),
+                        });
+                    } else if !entry_ops[0].is_string() {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "invalid value for llvm.ident metadata entry operand(the operand should be a string)".to_string(),
+                            location: format!("{:?}", entry_ops[0]),
+                        });
+                    }
+                } else if !entry.is_string() {
+                    // Not a tuple - must be a direct string
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "invalid value for llvm.ident metadata entry operand(the operand should be a string)".to_string(),
+                        location: "llvm.ident".to_string(),
+                    });
+                }
+            }
+        }
+
+        // TODO: Add more named metadata validations as needed
+        // - llvm.dbg.cu (requires metadata reference resolution)
+        // - llvm.module.flags (already done in verify_module_flags)
+    }
+
     /// Verify exception handling control flow constraints
     fn verify_exception_handling_cfg(&mut self, function: &Function) {
         // Check that landing pads are only in blocks reachable via invoke
@@ -2736,6 +2801,26 @@ impl Verifier {
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'dereferenceable' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check dead_on_return attribute - must be pointer type
+            if param_attrs.dead_on_return {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'dead_on_return' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check dead_on_unwind attribute - must be pointer type
+            if param_attrs.dead_on_unwind {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'dead_on_unwind' applied to incompatible type!"),
                         location: format!("@{}", fn_name),
                     });
                 }

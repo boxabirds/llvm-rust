@@ -283,6 +283,13 @@ impl Metadata {
         }
     }
 
+    pub fn as_debug_info(&self) -> Option<&DebugInfo> {
+        match &*self.data {
+            MetadataData::DebugInfo(di) => Some(di),
+            _ => None,
+        }
+    }
+
     /// Get operands of this metadata node (works for tuples and named metadata)
     pub fn operands(&self) -> Option<&Vec<Metadata>> {
         match &*self.data {
