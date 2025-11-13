@@ -2901,6 +2901,43 @@ impl Verifier {
     fn verify_intrinsic_call(&mut self, inst: &Instruction, intrinsic_name: &str) {
         let operands = inst.operands();
 
+        // Check if intrinsic varargs declaration matches requirements
+        if operands.len() >= 1 {
+            let callee = &operands[0];
+            let callee_type = callee.get_type();
+
+            if let Some(fn_type) = if callee_type.is_pointer() {
+                callee_type.pointee_type()
+            } else if callee_type.is_function() {
+                Some(callee_type)
+            } else {
+                None
+            } {
+                if let Some((_, _, declared_varargs)) = fn_type.function_info() {
+                    // Check intrinsics that MUST be varargs
+                    if intrinsic_name.starts_with("llvm.experimental.stackmap") ||
+                       intrinsic_name.starts_with("llvm.experimental.patchpoint") {
+                        if !declared_varargs {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Callsite was not defined with variable arguments!".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+
+                    // Check intrinsics that MUST NOT be varargs
+                    if intrinsic_name == "llvm.donothing" {
+                        if declared_varargs {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Intrinsic was not defined with variable arguments!".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // Check immarg parameters - some intrinsic parameters must be immediate (constant) values
         self.verify_intrinsic_immarg(inst, intrinsic_name, operands);
 
