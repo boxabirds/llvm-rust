@@ -2385,6 +2385,7 @@ impl<'a> Verifier<'a> {
                 "DISubrange" => self.verify_disubrange(metadata),
                 "DIGenericSubrange" => self.verify_digenericsubrange(metadata),
                 "DIExpression" => self.verify_diexpression(metadata),
+                "DICompositeType" => self.verify_dicompositetype(metadata),
                 _ => {
                     // Other DI* nodes - validate operands recursively
                     if let Some(operands) = metadata.operands() {
@@ -2457,6 +2458,36 @@ impl<'a> Verifier<'a> {
                         self.errors.push(VerificationError::InvalidDebugInfo {
                             reason: "invalid expression".to_string(),
                             location: "DIExpression".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn verify_dicompositetype(&mut self, metadata: &crate::metadata::Metadata) {
+        // DICompositeType validation
+        // Check that certain fields only appear in array types
+
+        // Fields that can only appear in array types (DW_TAG_array_type)
+        let array_only_fields = ["allocated", "associated", "dataLocation", "rank"];
+
+        // Get the tag field to determine the composite type
+        if let Some(tag_metadata) = metadata.get_field("tag") {
+            // The tag might be a string like "DW_TAG_structure_type", "DW_TAG_array_type", etc.
+            let mut is_array_type = false;
+
+            if let Some(tag_str) = tag_metadata.as_string() {
+                is_array_type = tag_str == "DW_TAG_array_type";
+            }
+
+            // If it's not an array type, check that array-only fields are not present
+            if !is_array_type {
+                for field_name in &array_only_fields {
+                    if metadata.has_field(field_name) {
+                        self.errors.push(VerificationError::InvalidDebugInfo {
+                            reason: format!("{} can only appear in array type", field_name),
+                            location: "DICompositeType".to_string(),
                         });
                     }
                 }
