@@ -106,6 +106,7 @@ struct ModuleData {
     aliases: Vec<Alias>,
     named_metadata: HashMap<String, Vec<Metadata>>,
     module_flags: Vec<Metadata>,
+    all_metadata: HashMap<String, Metadata>,  // All metadata nodes including numbered (!0, !1, etc.)
 }
 
 /// A global variable in a module
@@ -152,6 +153,7 @@ impl Module {
                 aliases: Vec::new(),
                 named_metadata: HashMap::new(),
                 module_flags: Vec::new(),
+                all_metadata: HashMap::new(),
             })),
         }
     }
@@ -259,6 +261,37 @@ impl Module {
     /// Get all module flags
     pub fn module_flags(&self) -> Vec<Metadata> {
         self.data.read().unwrap().module_flags.clone()
+    }
+
+    /// Get all metadata nodes in the module (recursively)
+    pub fn get_all_metadata(&self) -> Vec<Metadata> {
+        let mut result = Vec::new();
+        let data = self.data.read().unwrap();
+
+        // Collect from named metadata
+        for (_name, metadata_list) in data.named_metadata.iter() {
+            for metadata in metadata_list {
+                result.push(metadata.clone());
+            }
+        }
+
+        // Collect from module flags
+        for metadata in data.module_flags.iter() {
+            result.push(metadata.clone());
+        }
+
+        // Collect from all_metadata (numbered metadata like !0, !1)
+        for (_name, metadata) in data.all_metadata.iter() {
+            result.push(metadata.clone());
+        }
+
+        result
+    }
+
+    /// Add a metadata node to the module
+    pub fn add_metadata(&self, name: String, metadata: Metadata) {
+        let mut data = self.data.write().unwrap();
+        data.all_metadata.insert(name, metadata);
     }
 }
 

@@ -98,6 +98,9 @@ pub struct FunctionAttributes {
     // Attribute group references (#0, #1, etc.)
     pub attribute_groups: Vec<String>,
 
+    // String attributes from attribute groups (e.g., "frame-pointer"="all")
+    pub string_attributes: std::collections::HashMap<String, String>,
+
     // Complex string attributes (allockind, allocsize, etc.)
     pub allockind: Option<Vec<String>>,  // e.g., ["alloc", "zeroed"]
     pub allocsize: Option<Vec<usize>>,   // e.g., [0] or [0, 1]
@@ -203,6 +206,11 @@ impl Function {
     /// Set the function attributes
     pub fn set_attributes(&self, attributes: FunctionAttributes) {
         self.data.write().unwrap().attributes = attributes;
+    }
+
+    /// Add a string attribute to the function
+    pub fn add_string_attribute(&self, key: String, value: String) {
+        self.data.write().unwrap().attributes.string_attributes.insert(key, value);
     }
 
     /// Get the function linkage

@@ -46,6 +46,8 @@ pub struct Parser {
     type_table: std::collections::HashMap<String, Type>,
     /// Metadata registry for numbered metadata nodes (!0, !1, etc.)
     metadata_registry: std::collections::HashMap<String, crate::metadata::Metadata>,
+    /// Attribute groups registry for #0, #1, etc.
+    attribute_groups: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
 
 impl Parser {
@@ -58,6 +60,7 @@ impl Parser {
             function_decls: std::collections::HashMap::new(),
             type_table: std::collections::HashMap::new(),
             metadata_registry: std::collections::HashMap::new(),
+            attribute_groups: std::collections::HashMap::new(),
         }
     }
 
@@ -80,11 +83,8 @@ impl Parser {
 
         while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
             iterations += 1;
-            // Skip attributes at module level (but not metadata - we parse that below)
-            if self.check(&Token::Attributes) {
-                self.skip_until_newline_or_semicolon();
-                continue;
-            }
+            // Note: Attribute group parsing moved to a dedicated section below
+            // (not skipping attributes anymore)
 
             // Parse target datalayout/triple
             if self.match_token(&Token::Target) {
@@ -194,18 +194,42 @@ impl Parser {
 
             // Parse attribute group definitions: attributes #0 = { ... }
             if self.match_token(&Token::Attributes) {
-                // Skip attribute group ID (#0, #1, etc.)
-                if self.check_attr_group_id() {
+                // Get attribute group ID (#0, #1, etc.)
+                let mut group_id = String::new();
+                if let Some(Token::AttrGroupId(num)) = self.peek() {
+                    group_id = format!("#{}", num);
                     self.advance();
                 }
-                // Skip '='
+                // Consume '='
                 self.match_token(&Token::Equal);
-                // Skip attribute list in braces
+                // Parse attribute list in braces
+                let mut attrs = std::collections::HashMap::new();
                 if self.match_token(&Token::LBrace) {
                     while !self.check(&Token::RBrace) && !self.is_at_end() {
-                        self.advance();
+                        // Parse string attributes: "key"="value" or "key"
+                        if let Some(Token::StringLit(key)) = self.peek().cloned() {
+                            self.advance();
+                            if self.match_token(&Token::Equal) {
+                                if let Some(Token::StringLit(value)) = self.peek().cloned() {
+                                    attrs.insert(key, value);
+                                    self.advance();
+                                } else {
+                                    // No value, store empty string
+                                    attrs.insert(key, String::new());
+                                }
+                            } else {
+                                // Key without value
+                                attrs.insert(key, String::new());
+                            }
+                        } else {
+                            // Not a string attribute, skip it
+                            self.advance();
+                        }
                     }
                     self.match_token(&Token::RBrace);
+                }
+                if !group_id.is_empty() {
+                    self.attribute_groups.insert(group_id, attrs);
                 }
                 continue;
             }
@@ -239,6 +263,9 @@ impl Parser {
                         // Store in registry for later reference
                         self.metadata_registry.insert(metadata_name.clone(), metadata.clone());
 
+                        // Add to module's all_metadata collection
+                        module.add_metadata(metadata_name.clone(), metadata.clone());
+
                         // Add to module if it's a named metadata (starts with "llvm.")
                         if metadata_name.starts_with("llvm.") {
                             // Named metadata can be a tuple of metadata nodes
@@ -270,17 +297,52 @@ impl Parser {
             });
         }
 
-        // Second pass: resolve metadata references and populate module
+        // Second pass: resolve metadata references and apply attribute groups
         self.resolve_metadata_references(&module);
+        self.apply_attribute_groups(&module);
 
         Ok(module)
     }
 
+    /// Apply attribute groups to functions
+    fn apply_attribute_groups(&self, module: &Module) {
+        for func in module.functions() {
+            let attrs = func.attributes();
+            for group_ref in &attrs.attribute_groups {
+                if let Some(group_attrs) = self.attribute_groups.get(group_ref) {
+                    for (key, value) in group_attrs {
+                        func.add_string_attribute(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
+    }
+
     /// Resolve metadata forward references and populate module structures
     fn resolve_metadata_references(&self, module: &Module) {
-        // Handle !llvm.module.flags
-        // The module flags metadata is a tuple of references like !{!0, !1, !2}
-        // Each reference points to a flag definition like !0 = !{i32 1, !"name", i32 value}
+        // Resolve all named metadata (llvm.*)
+        // Named metadata like !llvm.ident = !{!0, !1} contains references that need resolution
+
+        // Get a list of all llvm.* named metadata
+        let named_metadata_keys: Vec<String> = self.metadata_registry.keys()
+            .filter(|k| k.starts_with("llvm."))
+            .cloned()
+            .collect();
+
+        for key in named_metadata_keys {
+            if let Some(metadata) = self.metadata_registry.get(&key) {
+                if let Some(refs) = metadata.operands() {
+                    // Resolve all references and collect them
+                    let resolved_metadata: Vec<_> = refs.iter()
+                        .map(|ref_node| self.resolve_metadata_node(ref_node))
+                        .collect();
+                    // Replace with resolved versions
+                    module.add_named_metadata(key.clone(), resolved_metadata);
+                }
+            }
+        }
+
+        // Handle !llvm.module.flags specifically for the module flags structure
         if let Some(module_flags_md) = self.metadata_registry.get("llvm.module.flags") {
             if let Some(flag_list) = module_flags_md.operands() {
                 // Each element in flag_list is a reference to an actual flag
@@ -2484,28 +2546,45 @@ impl Parser {
             if self.check(&Token::LParen) {
                 self.advance(); // consume (
 
-                // For now, parse the content but create simple tuple
-                // Full DILocation/DIExpression parsing would go here
+                // Parse key: value pairs into a HashMap for field-based metadata
+                let mut fields = std::collections::HashMap::new();
                 let mut operands = Vec::new();
+                let mut has_named_fields = false;
 
                 while !self.check(&Token::RParen) && !self.is_at_end() {
-                    // Skip key: value pairs for now
-                    // TODO: Properly parse DILocation(line: 5, column: 3, ...)
-                    if let Some(Token::Identifier(_)) = self.peek() {
-                        self.advance(); // key
+                    // Check for key: value pairs or standalone identifiers
+                    if let Some(Token::Identifier(field_name)) = self.peek() {
+                        let field_name = field_name.clone();
+                        self.advance(); // consume field name
+
                         if self.match_token(&Token::Colon) {
+                            has_named_fields = true;
                             // Parse value
                             if let Some(Token::Integer(n)) = self.peek() {
+                                fields.insert(field_name, Metadata::int(*n as i64));
                                 operands.push(Metadata::int(*n as i64));
                                 self.advance();
                             } else if let Some(Token::MetadataIdent(_)) = self.peek() {
                                 // Recursive metadata reference
                                 let inner = self.parse_metadata_node()?;
+                                fields.insert(field_name, inner.clone());
                                 operands.push(inner);
+                            } else if let Some(Token::StringLit(s)) = self.peek() {
+                                let s = s.clone();
+                                fields.insert(field_name, Metadata::string(s.clone()));
+                                operands.push(Metadata::string(s));
+                                self.advance();
                             } else {
                                 self.advance(); // skip unknown value
                             }
+                        } else {
+                            // Identifier without colon - treat as a string operand (e.g., DW_OP_swap)
+                            operands.push(Metadata::string(field_name));
                         }
+                    } else if let Some(Token::MetadataIdent(_)) = self.peek() {
+                        // Positional metadata argument (no field name)
+                        let inner = self.parse_metadata_node()?;
+                        operands.push(inner);
                     } else if !self.check(&Token::Comma) && !self.check(&Token::RParen) {
                         // Unknown token - skip to avoid infinite loop
                         self.advance();
@@ -2515,7 +2594,13 @@ impl Parser {
                 }
 
                 self.consume(&Token::RParen)?;
-                return Ok(Metadata::named(md_name, operands));
+
+                // If we found named fields, use NamedWithFields; otherwise use Named
+                if has_named_fields && !fields.is_empty() {
+                    return Ok(Metadata::named_with_fields(md_name, fields));
+                } else {
+                    return Ok(Metadata::named(md_name, operands));
+                }
             }
 
             // Just a name without parens - return named metadata
@@ -4615,12 +4700,9 @@ impl Parser {
         // Parse function attributes
         while !self.is_at_end() && !self.check(&Token::LBrace) {
             // Handle attribute groups: #0, #1, etc.
-            if self.check(&Token::Hash) {
+            if let Some(Token::AttrGroupId(n)) = self.peek() {
+                attrs.attribute_groups.push(format!("#{}", n));
                 self.advance();
-                if let Some(Token::Integer(n)) = self.peek() {
-                    attrs.attribute_groups.push(format!("#{}", n));
-                    self.advance();
-                }
                 continue;
             }
 
@@ -4760,11 +4842,32 @@ impl Parser {
                         }
                     }
 
+                    // Handle inline string attributes: "key"="value" or "key"
+                    if let Some(Token::StringLit(key)) = self.peek().cloned() {
+                        self.advance();
+                        if self.match_token(&Token::Equal) {
+                            if let Some(Token::StringLit(value)) = self.peek().cloned() {
+                                attrs.string_attributes.insert(key, value);
+                                self.advance();
+                            } else {
+                                // No value, store empty string
+                                attrs.string_attributes.insert(key, String::new());
+                            }
+                        } else {
+                            // Key without value
+                            attrs.string_attributes.insert(key, String::new());
+                        }
+                        continue;
+                    }
+
                     // Exit loop if we don't recognize the token as an attribute
                     break;
                 }
             }
         }
+
+        // Note: String attributes from attribute groups are applied in a second pass
+        // after all attribute groups have been parsed (see apply_attribute_groups method)
 
         attrs
     }
