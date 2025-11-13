@@ -388,6 +388,16 @@ impl Verifier {
             });
         }
 
+        // Appending linkage can only be used with global arrays
+        if matches!(global.linkage, Linkage::Appending) {
+            if !global.ty.is_array() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Only global arrays can have appending linkage!".to_string(),
+                    location: format!("ptr @{}", global.name),
+                });
+            }
+        }
+
         // Check intrinsic global variables
         if global.name == "llvm.used" || global.name == "llvm.compiler.used" {
             // Must be array of pointers
