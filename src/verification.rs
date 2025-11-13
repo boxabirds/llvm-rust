@@ -2288,6 +2288,9 @@ impl Verifier {
                 // Just a note for future enhancement
             }
         }
+
+        // TODO: Add validation that invoke results cannot be used in unwind paths
+        // This requires proper CFG analysis and SSA def-use chains
     }
 
     /// Verify calling convention constraints
