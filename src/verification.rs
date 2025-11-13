@@ -4067,6 +4067,63 @@ impl Verifier {
                 }
             }
         }
+
+        // Validate sign-return-address attribute
+        if let Some(value) = string_attrs.get("sign-return-address") {
+            if !matches!(value.as_str(), "none" | "non-leaf" | "all") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'sign-return-address' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate sign-return-address-key attribute
+        if let Some(value) = string_attrs.get("sign-return-address-key") {
+            if !matches!(value.as_str(), "a_key" | "b_key") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'sign-return-address-key' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+            // Must have sign-return-address if sign-return-address-key is present
+            if !string_attrs.contains_key("sign-return-address") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'sign-return-address-key' present without `sign-return-address`".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate branch-target-enforcement attribute
+        if let Some(value) = string_attrs.get("branch-target-enforcement") {
+            if !matches!(value.as_str(), "true" | "false") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'branch-target-enforcement' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate branch-protection-pauth-lr attribute
+        if let Some(value) = string_attrs.get("branch-protection-pauth-lr") {
+            if !matches!(value.as_str(), "true" | "false") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'branch-protection-pauth-lr' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate guarded-control-stack attribute
+        if let Some(value) = string_attrs.get("guarded-control-stack") {
+            if !matches!(value.as_str(), "true" | "false") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'guarded-control-stack' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
     }
 
     /// Verify allocsize attribute
