@@ -118,6 +118,7 @@ pub struct Verifier {
     current_function: Option<String>,
     current_function_is_varargs: bool,
     current_function_has_personality: bool,
+    current_function_calling_convention: crate::function::CallingConvention,
 }
 
 impl Verifier {
@@ -127,6 +128,7 @@ impl Verifier {
             current_function: None,
             current_function_is_varargs: false,
             current_function_has_personality: false,
+            current_function_calling_convention: crate::function::CallingConvention::C,
         }
     }
 
@@ -440,6 +442,7 @@ impl Verifier {
             .map(|(_, _, is_varargs)| is_varargs)
             .unwrap_or(false);
         self.current_function_has_personality = function.personality().is_some();
+        self.current_function_calling_convention = function.calling_convention();
 
         // Check if trying to define an LLVM intrinsic (functions starting with "llvm.")
         // Intrinsics can be declared but not defined
@@ -1371,11 +1374,26 @@ impl Verifier {
 
                 // Check calling convention restrictions
                 // Some calling conventions don't permit calls
-                if let Some(fn_name) = &self.current_function {
-                    use crate::function::CallingConvention;
-                    // Get the current function's calling convention
-                    // Note: This requires access to the function object
-                    // For now, we'll check this in verify_calling_convention instead
+                use crate::function::CallingConvention;
+                let cc = self.current_function_calling_convention;
+                match cc {
+                    CallingConvention::AMDGPU_CS_Chain |
+                    CallingConvention::AMDGPU_CS_Chain_Preserve |
+                    CallingConvention::AMDGPU_CS |
+                    CallingConvention::AMDGPU_ES |
+                    CallingConvention::AMDGPU_GS |
+                    CallingConvention::AMDGPU_HS |
+                    CallingConvention::AMDGPU_Kernel |
+                    CallingConvention::AMDGPU_LS |
+                    CallingConvention::AMDGPU_PS |
+                    CallingConvention::AMDGPU_VS |
+                    CallingConvention::SPIR_Kernel => {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "calling convention does not permit calls".to_string(),
+                            location: "call instruction".to_string(),
+                        });
+                    }
+                    _ => {}
                 }
 
                 let callee_type = callee.get_type();
@@ -1889,6 +1907,30 @@ impl Verifier {
                 // This will be checked in verify_basic_block
             }
             Opcode::Invoke => {
+                // Check calling convention restrictions
+                // Some calling conventions don't permit calls (including invoke)
+                use crate::function::CallingConvention;
+                let cc = self.current_function_calling_convention;
+                match cc {
+                    CallingConvention::AMDGPU_CS_Chain |
+                    CallingConvention::AMDGPU_CS_Chain_Preserve |
+                    CallingConvention::AMDGPU_CS |
+                    CallingConvention::AMDGPU_ES |
+                    CallingConvention::AMDGPU_GS |
+                    CallingConvention::AMDGPU_HS |
+                    CallingConvention::AMDGPU_Kernel |
+                    CallingConvention::AMDGPU_LS |
+                    CallingConvention::AMDGPU_PS |
+                    CallingConvention::AMDGPU_VS |
+                    CallingConvention::SPIR_Kernel => {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "calling convention does not permit calls".to_string(),
+                            location: "invoke instruction".to_string(),
+                        });
+                    }
+                    _ => {}
+                }
+
                 // Invoke: must have both normal and unwind destinations
                 // Note: Parser must preserve successor information
                 // Basic validation: check it's a valid function call
