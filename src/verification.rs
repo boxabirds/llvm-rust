@@ -2298,7 +2298,7 @@ impl Verifier {
         }
 
         // TODO: Add more named metadata validations as needed
-        // - llvm.dbg.cu
+        // - llvm.dbg.cu (requires metadata reference resolution)
         // - llvm.ident
         // - llvm.module.flags (already done in verify_module_flags)
     }
