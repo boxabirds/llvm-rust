@@ -113,15 +113,16 @@ impl std::error::Error for VerificationError {}
 pub type VerificationResult = Result<(), Vec<VerificationError>>;
 
 /// IR verifier
-pub struct Verifier {
+pub struct Verifier<'a> {
     errors: Vec<VerificationError>,
     current_function: Option<String>,
     current_function_is_varargs: bool,
     current_function_has_personality: bool,
     current_function_calling_convention: crate::function::CallingConvention,
+    current_module: Option<&'a Module>,
 }
 
-impl Verifier {
+impl<'a> Verifier<'a> {
     pub fn new() -> Self {
         Self {
             errors: Vec::new(),
@@ -129,6 +130,7 @@ impl Verifier {
             current_function_is_varargs: false,
             current_function_has_personality: false,
             current_function_calling_convention: crate::function::CallingConvention::C,
+            current_module: None,
         }
     }
 
@@ -145,8 +147,9 @@ impl Verifier {
     }
 
     /// Verify a module
-    pub fn verify_module(&mut self, module: &Module) -> VerificationResult {
+    pub fn verify_module(&mut self, module: &'a Module) -> VerificationResult {
         self.errors.clear();
+        self.current_module = Some(module);
 
         // Check for duplicate global definitions (functions, globals, aliases)
         use std::collections::HashSet;
@@ -742,6 +745,11 @@ impl Verifier {
 
         // Validate string attributes
         self.verify_string_attributes(&attrs.string_attributes, &fn_name);
+
+        // Validate alloc-variant-zeroed attribute
+        if let Some(variant_name) = attrs.string_attributes.get("alloc-variant-zeroed") {
+            self.verify_alloc_variant_zeroed(function, variant_name);
+        }
 
         // Verify parameter attributes (for both declarations and definitions)
         self.verify_parameter_attributes(function);
@@ -4126,6 +4134,74 @@ impl Verifier {
         }
     }
 
+    /// Verify alloc-variant-zeroed attribute
+    fn verify_alloc_variant_zeroed(&mut self, function: &Function, variant_name: &str) {
+        let fn_name = function.name();
+        let attrs = function.attributes();
+
+        // Must not be empty
+        if variant_name.is_empty() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "'alloc-variant-zeroed' must not be empty".to_string(),
+                location: format!("function {}", fn_name),
+            });
+            return;
+        }
+
+        // Get module from context
+        let module = match self.current_module {
+            Some(m) => m,
+            None => return,
+        };
+
+        // Find the variant function
+        let functions = module.functions();
+        let variant_func = functions.iter()
+            .find(|f| f.name() == variant_name || f.name() == format!("@{}", variant_name));
+
+        if let Some(variant) = variant_func {
+            let variant_attrs = variant.attributes();
+
+            // Must belong to the same alloc-family
+            let this_family = attrs.string_attributes.get("alloc-family");
+            let variant_family = variant_attrs.string_attributes.get("alloc-family");
+
+            if this_family != variant_family {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'alloc-variant-zeroed' must name a function belonging to the same 'alloc-family'".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+
+            // Must have allockind("zeroed")
+            let has_zeroed = variant_attrs.allockind.as_ref()
+                .map(|kinds| kinds.contains(&"zeroed".to_string()))
+                .unwrap_or(false);
+
+            if !has_zeroed {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'alloc-variant-zeroed' must name a function with 'allockind(\"zeroed\")'".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+
+            // Must have the same signature
+            let this_type = function.get_type();
+            let variant_type = variant.get_type();
+
+            if let (Some((ret1, params1, var1)), Some((ret2, params2, var2))) =
+                (this_type.function_info(), variant_type.function_info()) {
+                if ret1 != ret2 || params1.len() != params2.len() || var1 != var2 ||
+                   !params1.iter().zip(params2.iter()).all(|(p1, p2)| p1 == p2) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "'alloc-variant-zeroed' must name a function with the same signature".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            }
+        }
+    }
+
     /// Verify allocsize attribute
     fn verify_allocsize_attribute(&mut self, indices: &[usize], function: &Function) {
         let fn_name = function.name();
@@ -4188,7 +4264,7 @@ impl Verifier {
     }
 }
 
-impl Default for Verifier {
+impl<'a> Default for Verifier<'a> {
     fn default() -> Self {
         Self::new()
     }
