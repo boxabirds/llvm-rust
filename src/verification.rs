@@ -553,7 +553,15 @@ impl Verifier {
         }
 
         // Verify parameter types
-        if let Some((_, param_types, _)) = fn_type.function_info() {
+        if let Some((ret_type, param_types, _)) = fn_type.function_info() {
+            // Check return type - non-intrinsic functions cannot return token
+            if ret_type.is_token() && !fn_name.starts_with("llvm.") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Function returns a token but isn't an intrinsic".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+
             for (idx, param_type) in param_types.iter().enumerate() {
                 // Parameters cannot have label type
                 if param_type.is_label() {
