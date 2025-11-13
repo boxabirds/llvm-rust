@@ -1398,6 +1398,14 @@ impl Verifier {
                 };
 
                 if let Some((ret_type, param_types, is_var_arg)) = fn_type.function_info() {
+                    // Indirect calls cannot return token type
+                    if ret_type.is_token() && callee.name().is_none() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Return type cannot be token for indirect call!".to_string(),
+                            location: "call instruction".to_string(),
+                        });
+                    }
+
                     let args = &operands[1..];
 
                     // Check argument count (varargs functions can have more)
