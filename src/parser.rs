@@ -263,6 +263,9 @@ impl Parser {
                         // Store in registry for later reference
                         self.metadata_registry.insert(metadata_name.clone(), metadata.clone());
 
+                        // Add to module's all_metadata collection
+                        module.add_metadata(metadata_name.clone(), metadata.clone());
+
                         // Add to module if it's a named metadata (starts with "llvm.")
                         if metadata_name.starts_with("llvm.") {
                             // Named metadata can be a tuple of metadata nodes
@@ -2543,28 +2546,45 @@ impl Parser {
             if self.check(&Token::LParen) {
                 self.advance(); // consume (
 
-                // For now, parse the content but create simple tuple
-                // Full DILocation/DIExpression parsing would go here
+                // Parse key: value pairs into a HashMap for field-based metadata
+                let mut fields = std::collections::HashMap::new();
                 let mut operands = Vec::new();
+                let mut has_named_fields = false;
 
                 while !self.check(&Token::RParen) && !self.is_at_end() {
-                    // Skip key: value pairs for now
-                    // TODO: Properly parse DILocation(line: 5, column: 3, ...)
-                    if let Some(Token::Identifier(_)) = self.peek() {
-                        self.advance(); // key
+                    // Check for key: value pairs or standalone identifiers
+                    if let Some(Token::Identifier(field_name)) = self.peek() {
+                        let field_name = field_name.clone();
+                        self.advance(); // consume field name
+
                         if self.match_token(&Token::Colon) {
+                            has_named_fields = true;
                             // Parse value
                             if let Some(Token::Integer(n)) = self.peek() {
+                                fields.insert(field_name, Metadata::int(*n as i64));
                                 operands.push(Metadata::int(*n as i64));
                                 self.advance();
                             } else if let Some(Token::MetadataIdent(_)) = self.peek() {
                                 // Recursive metadata reference
                                 let inner = self.parse_metadata_node()?;
+                                fields.insert(field_name, inner.clone());
                                 operands.push(inner);
+                            } else if let Some(Token::StringLit(s)) = self.peek() {
+                                let s = s.clone();
+                                fields.insert(field_name, Metadata::string(s.clone()));
+                                operands.push(Metadata::string(s));
+                                self.advance();
                             } else {
                                 self.advance(); // skip unknown value
                             }
+                        } else {
+                            // Identifier without colon - treat as a string operand (e.g., DW_OP_swap)
+                            operands.push(Metadata::string(field_name));
                         }
+                    } else if let Some(Token::MetadataIdent(_)) = self.peek() {
+                        // Positional metadata argument (no field name)
+                        let inner = self.parse_metadata_node()?;
+                        operands.push(inner);
                     } else if !self.check(&Token::Comma) && !self.check(&Token::RParen) {
                         // Unknown token - skip to avoid infinite loop
                         self.advance();
@@ -2574,7 +2594,13 @@ impl Parser {
                 }
 
                 self.consume(&Token::RParen)?;
-                return Ok(Metadata::named(md_name, operands));
+
+                // If we found named fields, use NamedWithFields; otherwise use Named
+                if has_named_fields && !fields.is_empty() {
+                    return Ok(Metadata::named_with_fields(md_name, fields));
+                } else {
+                    return Ok(Metadata::named(md_name, operands));
+                }
             }
 
             // Just a name without parens - return named metadata

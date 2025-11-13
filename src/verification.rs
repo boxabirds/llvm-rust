@@ -238,6 +238,7 @@ impl<'a> Verifier<'a> {
         // Verify module-level metadata
         self.verify_module_flags(module);
         self.verify_named_metadata(module);
+        self.verify_debug_info_metadata(module);
 
         if self.errors.is_empty() {
             Ok(())
@@ -2331,6 +2332,105 @@ impl<'a> Verifier<'a> {
         // TODO: Add more named metadata validations as needed
         // - llvm.dbg.cu (requires metadata reference resolution)
         // - llvm.module.flags (already done in verify_module_flags)
+    }
+
+    /// Verify debug info metadata structures
+    fn verify_debug_info_metadata(&mut self, module: &Module) {
+        // Validate debug info metadata structures in the module
+        // Check named metadata like !llvm.dbg.cu and referenced debug info nodes
+
+        // Collect all metadata nodes from the module
+        let all_metadata = module.get_all_metadata();
+
+        for metadata in all_metadata {
+            self.verify_debug_info_node(&metadata);
+        }
+    }
+
+    fn verify_debug_info_node(&mut self, metadata: &crate::metadata::Metadata) {
+        // Check if this is a named metadata node (e.g., DISubrange, DIExpression)
+        if let Some(name) = metadata.get_name() {
+            match name {
+                "DISubrange" => self.verify_disubrange(metadata),
+                "DIGenericSubrange" => self.verify_digenericsubrange(metadata),
+                "DIExpression" => self.verify_diexpression(metadata),
+                _ => {
+                    // Other DI* nodes - validate operands recursively
+                    if let Some(operands) = metadata.operands() {
+                        for operand in operands {
+                            self.verify_debug_info_node(operand);
+                        }
+                    }
+                }
+            }
+        } else if let Some(operands) = metadata.as_tuple() {
+            // Tuple metadata - validate operands recursively
+            for operand in operands {
+                self.verify_debug_info_node(operand);
+            }
+        }
+    }
+
+    fn verify_disubrange(&mut self, metadata: &crate::metadata::Metadata) {
+        // DISubrange can have count OR upperBound, but not both
+        let has_count = metadata.has_field("count");
+        let has_upper_bound = metadata.has_field("upperBound");
+
+        if has_count && has_upper_bound {
+            self.errors.push(VerificationError::InvalidDebugInfo {
+                reason: "Subrange can have any one of count or upperBound".to_string(),
+                location: "DISubrange".to_string(),
+            });
+        }
+    }
+
+    fn verify_digenericsubrange(&mut self, metadata: &crate::metadata::Metadata) {
+        // DIGenericSubrange must contain stride
+        let has_stride = metadata.has_field("stride");
+
+        if !has_stride {
+            self.errors.push(VerificationError::InvalidDebugInfo {
+                reason: "GenericSubrange must contain stride".to_string(),
+                location: "DIGenericSubrange".to_string(),
+            });
+        }
+
+        // DIGenericSubrange can have count OR upperBound, but not both
+        let has_count = metadata.has_field("count");
+        let has_upper_bound = metadata.has_field("upperBound");
+
+        if has_count && has_upper_bound {
+            self.errors.push(VerificationError::InvalidDebugInfo {
+                reason: "GenericSubrange can have any one of count or upperBound".to_string(),
+                location: "DIGenericSubrange".to_string(),
+            });
+        }
+    }
+
+    fn verify_diexpression(&mut self, metadata: &crate::metadata::Metadata) {
+        // DIExpression contains DWARF operations
+        // Some operations like DW_OP_swap are invalid
+
+        // Get the operands (the DWARF operations)
+        if let Some(operands) = metadata.operands() {
+            for operand in operands {
+                if let Some(name) = operand.get_name() {
+                    if name == "DW_OP_swap" {
+                        self.errors.push(VerificationError::InvalidDebugInfo {
+                            reason: "invalid expression".to_string(),
+                            location: "DIExpression".to_string(),
+                        });
+                    }
+                } else if let Some(s) = operand.as_string() {
+                    if s == "DW_OP_swap" {
+                        self.errors.push(VerificationError::InvalidDebugInfo {
+                            reason: "invalid expression".to_string(),
+                            location: "DIExpression".to_string(),
+                        });
+                    }
+                }
+            }
+        }
     }
 
     /// Verify exception handling control flow constraints

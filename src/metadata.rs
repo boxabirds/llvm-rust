@@ -28,6 +28,11 @@ enum MetadataData {
     Tuple(Vec<Metadata>),
     /// Named metadata
     Named { name: String, operands: Vec<Metadata> },
+    /// Named metadata with fields (e.g., DISubrange(count: 20, lowerBound: 1))
+    NamedWithFields {
+        name: String,
+        fields: std::collections::HashMap<String, Metadata>
+    },
     /// Debug info metadata
     DebugInfo(Box<DebugInfo>),
     /// Reference to numbered metadata (!0, !1, etc.) - to be resolved later
@@ -214,6 +219,13 @@ impl Metadata {
         }
     }
 
+    /// Create named metadata with fields
+    pub fn named_with_fields(name: String, fields: std::collections::HashMap<String, Metadata>) -> Self {
+        Self {
+            data: Arc::new(MetadataData::NamedWithFields { name, fields }),
+        }
+    }
+
     /// Create debug info metadata
     pub fn debug_info(info: DebugInfo) -> Self {
         Self {
@@ -304,6 +316,7 @@ impl Metadata {
         match &*self.data {
             MetadataData::Tuple(operands) => operands.len(),
             MetadataData::Named { operands, .. } => operands.len(),
+            MetadataData::NamedWithFields { fields, .. } => fields.len(),
             _ => 0,
         }
     }
@@ -311,6 +324,31 @@ impl Metadata {
     /// Get a specific operand by index
     pub fn get_operand(&self, index: usize) -> Option<&Metadata> {
         self.operands().and_then(|ops| ops.get(index))
+    }
+
+    /// Get the name of named metadata (e.g., "DISubrange", "DIExpression", etc.)
+    pub fn get_name(&self) -> Option<&str> {
+        match &*self.data {
+            MetadataData::Named { name, .. } => Some(name.as_str()),
+            MetadataData::NamedWithFields { name, .. } => Some(name.as_str()),
+            _ => None,
+        }
+    }
+
+    /// Get a field by name from named metadata with fields
+    pub fn get_field(&self, field_name: &str) -> Option<&Metadata> {
+        match &*self.data {
+            MetadataData::NamedWithFields { fields, .. } => fields.get(field_name),
+            _ => None,
+        }
+    }
+
+    /// Check if a field exists in named metadata with fields
+    pub fn has_field(&self, field_name: &str) -> bool {
+        match &*self.data {
+            MetadataData::NamedWithFields { fields, .. } => fields.contains_key(field_name),
+            _ => false,
+        }
     }
 }
 
@@ -341,6 +379,18 @@ impl fmt::Display for Metadata {
                     write!(f, "{}", op)?;
                 }
                 write!(f, "}}")
+            }
+            MetadataData::NamedWithFields { name, fields } => {
+                write!(f, "!{}(", name)?;
+                let mut first = true;
+                for (key, value) in fields.iter() {
+                    if !first {
+                        write!(f, ", ")?;
+                    }
+                    first = false;
+                    write!(f, "{}: {}", key, value)?;
+                }
+                write!(f, ")")
             }
             MetadataData::DebugInfo(_) => write!(f, "!DINode"),
         }
