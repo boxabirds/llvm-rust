@@ -388,6 +388,14 @@ impl Verifier {
             });
         }
 
+        // Global variable initializer must be sized
+        if global.initializer.is_some() && !global.ty.is_sized() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Global variable initializer must be sized".to_string(),
+                location: format!("global variable @{}", global.name),
+            });
+        }
+
         // Appending linkage can only be used with global arrays
         if matches!(global.linkage, Linkage::Appending) {
             if !global.ty.is_array() {
