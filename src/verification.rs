@@ -2291,9 +2291,38 @@ impl Verifier {
             }
         }
 
+        // Verify llvm.ident metadata structure
+        if let Some(ident_entries) = module.get_named_metadata("llvm.ident") {
+            for entry in &ident_entries {
+                // Skip reference nodes - they would need to be resolved first
+                if entry.as_reference().is_some() {
+                    continue;
+                }
+
+                if let Some(entry_ops) = entry.operands() {
+                    if entry_ops.len() != 1 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "incorrect number of operands in llvm.ident metadata".to_string(),
+                            location: format!("{:?}", entry),
+                        });
+                    } else if !entry_ops[0].is_string() {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "invalid value for llvm.ident metadata entry operand(the operand should be a string)".to_string(),
+                            location: format!("{:?}", entry_ops[0]),
+                        });
+                    }
+                } else if !entry.is_string() {
+                    // Not a tuple - must be a direct string
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "invalid value for llvm.ident metadata entry operand(the operand should be a string)".to_string(),
+                        location: "llvm.ident".to_string(),
+                    });
+                }
+            }
+        }
+
         // TODO: Add more named metadata validations as needed
         // - llvm.dbg.cu (requires metadata reference resolution)
-        // - llvm.ident
         // - llvm.module.flags (already done in verify_module_flags)
     }
 
