@@ -2873,10 +2873,10 @@ impl Parser {
                     Ok(self.context.float_type())
                 }
             }
-            Token::X86_mmx | Token::X86_amx => {
+            Token::X86_mmx => {
                 // x86 matrix/vector types
                 self.advance();
-                Ok(self.context.void_type()) // Placeholder for special x86 types
+                Ok(self.context.void_type()) // Placeholder for x86_mmx type
             }
             Token::Ptr => {
                 self.advance();
@@ -2955,6 +2955,10 @@ impl Parser {
             Token::Metadata => {
                 self.advance();
                 Ok(self.context.metadata_type())
+            }
+            Token::X86_amx => {
+                self.advance();
+                Ok(self.context.x86_amx_type())
             }
             Token::Target => {
                 // target("typename", params...) - target-specific types with optional type/integer params
@@ -4070,6 +4074,11 @@ impl Parser {
                     }
                     continue;
                 },
+                Some(Token::Swifterror) => {
+                    self.advance();
+                    attrs.swifterror = true;
+                    continue;
+                },
                 _ => {}
             }
 
@@ -4091,7 +4100,6 @@ impl Parser {
                self.match_token(&Token::Nest) ||
                self.match_token(&Token::Readonly) ||
                self.match_token(&Token::Writeonly) ||
-               self.match_token(&Token::Swifterror) ||
                self.match_token(&Token::Swiftself) ||
                self.match_token(&Token::Immarg) {
                 continue;

@@ -388,6 +388,34 @@ impl Verifier {
             });
         }
 
+        // Global variables cannot have x86_amx type
+        if global.ty.is_x86_amx() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "invalid type for global variable".to_string(),
+                location: format!("global variable @{}", global.name),
+            });
+        }
+
+        // Arrays cannot have x86_amx as element type
+        if let Some((element_type, _)) = global.ty.array_info() {
+            if element_type.is_x86_amx() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Cannot allocate an array of x86_amx".to_string(),
+                    location: format!("global variable @{}", global.name),
+                });
+            }
+        }
+
+        // Vectors cannot have x86_amx as element type
+        if let Some((element_type, _)) = global.ty.vector_info() {
+            if element_type.is_x86_amx() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "vector type cannot have x86_amx element type".to_string(),
+                    location: format!("global variable @{}", global.name),
+                });
+            }
+        }
+
         // Global variable initializer must be sized
         if global.initializer.is_some() && !global.ty.is_sized() {
             self.errors.push(VerificationError::InvalidInstruction {
@@ -421,6 +449,28 @@ impl Verifier {
                     reason: "wrong type for intrinsic global variable".to_string(),
                     location: format!("global variable @{}", global.name),
                 });
+            }
+
+            // Check initializer - cannot be zeroinitializer or contain null
+            if let Some(initializer) = &global.initializer {
+                // Check if it's zeroinitializer (all elements are zero/null)
+                if initializer.is_zero() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("invalid {}", global.name),
+                        location: "ptr null".to_string(),
+                    });
+                }
+                // Check for null members in array
+                if let Some(elements) = initializer.array_elements() {
+                    for elem in elements.iter() {
+                        if elem.is_null() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: format!("invalid {} member", global.name),
+                                location: "ptr null".to_string(),
+                            });
+                        }
+                    }
+                }
             }
         }
 
@@ -564,6 +614,14 @@ impl Verifier {
                     location: format!("function {}", fn_name),
                 });
             }
+
+            // Only intrinsics can have x86_amx parameters
+            if param_type.is_x86_amx() && !fn_name.starts_with("llvm.") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "only intrinsic calls can have x86_amx operand".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
         }
 
         // Check for incompatible function attributes
@@ -607,6 +665,14 @@ impl Verifier {
             if ret_type.is_token() && !fn_name.starts_with("llvm.") {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: "Function returns a token but isn't an intrinsic".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+
+            // Check return type - non-intrinsic functions cannot return x86_amx
+            if ret_type.is_x86_amx() && !fn_name.starts_with("llvm.") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "only intrinsic calls can return x86_amx".to_string(),
                     location: format!("function {}", fn_name),
                 });
             }
@@ -1502,6 +1568,14 @@ impl Verifier {
                         });
                     }
 
+                    // Indirect calls cannot return x86_amx type
+                    if ret_type.is_x86_amx() && callee.name().is_none() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Indirect call can't return x86_amx".to_string(),
+                            location: "call instruction".to_string(),
+                        });
+                    }
+
                     let args = &operands[1..];
 
                     // Check argument count (varargs functions can have more)
@@ -1624,6 +1698,31 @@ impl Verifier {
                                 reason: "invalid type for alloca".to_string(),
                                 location: "alloca instruction".to_string(),
                             });
+                        }
+                        // Cannot allocate x86_amx type
+                        if pointee.is_x86_amx() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Cannot allocate an x86_amx with allocas".to_string(),
+                                location: "alloca instruction".to_string(),
+                            });
+                        }
+                        // Cannot allocate vectors with x86_amx elements
+                        if let Some((elem_ty, _)) = pointee.vector_info() {
+                            if elem_ty.is_x86_amx() {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "invalid vector element type".to_string(),
+                                    location: "alloca instruction".to_string(),
+                                });
+                            }
+                        }
+                        // Cannot allocate arrays with x86_amx elements
+                        if let Some((elem_ty, _)) = pointee.array_info() {
+                            if elem_ty.is_x86_amx() {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "Cannot allocate an array of x86_amx".to_string(),
+                                    location: "alloca instruction".to_string(),
+                                });
+                            }
                         }
                     }
                 }
@@ -2414,6 +2513,14 @@ impl Verifier {
                     location: format!("@{}", fn_name),
                 });
             }
+        }
+
+        // Check swifterror on return type - cannot be applied to return values
+        if ret_attrs.swifterror {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "this attribute does not apply to return values".to_string(),
+                location: format!("@{}", fn_name),
+            });
         }
 
         // Track counts of special attributes that can only appear once
