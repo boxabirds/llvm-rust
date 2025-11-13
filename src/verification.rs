@@ -2353,11 +2353,19 @@ impl Verifier {
             }
 
             // Check inalloca attribute - must be on last argument (unless it's varargs)
-            if param_attrs.inalloca.is_some() {
+            if let Some(inalloca_ty) = &param_attrs.inalloca {
                 // Must be pointer type
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'inalloca(i8)' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+
+                // inalloca type must be sized
+                if !inalloca_ty.is_sized() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attribute 'inalloca' does not support unsized types!".to_string(),
                         location: format!("@{}", fn_name),
                     });
                 }
