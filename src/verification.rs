@@ -3222,19 +3222,13 @@ impl Verifier {
         }
 
         // llvm.va_start - must be called in a varargs function
-        // TODO: Re-enable once parser correctly sets varargs flag
-        // Currently causing false positive on tbaa-allowed.ll
         if intrinsic_name == "llvm.va_start" {
-            // Temporarily disabled to avoid false positive
-            // The parser may not be correctly setting the varargs flag on function types
-            /*
             if !self.current_function_is_varargs {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: "va_start called in a non-varargs function".to_string(),
                     location: format!("call to {}", intrinsic_name),
                 });
             }
-            */
         }
 
         // llvm.abs - integer absolute value intrinsic
