@@ -22,6 +22,7 @@ pub mod metadata;
 pub mod attributes;
 pub mod intrinsics;
 pub mod verification;
+pub mod verification_extended;
 pub mod printer;
 pub mod lexer;
 pub mod parser;
