@@ -2202,6 +2202,15 @@ impl Verifier {
                         location: format!("@{}", fn_name),
                     });
                 }
+
+                // Check alignment limit - max 2^32 bytes
+                const MAX_ALIGNMENT: u64 = 1u64 << 32; // 4294967296
+                if (align_val as u64) > MAX_ALIGNMENT {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "huge alignments are not supported yet".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
             }
 
             // Check signext attribute - must be integer type
