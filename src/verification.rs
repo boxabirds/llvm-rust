@@ -552,6 +552,33 @@ impl Verifier {
             }
         }
 
+        // Verify parameter types
+        if let Some((_, param_types, _)) = fn_type.function_info() {
+            for (idx, param_type) in param_types.iter().enumerate() {
+                // Parameters cannot have label type
+                if param_type.is_label() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid type for function argument".to_string(),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+                // Parameters cannot have void type
+                if param_type.is_void() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid type for function argument".to_string(),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+                // Parameters cannot have metadata type
+                if param_type.is_metadata() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid type for function argument".to_string(),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+            }
+        }
+
         // Validate allockind attribute
         if let Some(ref kinds) = attrs.allockind {
             self.verify_allockind_attribute(kinds, &fn_name);
