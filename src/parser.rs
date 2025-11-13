@@ -2873,10 +2873,10 @@ impl Parser {
                     Ok(self.context.float_type())
                 }
             }
-            Token::X86_mmx | Token::X86_amx => {
+            Token::X86_mmx => {
                 // x86 matrix/vector types
                 self.advance();
-                Ok(self.context.void_type()) // Placeholder for special x86 types
+                Ok(self.context.void_type()) // Placeholder for x86_mmx type
             }
             Token::Ptr => {
                 self.advance();
