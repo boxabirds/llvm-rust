@@ -1864,7 +1864,7 @@ impl Verifier {
                     // Value must be sized (structs are sized in LLVM)
                     if !value_type.is_sized() {
                         self.errors.push(VerificationError::InvalidInstruction {
-                            reason: format!("store value must be sized type, got {:?}", value_type),
+                            reason: "storing unsized types is not allowed".to_string(),
                             location: "store instruction".to_string(),
                         });
                     }
@@ -1912,7 +1912,7 @@ impl Verifier {
 
                     if !result_type.is_sized() {
                         self.errors.push(VerificationError::InvalidInstruction {
-                            reason: format!("load result must be sized type, got {:?}", result_type),
+                            reason: "loading unsized types is not allowed".to_string(),
                             location: "load instruction".to_string(),
                         });
                     }
