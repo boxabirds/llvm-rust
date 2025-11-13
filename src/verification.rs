@@ -2329,8 +2329,39 @@ impl<'a> Verifier<'a> {
             }
         }
 
+        // Verify llvm.dbg.cu contains only DICompileUnit nodes
+        if let Some(dbg_cu_entries) = module.get_named_metadata("llvm.dbg.cu") {
+            for entry in &dbg_cu_entries {
+                // Each entry should be a DICompileUnit
+                // Only validate if we can determine the type - skip reference nodes
+                if let Some(name) = entry.get_name() {
+                    if name != "DICompileUnit" {
+                        self.errors.push(VerificationError::InvalidDebugInfo {
+                            reason: format!("!llvm.dbg.cu must contain only DICompileUnit nodes, found {}", name),
+                            location: "llvm.dbg.cu".to_string(),
+                        });
+                    }
+                }
+                // If get_name() returns None, it could be a reference or other node type
+                // Only reject if we can positively identify it's not a DICompileUnit
+                // For now, we'll be lenient and only check when we can identify the type
+            }
+        }
+
+        // Verify that only allowed names in llvm.dbg.* namespace are used
+        let allowed_dbg_names = vec!["llvm.dbg.cu", "llvm.dbg.sp", "llvm.dbg.gv", "llvm.dbg.ty",
+                                      "llvm.dbg.declare", "llvm.dbg.value", "llvm.dbg.addr",
+                                      "llvm.dbg.label", "llvm.dbg.assign"];
+        for (name, _) in module.named_metadata() {
+            if name.starts_with("llvm.dbg.") && !allowed_dbg_names.contains(&name.as_str()) {
+                self.errors.push(VerificationError::InvalidDebugInfo {
+                    reason: format!("invalid llvm.dbg.* metadata name: {}", name),
+                    location: name.clone(),
+                });
+            }
+        }
+
         // TODO: Add more named metadata validations as needed
-        // - llvm.dbg.cu (requires metadata reference resolution)
         // - llvm.module.flags (already done in verify_module_flags)
     }
 
