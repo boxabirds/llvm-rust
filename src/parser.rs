@@ -816,7 +816,9 @@ impl Parser {
     }
 
     fn parse_function_declaration(&mut self) -> ParseResult<Function> {
-        // declare [cc] [ret attrs] [!metadata] type @name([params])
+        // declare [visibility] [dll_storage] [cc] [ret attrs] [!metadata] type @name([params])
+        let visibility = self.parse_visibility();
+        let dll_storage_class = self.parse_dll_storage_class();
         let cc = self.parse_calling_convention();
         let ret_attrs = self.parse_return_attributes();
 
@@ -839,15 +841,18 @@ impl Parser {
 
         let fn_type = self.context.function_type(return_type, param_types, is_vararg);
         let function = Function::new(name, fn_type);
+        function.set_visibility(visibility);
+        function.set_dll_storage_class(dll_storage_class);
         function.set_calling_convention(cc);
         function.set_attributes(attrs);
         Ok(function)
     }
 
     fn parse_function_definition(&mut self) -> ParseResult<Function> {
-        // define [linkage] [visibility] [cc] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
+        // define [linkage] [visibility] [dll_storage] [cc] [ret attrs] [!metadata] type @name([params]) [fn attrs] { body }
         let linkage = self.parse_linkage();
         let visibility = self.parse_visibility();
+        let dll_storage_class = self.parse_dll_storage_class();
         let cc = self.parse_calling_convention();
         let ret_attrs = self.parse_return_attributes();
 
@@ -874,6 +879,7 @@ impl Parser {
         let function = Function::new(name, fn_type);
         function.set_linkage(linkage);
         function.set_visibility(visibility);
+        function.set_dll_storage_class(dll_storage_class);
         function.set_calling_convention(cc);
         function.set_attributes(attrs);
 
@@ -3910,6 +3916,18 @@ impl Parser {
         };
 
         visibility
+    }
+
+    fn parse_dll_storage_class(&mut self) -> crate::module::DLLStorageClass {
+        use crate::module::DLLStorageClass;
+
+        if self.match_token(&Token::Dllimport) {
+            DLLStorageClass::DllImport
+        } else if self.match_token(&Token::Dllexport) {
+            DLLStorageClass::DllExport
+        } else {
+            DLLStorageClass::Default
+        }
     }
 
     fn skip_linkage_and_visibility(&mut self) {

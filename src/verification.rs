@@ -117,6 +117,8 @@ pub struct Verifier {
     errors: Vec<VerificationError>,
     current_function: Option<String>,
     current_function_is_varargs: bool,
+    current_function_has_personality: bool,
+    current_function_calling_convention: crate::function::CallingConvention,
 }
 
 impl Verifier {
@@ -125,6 +127,8 @@ impl Verifier {
             errors: Vec::new(),
             current_function: None,
             current_function_is_varargs: false,
+            current_function_has_personality: false,
+            current_function_calling_convention: crate::function::CallingConvention::C,
         }
     }
 
@@ -211,6 +215,20 @@ impl Verifier {
 
         // Verify all functions in the module
         for function in module.functions() {
+            let fn_name = function.name();
+
+            // Check if this is an intrinsic function (starts with "llvm.")
+            if fn_name.starts_with("llvm.") {
+                // Intrinsics cannot be defined, only declared
+                // Check if function has a body (basic blocks)
+                if !function.basic_blocks().is_empty() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "llvm intrinsics cannot be defined".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            }
+
             self.verify_function(&function);
         }
 
@@ -423,6 +441,8 @@ impl Verifier {
         self.current_function_is_varargs = fn_type.function_info()
             .map(|(_, _, is_varargs)| is_varargs)
             .unwrap_or(false);
+        self.current_function_has_personality = function.personality().is_some();
+        self.current_function_calling_convention = function.calling_convention();
 
         // Check if trying to define an LLVM intrinsic (functions starting with "llvm.")
         // Intrinsics can be declared but not defined
@@ -460,6 +480,27 @@ impl Verifier {
             }
         }
 
+        // Check DLL storage class + visibility constraints
+        // dllexport must have default or protected visibility
+        if matches!(dll_storage, DLLStorageClass::DllExport) {
+            if matches!(visibility, Visibility::Hidden) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "dllexport GlobalValue must have default or protected visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // dllimport must have default visibility
+        if matches!(dll_storage, DLLStorageClass::DllImport) {
+            if !matches!(visibility, Visibility::Default) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "dllimport GlobalValue must have default visibility".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
         // Check function parameter types
         for param in function.arguments() {
             let param_type = param.get_type();
@@ -488,6 +529,65 @@ impl Verifier {
                 reason: "Attributes 'noinline and alwaysinline' are incompatible".to_string(),
                 location: format!("function {}", fn_name),
             });
+        }
+
+        // Naked functions cannot use their arguments
+        if attrs.naked {
+            for block in function.basic_blocks() {
+                for inst in block.instructions() {
+                    // Check if any operand is a function argument
+                    for operand in inst.operands() {
+                        if let Some(operand_name) = operand.name() {
+                            // Check if this operand matches any argument name
+                            for arg in function.arguments() {
+                                if let Some(arg_name) = arg.name() {
+                                    if arg_name == operand_name {
+                                        self.errors.push(VerificationError::InvalidInstruction {
+                                            reason: "cannot use argument of naked function".to_string(),
+                                            location: format!("function {}", fn_name),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Verify parameter types
+        if let Some((ret_type, param_types, _)) = fn_type.function_info() {
+            // Check return type - non-intrinsic functions cannot return token
+            if ret_type.is_token() && !fn_name.starts_with("llvm.") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Function returns a token but isn't an intrinsic".to_string(),
+                    location: format!("function {}", fn_name),
+                });
+            }
+
+            for (idx, param_type) in param_types.iter().enumerate() {
+                // Parameters cannot have label type
+                if param_type.is_label() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid type for function argument".to_string(),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+                // Parameters cannot have void type
+                if param_type.is_void() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid type for function argument".to_string(),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+                // Parameters cannot have metadata type
+                if param_type.is_metadata() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "invalid type for function argument".to_string(),
+                        location: format!("function {} parameter {}", fn_name, idx),
+                    });
+                }
+            }
         }
 
         // Validate allockind attribute
@@ -1033,11 +1133,36 @@ impl Verifier {
                             });
                         }
 
-                        // Bitcast between pointers and non-pointers requires compatible sizes
+                        // Check if types involve vectors of pointers
                         let src_is_ptr = src_type.is_pointer();
                         let dst_is_ptr = dst_type.is_pointer();
+                        let src_is_vec_of_ptr = src_type.is_vector() &&
+                            src_type.vector_info().map_or(false, |(elem, _)| elem.is_pointer());
+                        let dst_is_vec_of_ptr = dst_type.is_vector() &&
+                            dst_type.vector_info().map_or(false, |(elem, _)| elem.is_pointer());
 
-                        if src_is_ptr != dst_is_ptr {
+                        // Cannot bitcast between scalar pointer and vector of pointers with size != 1
+                        if (src_is_ptr && dst_is_vec_of_ptr) || (src_is_vec_of_ptr && dst_is_ptr) {
+                            let vec_size = if dst_is_vec_of_ptr {
+                                dst_type.vector_info().map(|(_, size)| size).unwrap_or(0)
+                            } else {
+                                src_type.vector_info().map(|(_, size)| size).unwrap_or(0)
+                            };
+                            // Only error if vector size is not 1 (size 1 is allowed, same size as scalar)
+                            if vec_size != 1 {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        if src_is_ptr { "ptr" } else { &format!("{:?}", src_type) },
+                                        if dst_is_vec_of_ptr { &format!("{:?}", dst_type) } else { "ptr" }),
+                                    location: "bitcast instruction".to_string(),
+                                });
+                            }
+                        }
+
+                        // Bitcast between pointers and non-pointers requires compatible sizes
+                        if src_is_ptr != dst_is_ptr && !src_is_vec_of_ptr && !dst_is_vec_of_ptr {
                             // One is pointer, other is not - check if non-pointer is integer
                             let non_ptr_type = if src_is_ptr { dst_type.clone() } else { src_type.clone() };
                             if !non_ptr_type.is_integer() && !non_ptr_type.is_vector() {
@@ -1050,15 +1175,35 @@ impl Verifier {
                             }
                         }
 
-                        // Bitcast cannot change address space
-                        if src_is_ptr && dst_is_ptr {
-                            let src_addrspace = src_type.address_space().unwrap_or(0);
-                            let dst_addrspace = dst_type.address_space().unwrap_or(0);
+                        // Bitcast cannot change address space (both scalar and vector pointers)
+                        let check_addrspace = (src_is_ptr && dst_is_ptr) ||
+                            (src_is_vec_of_ptr && dst_is_vec_of_ptr);
+                        if check_addrspace {
+                            let src_addrspace = if src_is_ptr {
+                                src_type.address_space().unwrap_or(0)
+                            } else {
+                                src_type.vector_info()
+                                    .and_then(|(elem, _)| elem.address_space())
+                                    .unwrap_or(0)
+                            };
+                            let dst_addrspace = if dst_is_ptr {
+                                dst_type.address_space().unwrap_or(0)
+                            } else {
+                                dst_type.vector_info()
+                                    .and_then(|(elem, _)| elem.address_space())
+                                    .unwrap_or(0)
+                            };
                             if src_addrspace != dst_addrspace {
+                                let src_desc = if src_is_ptr { format!("ptr") } else { format!("<{:?}>", src_type) };
+                                let dst_desc = if dst_is_ptr {
+                                    format!("ptr addrspace({})", dst_addrspace)
+                                } else {
+                                    format!("<{:?}>", dst_type)
+                                };
                                 self.errors.push(VerificationError::InvalidCast {
                                     from: format!("{:?}", src_type),
                                     to: format!("{:?}", dst_type),
-                                    reason: format!("invalid cast opcode for cast from 'ptr' to 'ptr addrspace({})'", dst_addrspace),
+                                    reason: format!("invalid cast opcode for cast from '{}' to '{}'", src_desc, dst_desc),
                                     location: "bitcast instruction".to_string(),
                                 });
                             }
@@ -1229,11 +1374,26 @@ impl Verifier {
 
                 // Check calling convention restrictions
                 // Some calling conventions don't permit calls
-                if let Some(fn_name) = &self.current_function {
-                    use crate::function::CallingConvention;
-                    // Get the current function's calling convention
-                    // Note: This requires access to the function object
-                    // For now, we'll check this in verify_calling_convention instead
+                use crate::function::CallingConvention;
+                let cc = self.current_function_calling_convention;
+                match cc {
+                    CallingConvention::AMDGPU_CS_Chain |
+                    CallingConvention::AMDGPU_CS_Chain_Preserve |
+                    CallingConvention::AMDGPU_CS |
+                    CallingConvention::AMDGPU_ES |
+                    CallingConvention::AMDGPU_GS |
+                    CallingConvention::AMDGPU_HS |
+                    CallingConvention::AMDGPU_Kernel |
+                    CallingConvention::AMDGPU_LS |
+                    CallingConvention::AMDGPU_PS |
+                    CallingConvention::AMDGPU_VS |
+                    CallingConvention::SPIR_Kernel => {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "calling convention does not permit calls".to_string(),
+                            location: "call instruction".to_string(),
+                        });
+                    }
+                    _ => {}
                 }
 
                 let callee_type = callee.get_type();
@@ -1256,6 +1416,14 @@ impl Verifier {
                 };
 
                 if let Some((ret_type, param_types, is_var_arg)) = fn_type.function_info() {
+                    // Indirect calls cannot return token type
+                    if ret_type.is_token() && callee.name().is_none() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Return type cannot be token for indirect call!".to_string(),
+                            location: "call instruction".to_string(),
+                        });
+                    }
+
                     let args = &operands[1..];
 
                     // Check argument count (varargs functions can have more)
@@ -1739,6 +1907,30 @@ impl Verifier {
                 // This will be checked in verify_basic_block
             }
             Opcode::Invoke => {
+                // Check calling convention restrictions
+                // Some calling conventions don't permit calls (including invoke)
+                use crate::function::CallingConvention;
+                let cc = self.current_function_calling_convention;
+                match cc {
+                    CallingConvention::AMDGPU_CS_Chain |
+                    CallingConvention::AMDGPU_CS_Chain_Preserve |
+                    CallingConvention::AMDGPU_CS |
+                    CallingConvention::AMDGPU_ES |
+                    CallingConvention::AMDGPU_GS |
+                    CallingConvention::AMDGPU_HS |
+                    CallingConvention::AMDGPU_Kernel |
+                    CallingConvention::AMDGPU_LS |
+                    CallingConvention::AMDGPU_PS |
+                    CallingConvention::AMDGPU_VS |
+                    CallingConvention::SPIR_Kernel => {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "calling convention does not permit calls".to_string(),
+                            location: "invoke instruction".to_string(),
+                        });
+                    }
+                    _ => {}
+                }
+
                 // Invoke: must have both normal and unwind destinations
                 // Note: Parser must preserve successor information
                 // Basic validation: check it's a valid function call
@@ -1778,6 +1970,14 @@ impl Verifier {
                 }
             }
             Opcode::Resume => {
+                // Resume: must be in a function with a personality
+                if !self.current_function_has_personality {
+                    self.errors.push(VerificationError::InvalidExceptionHandling {
+                        reason: "ResumeInst needs to be in a function with a personality.".to_string(),
+                        location: "resume instruction".to_string(),
+                    });
+                }
+
                 // Resume: must have exactly one operand of aggregate type
                 let operands = inst.operands();
                 if operands.len() != 1 {
@@ -2124,6 +2324,7 @@ impl Verifier {
         let mut sret_idx = None;
         let mut swifterror_count = 0;
         let mut swiftself_count = 0;
+        let mut swiftasync_count = 0;
 
         // Verify parameter attributes
         for (idx, param_attrs) in attrs.parameter_attributes.iter().enumerate() {
@@ -2150,11 +2351,25 @@ impl Verifier {
                 swiftself_count += 1;
             }
 
+            // Track swiftasync for multi-parameter check
+            if param_attrs.swiftasync {
+                swiftasync_count += 1;
+            }
+
             // Check align attribute - must be pointer type
             if let Some(align_val) = param_attrs.align {
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'align {}' applied to incompatible type!", align_val),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+
+                // Check alignment limit - max 2^32 bytes
+                const MAX_ALIGNMENT: u64 = 1u64 << 32; // 4294967296
+                if (align_val as u64) > MAX_ALIGNMENT {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "huge alignments are not supported yet".to_string(),
                         location: format!("@{}", fn_name),
                     });
                 }
@@ -2212,21 +2427,41 @@ impl Verifier {
             }
 
             // Check byval attribute - must be pointer type
-            if let Some(_byval_ty) = &param_attrs.byval {
+            if let Some(byval_ty) = &param_attrs.byval {
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'byval(i32)' applied to incompatible type!"),
                         location: format!("@{}", fn_name),
                     });
                 }
+
+                // Check byval size limit - must be less than 2^31 bytes
+                // The byval type represents the pointee type
+                if let Some(size) = byval_ty.size_in_bytes() {
+                    const MAX_BYVAL_SIZE: u64 = 2147483648; // 2^31 bytes
+                    if size >= MAX_BYVAL_SIZE {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "huge 'byval' arguments are unsupported".to_string(),
+                            location: format!("@{}", fn_name),
+                        });
+                    }
+                }
             }
 
             // Check inalloca attribute - must be on last argument (unless it's varargs)
-            if param_attrs.inalloca.is_some() {
+            if let Some(inalloca_ty) = &param_attrs.inalloca {
                 // Must be pointer type
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'inalloca(i8)' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+
+                // inalloca type must be sized
+                if !inalloca_ty.is_sized() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attribute 'inalloca' does not support unsized types!".to_string(),
                         location: format!("@{}", fn_name),
                     });
                 }
@@ -2341,6 +2576,14 @@ impl Verifier {
         if swiftself_count > 1 {
             self.errors.push(VerificationError::InvalidInstruction {
                 reason: "Cannot have multiple 'swiftself' parameters!".to_string(),
+                location: format!("@{}", fn_name),
+            });
+        }
+
+        // Check for multiple swiftasync parameters
+        if swiftasync_count > 1 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Cannot have multiple 'swiftasync' parameters!".to_string(),
                 location: format!("@{}", fn_name),
             });
         }
@@ -2658,6 +2901,9 @@ impl Verifier {
     fn verify_intrinsic_call(&mut self, inst: &Instruction, intrinsic_name: &str) {
         let operands = inst.operands();
 
+        // Check immarg parameters - some intrinsic parameters must be immediate (constant) values
+        self.verify_intrinsic_immarg(inst, intrinsic_name, operands);
+
         // llvm.va_start - must be called in a varargs function
         // Note: Temporarily disabled - need to ensure parser correctly sets is_varargs
         // if intrinsic_name == "llvm.va_start" {
@@ -2914,6 +3160,165 @@ impl Verifier {
                         });
                     }
                 }
+            }
+        }
+    }
+
+    /// Verify immarg (immediate argument) parameters for intrinsics
+    /// Certain intrinsic parameters must be constant values, not variables
+    fn verify_intrinsic_immarg(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+        // Helper to check if operand at index is not a constant
+        let check_immarg = |idx: usize| -> bool {
+            if operands.len() > idx {
+                let operand = &operands[idx];
+                // Operands with names are variables (non-constant)
+                // Constants typically don't have names, or are represented differently
+                !operand.is_constant()
+            } else {
+                false
+            }
+        };
+
+        // Define immarg parameter positions for each intrinsic family
+        // Format: (intrinsic_prefix, vec![param_indices_that_must_be_constant])
+        // Note: indices include the function itself at position 0, so actual args start at 1
+
+        // llvm.memcpy, llvm.memmove, llvm.memset - is_volatile must be constant
+        if intrinsic_name.starts_with("llvm.memcpy.") ||
+           intrinsic_name.starts_with("llvm.memmove.") ||
+           intrinsic_name.starts_with("llvm.memset.") {
+            if check_immarg(4) { // is_volatile parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.memcpy.element.unordered.atomic - element_size must be constant
+        if intrinsic_name.starts_with("llvm.memcpy.element.unordered.atomic") ||
+           intrinsic_name.starts_with("llvm.memmove.element.unordered.atomic") ||
+           intrinsic_name.starts_with("llvm.memset.element.unordered.atomic") {
+            if check_immarg(4) { // element_size parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.returnaddress, llvm.frameaddress - level must be constant
+        if intrinsic_name.starts_with("llvm.returnaddress") ||
+           intrinsic_name.starts_with("llvm.frameaddress") {
+            if check_immarg(1) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.objectsize - boolean flags must be constant
+        if intrinsic_name.starts_with("llvm.objectsize.") {
+            for i in 2..5 {
+                if check_immarg(i) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg operand has non-immediate parameter".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                    break;
+                }
+            }
+        }
+
+        // llvm.smul.fix, llvm.umul.fix, llvm.smul.fix.sat, llvm.umul.fix.sat - scale must be constant
+        if intrinsic_name.starts_with("llvm.smul.fix.") ||
+           intrinsic_name.starts_with("llvm.umul.fix.") {
+            if check_immarg(3) { // scale parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.invariant.start - size must be constant
+        if intrinsic_name.starts_with("llvm.invariant.start.") {
+            if check_immarg(1) { // size parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.invariant.end - size must be constant
+        if intrinsic_name.starts_with("llvm.invariant.end.") {
+            if check_immarg(2) { // size parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.prefetch - rw, locality, cache type must be constant
+        if intrinsic_name.starts_with("llvm.prefetch") {
+            if check_immarg(2) || check_immarg(3) || check_immarg(4) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.localrecover - index must be constant
+        if intrinsic_name.starts_with("llvm.localrecover") {
+            if check_immarg(3) { // index parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.experimental.gc.statepoint - ID, num_patch_bytes, num_call_args, flags must be constant
+        if intrinsic_name.starts_with("llvm.experimental.gc.statepoint.") {
+            if check_immarg(1) || check_immarg(2) || check_immarg(4) || check_immarg(5) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.experimental.patchpoint - ID, num_bytes, num_args must be constant
+        if intrinsic_name.starts_with("llvm.experimental.patchpoint.") {
+            if check_immarg(1) || check_immarg(2) || check_immarg(4) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.hwasan.check.memaccess - access_info must be constant
+        if intrinsic_name.starts_with("llvm.hwasan.check.memaccess") {
+            if check_immarg(3) { // access_info parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.eh.sjlj.callsite - callsite index must be constant
+        if intrinsic_name.starts_with("llvm.eh.sjlj.callsite") {
+            if check_immarg(1) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
             }
         }
     }
