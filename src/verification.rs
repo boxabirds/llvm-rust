@@ -556,13 +556,47 @@ impl Verifier {
         }
 
         // Verify parameter types
-        if let Some((ret_type, param_types, _)) = fn_type.function_info() {
+        if let Some((ret_type, param_types, is_varargs)) = fn_type.function_info() {
+            use crate::function::CallingConvention;
+
             // Check return type - non-intrinsic functions cannot return token
             if ret_type.is_token() && !fn_name.starts_with("llvm.") {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: "Function returns a token but isn't an intrinsic".to_string(),
                     location: format!("function {}", fn_name),
                 });
+            }
+
+            // Check calling convention restrictions on return type
+            let cc = function.calling_convention();
+            match cc {
+                CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel => {
+                    if !ret_type.is_void() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention requires void return type".to_string(),
+                            location: format!("function {}", fn_name),
+                        });
+                    }
+                }
+                _ => {}
+            }
+
+            // Check calling convention restrictions on varargs
+            match cc {
+                CallingConvention::AMDGPU_Kernel |
+                CallingConvention::AMDGPU_VS |
+                CallingConvention::AMDGPU_GS |
+                CallingConvention::AMDGPU_PS |
+                CallingConvention::AMDGPU_CS |
+                CallingConvention::SPIR_Kernel => {
+                    if is_varargs {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention does not support varargs or perfect forwarding!".to_string(),
+                            location: format!("function {}", fn_name),
+                        });
+                    }
+                }
+                _ => {}
             }
 
             for (idx, param_type) in param_types.iter().enumerate() {
@@ -2267,6 +2301,8 @@ impl Verifier {
 
     /// Verify parameter attributes
     fn verify_parameter_attributes(&mut self, function: &Function) {
+        use crate::function::CallingConvention;
+
         let fn_name = function.name();
         let fn_type = function.get_type();
         let is_varargs = fn_type.function_info().map(|(_,_,v)| v).unwrap_or(false);
@@ -2424,6 +2460,15 @@ impl Verifier {
                         location: format!("@{}", fn_name),
                     });
                 }
+
+                // Check calling convention restrictions on sret
+                let cc = function.calling_convention();
+                if matches!(cc, CallingConvention::AMDGPU_Kernel) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not allow sret".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
             }
 
             // Check byval attribute - must be pointer type
@@ -2432,6 +2477,15 @@ impl Verifier {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'byval(i32)' applied to incompatible type!"),
                         location: format!("@{}", fn_name),
+                    });
+                }
+
+                // Check calling convention restrictions on byval
+                let cc = function.calling_convention();
+                if matches!(cc, CallingConvention::AMDGPU_Kernel) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention disallows byval".to_string(),
+                        location: format!("function {}", fn_name),
                     });
                 }
 
