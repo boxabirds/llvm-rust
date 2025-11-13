@@ -16,6 +16,8 @@ define void @test(ptr inalloca(i32)) {
 
 #[test]
 fn test_byref_inalloca() {
+    // NEGATIVE test - byref and inalloca are incompatible attributes
+    // Reference: LLVM test Verifier/byref.ll
     let content = r#"
 define void @byref_inalloca(ptr byref(i32) inalloca(i32)) {
   ret void
@@ -23,7 +25,12 @@ define void @byref_inalloca(ptr byref(i32) inalloca(i32)) {
 "#;
     let ctx = Context::new();
     match parse(content, ctx) {
-        Ok(_) => println!("✓ Parsed byref and inalloca"),
-        Err(e) => panic!("Failed: {:?}", e),
+        Ok(_) => panic!("Expected parse to fail for byref+inalloca, but it succeeded"),
+        Err(e) => {
+            println!("✓ Correctly rejected incompatible byref+inalloca: {:?}", e);
+            let err_msg = format!("{:?}", e).to_lowercase();
+            assert!(err_msg.contains("incompatible"),
+                    "Expected error about incompatible attributes, got: {:?}", e);
+        }
     }
 }
