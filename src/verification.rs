@@ -2416,6 +2416,14 @@ impl Verifier {
             }
         }
 
+        // Check swifterror on return type - cannot be applied to return values
+        if ret_attrs.swifterror {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "this attribute does not apply to return values".to_string(),
+                location: format!("@{}", fn_name),
+            });
+        }
+
         // Track counts of special attributes that can only appear once
         let mut sret_count = 0;
         let mut sret_idx = None;

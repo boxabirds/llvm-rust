@@ -4070,6 +4070,11 @@ impl Parser {
                     }
                     continue;
                 },
+                Some(Token::Swifterror) => {
+                    self.advance();
+                    attrs.swifterror = true;
+                    continue;
+                },
                 _ => {}
             }
 
@@ -4091,7 +4096,6 @@ impl Parser {
                self.match_token(&Token::Nest) ||
                self.match_token(&Token::Readonly) ||
                self.match_token(&Token::Writeonly) ||
-               self.match_token(&Token::Swifterror) ||
                self.match_token(&Token::Swiftself) ||
                self.match_token(&Token::Immarg) {
                 continue;

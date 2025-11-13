@@ -115,6 +115,7 @@ pub struct ReturnAttributes {
     pub noalias: bool,
     pub nonnull: bool,
     pub noundef: bool,
+    pub swifterror: bool,
     pub dereferenceable: Option<u64>,
     pub align: Option<u32>,
 }
