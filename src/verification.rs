@@ -2386,6 +2386,7 @@ impl<'a> Verifier<'a> {
                 "DIGenericSubrange" => self.verify_digenericsubrange(metadata),
                 "DIExpression" => self.verify_diexpression(metadata),
                 "DICompositeType" => self.verify_dicompositetype(metadata),
+                "DIDerivedType" => self.verify_diderivedtype(metadata),
                 _ => {
                     // Other DI* nodes - validate operands recursively
                     if let Some(operands) = metadata.operands() {
@@ -2462,25 +2463,24 @@ impl<'a> Verifier<'a> {
 
     fn verify_diexpression(&mut self, metadata: &crate::metadata::Metadata) {
         // DIExpression contains DWARF operations
-        // Some operations like DW_OP_swap are invalid
+        // Some operations are invalid: DW_OP_swap, DW_OP_entry_value
 
         // Get the operands (the DWARF operations)
         if let Some(operands) = metadata.operands() {
             for operand in operands {
-                if let Some(name) = operand.get_name() {
-                    if name == "DW_OP_swap" {
-                        self.errors.push(VerificationError::InvalidDebugInfo {
-                            reason: "invalid expression".to_string(),
-                            location: "DIExpression".to_string(),
-                        });
-                    }
+                let invalid_op = if let Some(name) = operand.get_name() {
+                    name == "DW_OP_swap" || name == "DW_OP_entry_value"
                 } else if let Some(s) = operand.as_string() {
-                    if s == "DW_OP_swap" {
-                        self.errors.push(VerificationError::InvalidDebugInfo {
-                            reason: "invalid expression".to_string(),
-                            location: "DIExpression".to_string(),
-                        });
-                    }
+                    s == "DW_OP_swap" || s == "DW_OP_entry_value"
+                } else {
+                    false
+                };
+
+                if invalid_op {
+                    self.errors.push(VerificationError::InvalidDebugInfo {
+                        reason: "invalid expression".to_string(),
+                        location: "DIExpression".to_string(),
+                    });
                 }
             }
         }
@@ -2509,6 +2509,30 @@ impl<'a> Verifier<'a> {
                         self.errors.push(VerificationError::InvalidDebugInfo {
                             reason: format!("{} can only appear in array type", field_name),
                             location: "DICompositeType".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    fn verify_diderivedtype(&mut self, metadata: &crate::metadata::Metadata) {
+        // DIDerivedType validation
+        // dwarfAddressSpace can only be used with pointer or reference types
+
+        if metadata.has_field("dwarfAddressSpace") {
+            // Check the tag to see if it's a pointer or reference type
+            if let Some(tag_metadata) = metadata.get_field("tag") {
+                if let Some(tag_str) = tag_metadata.as_string() {
+                    let is_pointer_or_reference = tag_str == "DW_TAG_pointer_type" ||
+                                                   tag_str == "DW_TAG_reference_type" ||
+                                                   tag_str == "DW_TAG_rvalue_reference_type" ||
+                                                   tag_str == "DW_TAG_ptr_to_member_type";
+
+                    if !is_pointer_or_reference {
+                        self.errors.push(VerificationError::InvalidDebugInfo {
+                            reason: "DWARF address space only applies to pointer or reference types".to_string(),
+                            location: "DIDerivedType".to_string(),
                         });
                     }
                 }
