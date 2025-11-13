@@ -211,6 +211,20 @@ impl Verifier {
 
         // Verify all functions in the module
         for function in module.functions() {
+            let fn_name = function.name();
+
+            // Check if this is an intrinsic function (starts with "llvm.")
+            if fn_name.starts_with("llvm.") {
+                // Intrinsics cannot be defined, only declared
+                // Check if function has a body (basic blocks)
+                if !function.basic_blocks().is_empty() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "llvm intrinsics cannot be defined".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
+            }
+
             self.verify_function(&function);
         }
 
@@ -2212,12 +2226,24 @@ impl Verifier {
             }
 
             // Check byval attribute - must be pointer type
-            if let Some(_byval_ty) = &param_attrs.byval {
+            if let Some(byval_ty) = &param_attrs.byval {
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'byval(i32)' applied to incompatible type!"),
                         location: format!("@{}", fn_name),
                     });
+                }
+
+                // Check byval size limit - must be less than 2^31 bytes
+                // The byval type represents the pointee type
+                if let Some(size) = byval_ty.size_in_bytes() {
+                    const MAX_BYVAL_SIZE: u64 = 2147483648; // 2^31 bytes
+                    if size >= MAX_BYVAL_SIZE {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "huge 'byval' arguments are unsupported".to_string(),
+                            location: format!("@{}", fn_name),
+                        });
+                    }
                 }
             }
 

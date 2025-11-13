@@ -290,6 +290,36 @@ impl Type {
             _ => None,
         }
     }
+
+    /// Calculate the size of this type in bytes
+    /// Returns None for unsized types (void, function, label, token, metadata)
+    /// Returns an approximate size for struct types (sum of field sizes, no padding)
+    pub fn size_in_bytes(&self) -> Option<u64> {
+        match &*self.data {
+            TypeData::Void | TypeData::Function { .. } | TypeData::Label | TypeData::Token | TypeData::Metadata => None,
+            TypeData::Integer { bits } => Some((*bits as u64 + 7) / 8), // Round up to nearest byte
+            TypeData::Float { kind } => Some(match kind {
+                FloatKind::Half => 2,
+                FloatKind::Float => 4,
+                FloatKind::Double => 8,
+            }),
+            TypeData::Pointer { .. } => Some(8), // Assume 64-bit pointers
+            TypeData::Array { element, size } => {
+                element.size_in_bytes().map(|elem_size| elem_size * (*size as u64))
+            }
+            TypeData::Vector { element, size } => {
+                element.size_in_bytes().map(|elem_size| elem_size * (*size as u64))
+            }
+            TypeData::Struct { fields, packed, .. } => {
+                // For struct size, sum all field sizes (ignoring padding for simplicity)
+                let mut total: u64 = 0;
+                for field in fields {
+                    total += field.size_in_bytes()?;
+                }
+                Some(total)
+            }
+        }
+    }
 }
 
 impl fmt::Display for Type {
