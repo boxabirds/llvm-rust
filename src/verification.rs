@@ -4432,17 +4432,17 @@ pub fn verify_module(module: &Module) -> VerificationResult {
     let mut verifier = Verifier::new();
     let basic_result = verifier.verify_module(module);
 
-    // Run extended verification rules
-    let mut extended_verifier = crate::verification_extended::ExtendedVerifier::new();
-    let extended_result = extended_verifier.validate_module(module);
+    // Run additional validation rules
+    let mut rules_verifier = crate::validation_rules::ValidationRules::new();
+    let rules_result = rules_verifier.validate_module(module);
 
     // Combine errors from both verifiers
-    match (basic_result, extended_result) {
+    match (basic_result, rules_result) {
         (Ok(()), Ok(())) => Ok(()),
-        (Ok(()), Err(ext_errs)) => Err(ext_errs),
+        (Ok(()), Err(rule_errs)) => Err(rule_errs),
         (Err(basic_errs), Ok(())) => Err(basic_errs),
-        (Err(mut basic_errs), Err(ext_errs)) => {
-            basic_errs.extend(ext_errs);
+        (Err(mut basic_errs), Err(rule_errs)) => {
+            basic_errs.extend(rule_errs);
             Err(basic_errs)
         }
     }

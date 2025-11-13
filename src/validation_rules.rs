@@ -1,6 +1,6 @@
-//! Extended Verification Rules
+//! Validation Rules
 //!
-//! This module contains additional verification rules to catch invalid IR patterns
+//! This module contains additional IR validation rules to catch invalid patterns
 //! that the parser accepts but LLVM rejects. These rules are separated from the
 //! main verification.rs to keep the codebase modular.
 //!
@@ -12,12 +12,12 @@ use crate::types::Type;
 use crate::module::Module;
 use crate::verification::VerificationError;
 
-/// Extended verifier for additional validation rules
-pub struct ExtendedVerifier {
+/// Collection of IR validation rules
+pub struct ValidationRules {
     errors: Vec<VerificationError>,
 }
 
-impl ExtendedVerifier {
+impl ValidationRules {
     pub fn new() -> Self {
         Self {
             errors: Vec::new(),
@@ -270,7 +270,7 @@ impl ExtendedVerifier {
     }
 }
 
-impl Default for ExtendedVerifier {
+impl Default for ValidationRules {
     fn default() -> Self {
         Self::new()
     }
@@ -294,7 +294,7 @@ mod tests {
         param_attrs.byval = Some(ctx.int_type(32));
         param_attrs.byref = Some(ctx.int_type(32));
 
-        let mut verifier = ExtendedVerifier::new();
+        let mut verifier = ValidationRules::new();
         verifier.check_attribute_exclusivity(&param_attrs, "test", 0);
 
         assert!(!verifier.errors.is_empty(), "Should detect incompatible attributes");
@@ -319,7 +319,7 @@ mod tests {
         func_attrs.parameter_attributes = vec![param_attrs];
         func.set_attributes(func_attrs);
 
-        let mut verifier = ExtendedVerifier::new();
+        let mut verifier = ValidationRules::new();
         verifier.validate_calling_convention_constraints(&func);
 
         assert!(!verifier.errors.is_empty(), "Should reject sret in amdgpu_kernel");
