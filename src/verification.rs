@@ -2406,6 +2406,16 @@ impl Verifier {
             }
         }
 
+        // Check noundef on return type - cannot be applied to void
+        if ret_attrs.noundef {
+            if return_type.is_void() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'noundef' applied to incompatible type!"),
+                    location: format!("@{}", fn_name),
+                });
+            }
+        }
+
         // Track counts of special attributes that can only appear once
         let mut sret_count = 0;
         let mut sret_idx = None;

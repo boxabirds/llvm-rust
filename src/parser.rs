@@ -4126,6 +4126,7 @@ impl Parser {
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef") {
                     self.advance();
+                    attrs.noundef = true;
                     continue;
                 }
                 // Handle identifier-based attributes with parameters: nofpclass(...), range(...), etc.

@@ -114,6 +114,7 @@ pub struct ReturnAttributes {
     pub inreg: bool,
     pub noalias: bool,
     pub nonnull: bool,
+    pub noundef: bool,
     pub dereferenceable: Option<u64>,
     pub align: Option<u32>,
 }
