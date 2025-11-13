@@ -46,6 +46,8 @@ pub struct Parser {
     type_table: std::collections::HashMap<String, Type>,
     /// Metadata registry for numbered metadata nodes (!0, !1, etc.)
     metadata_registry: std::collections::HashMap<String, crate::metadata::Metadata>,
+    /// Attribute groups registry for #0, #1, etc.
+    attribute_groups: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
 }
 
 impl Parser {
@@ -58,6 +60,7 @@ impl Parser {
             function_decls: std::collections::HashMap::new(),
             type_table: std::collections::HashMap::new(),
             metadata_registry: std::collections::HashMap::new(),
+            attribute_groups: std::collections::HashMap::new(),
         }
     }
 
@@ -80,11 +83,8 @@ impl Parser {
 
         while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
             iterations += 1;
-            // Skip attributes at module level (but not metadata - we parse that below)
-            if self.check(&Token::Attributes) {
-                self.skip_until_newline_or_semicolon();
-                continue;
-            }
+            // Note: Attribute group parsing moved to a dedicated section below
+            // (not skipping attributes anymore)
 
             // Parse target datalayout/triple
             if self.match_token(&Token::Target) {
@@ -194,18 +194,42 @@ impl Parser {
 
             // Parse attribute group definitions: attributes #0 = { ... }
             if self.match_token(&Token::Attributes) {
-                // Skip attribute group ID (#0, #1, etc.)
-                if self.check_attr_group_id() {
+                // Get attribute group ID (#0, #1, etc.)
+                let mut group_id = String::new();
+                if let Some(Token::AttrGroupId(num)) = self.peek() {
+                    group_id = format!("#{}", num);
                     self.advance();
                 }
-                // Skip '='
+                // Consume '='
                 self.match_token(&Token::Equal);
-                // Skip attribute list in braces
+                // Parse attribute list in braces
+                let mut attrs = std::collections::HashMap::new();
                 if self.match_token(&Token::LBrace) {
                     while !self.check(&Token::RBrace) && !self.is_at_end() {
-                        self.advance();
+                        // Parse string attributes: "key"="value" or "key"
+                        if let Some(Token::StringLit(key)) = self.peek().cloned() {
+                            self.advance();
+                            if self.match_token(&Token::Equal) {
+                                if let Some(Token::StringLit(value)) = self.peek().cloned() {
+                                    attrs.insert(key, value);
+                                    self.advance();
+                                } else {
+                                    // No value, store empty string
+                                    attrs.insert(key, String::new());
+                                }
+                            } else {
+                                // Key without value
+                                attrs.insert(key, String::new());
+                            }
+                        } else {
+                            // Not a string attribute, skip it
+                            self.advance();
+                        }
                     }
                     self.match_token(&Token::RBrace);
+                }
+                if !group_id.is_empty() {
+                    self.attribute_groups.insert(group_id, attrs);
                 }
                 continue;
             }
@@ -270,10 +294,25 @@ impl Parser {
             });
         }
 
-        // Second pass: resolve metadata references and populate module
+        // Second pass: resolve metadata references and apply attribute groups
         self.resolve_metadata_references(&module);
+        self.apply_attribute_groups(&module);
 
         Ok(module)
+    }
+
+    /// Apply attribute groups to functions
+    fn apply_attribute_groups(&self, module: &Module) {
+        for func in module.functions() {
+            let attrs = func.attributes();
+            for group_ref in &attrs.attribute_groups {
+                if let Some(group_attrs) = self.attribute_groups.get(group_ref) {
+                    for (key, value) in group_attrs {
+                        func.add_string_attribute(key.clone(), value.clone());
+                    }
+                }
+            }
+        }
     }
 
     /// Resolve metadata forward references and populate module structures
@@ -4615,12 +4654,9 @@ impl Parser {
         // Parse function attributes
         while !self.is_at_end() && !self.check(&Token::LBrace) {
             // Handle attribute groups: #0, #1, etc.
-            if self.check(&Token::Hash) {
+            if let Some(Token::AttrGroupId(n)) = self.peek() {
+                attrs.attribute_groups.push(format!("#{}", n));
                 self.advance();
-                if let Some(Token::Integer(n)) = self.peek() {
-                    attrs.attribute_groups.push(format!("#{}", n));
-                    self.advance();
-                }
                 continue;
             }
 
@@ -4760,11 +4796,32 @@ impl Parser {
                         }
                     }
 
+                    // Handle inline string attributes: "key"="value" or "key"
+                    if let Some(Token::StringLit(key)) = self.peek().cloned() {
+                        self.advance();
+                        if self.match_token(&Token::Equal) {
+                            if let Some(Token::StringLit(value)) = self.peek().cloned() {
+                                attrs.string_attributes.insert(key, value);
+                                self.advance();
+                            } else {
+                                // No value, store empty string
+                                attrs.string_attributes.insert(key, String::new());
+                            }
+                        } else {
+                            // Key without value
+                            attrs.string_attributes.insert(key, String::new());
+                        }
+                        continue;
+                    }
+
                     // Exit loop if we don't recognize the token as an attribute
                     break;
                 }
             }
         }
+
+        // Note: String attributes from attribute groups are applied in a second pass
+        // after all attribute groups have been parsed (see apply_attribute_groups method)
 
         attrs
     }

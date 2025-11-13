@@ -740,6 +740,9 @@ impl Verifier {
             self.verify_allocsize_attribute(indices, function);
         }
 
+        // Validate string attributes
+        self.verify_string_attributes(&attrs.string_attributes, &fn_name);
+
         // Verify parameter attributes (for both declarations and definitions)
         self.verify_parameter_attributes(function);
 
@@ -3994,6 +3997,75 @@ impl Verifier {
                 reason: "'allockind()' can't be both zeroed and uninitialized".to_string(),
                 location: format!("function {}", fn_name),
             });
+        }
+    }
+
+    /// Verify string attributes from attribute groups
+    fn verify_string_attributes(&mut self, string_attrs: &std::collections::HashMap<String, String>, fn_name: &str) {
+        // Validate frame-pointer attribute
+        if let Some(value) = string_attrs.get("frame-pointer") {
+            if !matches!(value.as_str(), "all" | "non-leaf" | "none") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'frame-pointer' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate no-jump-tables attribute (must be "true" or "false")
+        if let Some(value) = string_attrs.get("no-jump-tables") {
+            if !matches!(value.as_str(), "true" | "false") {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("invalid value for 'no-jump-tables' attribute: {}", value),
+                    location: format!("function {}", fn_name),
+                });
+            }
+        }
+
+        // Validate denormal-fp-math attribute
+        if let Some(value) = string_attrs.get("denormal-fp-math") {
+            if !value.is_empty() {
+                let parts: Vec<&str> = value.split(',').collect();
+                if parts.len() > 2 {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("invalid value for 'denormal-fp-math' attribute: {}", value),
+                        location: format!("function {}", fn_name),
+                    });
+                } else {
+                    for part in parts {
+                        if !matches!(part.trim(), "ieee" | "preserve-sign" | "positive-zero" | "dynamic") {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: format!("invalid value for 'denormal-fp-math' attribute: {}", value),
+                                location: format!("function {}", fn_name),
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Validate denormal-fp-math-f32 attribute (same rules as denormal-fp-math)
+        if let Some(value) = string_attrs.get("denormal-fp-math-f32") {
+            if !value.is_empty() {
+                let parts: Vec<&str> = value.split(',').collect();
+                if parts.len() > 2 {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("invalid value for 'denormal-fp-math-f32' attribute: {}", value),
+                        location: format!("function {}", fn_name),
+                    });
+                } else {
+                    for part in parts {
+                        if !matches!(part.trim(), "ieee" | "preserve-sign" | "positive-zero" | "dynamic") {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: format!("invalid value for 'denormal-fp-math-f32' attribute: {}", value),
+                                location: format!("function {}", fn_name),
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
         }
     }
 
