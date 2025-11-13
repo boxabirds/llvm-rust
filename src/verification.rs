@@ -504,6 +504,30 @@ impl Verifier {
             });
         }
 
+        // Naked functions cannot use their arguments
+        if attrs.naked {
+            for block in function.basic_blocks() {
+                for inst in block.instructions() {
+                    // Check if any operand is a function argument
+                    for operand in inst.operands() {
+                        if let Some(operand_name) = operand.name() {
+                            // Check if this operand matches any argument name
+                            for arg in function.arguments() {
+                                if let Some(arg_name) = arg.name() {
+                                    if arg_name == operand_name {
+                                        self.errors.push(VerificationError::InvalidInstruction {
+                                            reason: "cannot use argument of naked function".to_string(),
+                                            location: format!("function {}", fn_name),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Validate allockind attribute
         if let Some(ref kinds) = attrs.allockind {
             self.verify_allockind_attribute(kinds, &fn_name);
