@@ -1092,11 +1092,36 @@ impl Verifier {
                             });
                         }
 
-                        // Bitcast between pointers and non-pointers requires compatible sizes
+                        // Check if types involve vectors of pointers
                         let src_is_ptr = src_type.is_pointer();
                         let dst_is_ptr = dst_type.is_pointer();
+                        let src_is_vec_of_ptr = src_type.is_vector() &&
+                            src_type.vector_info().map_or(false, |(elem, _)| elem.is_pointer());
+                        let dst_is_vec_of_ptr = dst_type.is_vector() &&
+                            dst_type.vector_info().map_or(false, |(elem, _)| elem.is_pointer());
 
-                        if src_is_ptr != dst_is_ptr {
+                        // Cannot bitcast between scalar pointer and vector of pointers with size != 1
+                        if (src_is_ptr && dst_is_vec_of_ptr) || (src_is_vec_of_ptr && dst_is_ptr) {
+                            let vec_size = if dst_is_vec_of_ptr {
+                                dst_type.vector_info().map(|(_, size)| size).unwrap_or(0)
+                            } else {
+                                src_type.vector_info().map(|(_, size)| size).unwrap_or(0)
+                            };
+                            // Only error if vector size is not 1 (size 1 is allowed, same size as scalar)
+                            if vec_size != 1 {
+                                self.errors.push(VerificationError::InvalidCast {
+                                    from: format!("{:?}", src_type),
+                                    to: format!("{:?}", dst_type),
+                                    reason: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        if src_is_ptr { "ptr" } else { &format!("{:?}", src_type) },
+                                        if dst_is_vec_of_ptr { &format!("{:?}", dst_type) } else { "ptr" }),
+                                    location: "bitcast instruction".to_string(),
+                                });
+                            }
+                        }
+
+                        // Bitcast between pointers and non-pointers requires compatible sizes
+                        if src_is_ptr != dst_is_ptr && !src_is_vec_of_ptr && !dst_is_vec_of_ptr {
                             // One is pointer, other is not - check if non-pointer is integer
                             let non_ptr_type = if src_is_ptr { dst_type.clone() } else { src_type.clone() };
                             if !non_ptr_type.is_integer() && !non_ptr_type.is_vector() {
@@ -1109,15 +1134,35 @@ impl Verifier {
                             }
                         }
 
-                        // Bitcast cannot change address space
-                        if src_is_ptr && dst_is_ptr {
-                            let src_addrspace = src_type.address_space().unwrap_or(0);
-                            let dst_addrspace = dst_type.address_space().unwrap_or(0);
+                        // Bitcast cannot change address space (both scalar and vector pointers)
+                        let check_addrspace = (src_is_ptr && dst_is_ptr) ||
+                            (src_is_vec_of_ptr && dst_is_vec_of_ptr);
+                        if check_addrspace {
+                            let src_addrspace = if src_is_ptr {
+                                src_type.address_space().unwrap_or(0)
+                            } else {
+                                src_type.vector_info()
+                                    .and_then(|(elem, _)| elem.address_space())
+                                    .unwrap_or(0)
+                            };
+                            let dst_addrspace = if dst_is_ptr {
+                                dst_type.address_space().unwrap_or(0)
+                            } else {
+                                dst_type.vector_info()
+                                    .and_then(|(elem, _)| elem.address_space())
+                                    .unwrap_or(0)
+                            };
                             if src_addrspace != dst_addrspace {
+                                let src_desc = if src_is_ptr { format!("ptr") } else { format!("<{:?}>", src_type) };
+                                let dst_desc = if dst_is_ptr {
+                                    format!("ptr addrspace({})", dst_addrspace)
+                                } else {
+                                    format!("<{:?}>", dst_type)
+                                };
                                 self.errors.push(VerificationError::InvalidCast {
                                     from: format!("{:?}", src_type),
                                     to: format!("{:?}", dst_type),
-                                    reason: format!("invalid cast opcode for cast from 'ptr' to 'ptr addrspace({})'", dst_addrspace),
+                                    reason: format!("invalid cast opcode for cast from '{}' to '{}'", src_desc, dst_desc),
                                     location: "bitcast instruction".to_string(),
                                 });
                             }
