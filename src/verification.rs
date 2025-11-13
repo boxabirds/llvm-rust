@@ -2162,6 +2162,7 @@ impl Verifier {
         let mut sret_idx = None;
         let mut swifterror_count = 0;
         let mut swiftself_count = 0;
+        let mut swiftasync_count = 0;
 
         // Verify parameter attributes
         for (idx, param_attrs) in attrs.parameter_attributes.iter().enumerate() {
@@ -2186,6 +2187,11 @@ impl Verifier {
             // Track swiftself for multi-parameter check
             if param_attrs.swiftself {
                 swiftself_count += 1;
+            }
+
+            // Track swiftasync for multi-parameter check
+            if param_attrs.swiftasync {
+                swiftasync_count += 1;
             }
 
             // Check align attribute - must be pointer type
@@ -2391,6 +2397,14 @@ impl Verifier {
         if swiftself_count > 1 {
             self.errors.push(VerificationError::InvalidInstruction {
                 reason: "Cannot have multiple 'swiftself' parameters!".to_string(),
+                location: format!("@{}", fn_name),
+            });
+        }
+
+        // Check for multiple swiftasync parameters
+        if swiftasync_count > 1 {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Cannot have multiple 'swiftasync' parameters!".to_string(),
                 location: format!("@{}", fn_name),
             });
         }
