@@ -465,7 +465,8 @@ impl Verifier {
                         }
                     }
                 }
-                // TODO: Also need to check for zeroinitializer, but that requires better constant analysis
+                // TODO: Also check for explicit zeroinitializer, but need to handle
+                // the case where valid array initializers aren't being confused with zero
             }
         }
 

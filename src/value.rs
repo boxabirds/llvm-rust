@@ -233,6 +233,11 @@ impl Value {
         }
     }
 
+    /// Check if this value is explicitly a zero initializer
+    pub fn is_zero_initializer(&self) -> bool {
+        matches!(&self.data.kind, ValueKind::ZeroInitializer)
+    }
+
     /// Check if this value is a one value (const 1)
     pub fn is_one(&self) -> bool {
         match &self.data.kind {
