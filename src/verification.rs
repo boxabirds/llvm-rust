@@ -380,6 +380,24 @@ impl Verifier {
     fn verify_global_variable(&mut self, global: &crate::module::GlobalVariable) {
         use crate::module::{Linkage, Visibility};
 
+        // Check intrinsic global variables
+        if global.name == "llvm.used" || global.name == "llvm.compiler.used" {
+            // Must be array of pointers
+            let valid_type = if let Some(array_info) = global.ty.array_info() {
+                let (elem_type, _) = array_info;
+                elem_type.is_pointer()
+            } else {
+                false
+            };
+
+            if !valid_type {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "wrong type for intrinsic global variable".to_string(),
+                    location: format!("global variable @{}", global.name),
+                });
+            }
+        }
+
         // Check linkage + visibility constraints
         // Private/internal linkage requires default visibility
         if matches!(global.linkage, Linkage::Private | Linkage::Internal) {
