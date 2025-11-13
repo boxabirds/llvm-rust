@@ -141,6 +141,8 @@ pub struct ParameterAttributes {
     pub swiftasync: bool,
     pub immarg: bool,
     pub align: Option<u32>,
+    pub dead_on_return: bool,
+    pub dead_on_unwind: bool,
 }
 
 /// A function in LLVM IR

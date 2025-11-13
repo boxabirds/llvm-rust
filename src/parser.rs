@@ -4530,6 +4530,26 @@ impl Parser {
                 }
             }
 
+            // Handle dead_on_return
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "dead_on_return" {
+                    self.advance();
+                    attrs.dead_on_return = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle dead_on_unwind
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "dead_on_unwind" {
+                    self.advance();
+                    attrs.dead_on_unwind = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
             // Handle other attributes that we need to skip but don't parse yet
             if self.match_token(&Token::Preallocated) {
                 if self.check(&Token::LParen) {

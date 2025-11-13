@@ -2805,6 +2805,26 @@ impl Verifier {
                 }
             }
 
+            // Check dead_on_return attribute - must be pointer type
+            if param_attrs.dead_on_return {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'dead_on_return' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check dead_on_unwind attribute - must be pointer type
+            if param_attrs.dead_on_unwind {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'dead_on_unwind' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
             // Check byref attribute
             if let Some(byref_ty) = &param_attrs.byref {
                 // Must be pointer type
