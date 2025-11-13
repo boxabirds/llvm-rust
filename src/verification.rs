@@ -2271,25 +2271,28 @@ impl Verifier {
             // Each entry must be a metadata tuple with exactly one string operand
             for entry in &cmdline_entries {
                 if let Some(entry_ops) = entry.operands() {
-                    if entry_ops.len() != 1 {
+                    if entry_ops.len() == 0 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "incorrect number of operands in llvm.commandline metadata".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    } else if entry_ops.len() > 1 {
                         self.errors.push(VerificationError::InvalidMetadata {
                             reason: "incorrect number of operands in llvm.commandline metadata".to_string(),
                             location: "llvm.commandline".to_string(),
                         });
                     } else if !entry_ops[0].is_string() {
                         self.errors.push(VerificationError::InvalidMetadata {
-                            reason: "llvm.commandline metadata entry must be a string".to_string(),
+                            reason: "llvm.commandline metadata operand must be a string".to_string(),
                             location: "llvm.commandline".to_string(),
                         });
                     }
-                } else {
-                    // Not a tuple, check if it's a single string
-                    if !entry.is_string() {
-                        self.errors.push(VerificationError::InvalidMetadata {
-                            reason: "llvm.commandline entry must be a metadata node with one string".to_string(),
-                            location: "llvm.commandline".to_string(),
-                        });
-                    }
+                } else if !entry.is_string() {
+                    // Not a tuple - must be a direct string
+                    self.errors.push(VerificationError::InvalidMetadata {
+                        reason: "llvm.commandline entry must be a metadata node with one string".to_string(),
+                        location: "llvm.commandline".to_string(),
+                    });
                 }
             }
         }

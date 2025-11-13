@@ -238,6 +238,17 @@ impl Parser {
                     if let Ok(metadata) = self.parse_metadata_node() {
                         // Store in registry for later reference
                         self.metadata_registry.insert(metadata_name.clone(), metadata.clone());
+
+                        // Add to module if it's a named metadata (starts with "llvm.")
+                        if metadata_name.starts_with("llvm.") {
+                            // Named metadata can be a tuple of metadata nodes
+                            if let Some(operands) = metadata.operands() {
+                                module.add_named_metadata(metadata_name.clone(), operands.clone());
+                            } else {
+                                // Single metadata node - wrap in vector
+                                module.add_named_metadata(metadata_name.clone(), vec![metadata.clone()]);
+                            }
+                        }
                     } else {
                         // If parsing fails, skip it
                         self.skip_metadata();
