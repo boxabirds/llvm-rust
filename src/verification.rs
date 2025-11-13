@@ -380,6 +380,14 @@ impl Verifier {
     fn verify_global_variable(&mut self, global: &crate::module::GlobalVariable) {
         use crate::module::{Linkage, Visibility};
 
+        // Global variables cannot have token type
+        if global.ty.is_token() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "invalid type for global variable".to_string(),
+                location: format!("global variable @{}", global.name),
+            });
+        }
+
         // Check intrinsic global variables
         if global.name == "llvm.used" || global.name == "llvm.compiler.used" {
             // Must be array of pointers
