@@ -865,7 +865,7 @@ impl Parser {
         let name = self.expect_global_ident()?;
 
         self.consume(&Token::LParen)?;
-        let (params, param_attrs) = self.parse_parameters()?;
+        let (params, param_attrs, is_vararg) = self.parse_parameters()?;
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
@@ -875,7 +875,7 @@ impl Parser {
 
         // Create function
         let param_types: Vec<Type> = params.iter().map(|(ty, _)| ty.clone()).collect();
-        let fn_type = self.context.function_type(return_type, param_types, false);
+        let fn_type = self.context.function_type(return_type, param_types, is_vararg);
         let function = Function::new(name, fn_type);
         function.set_linkage(linkage);
         function.set_visibility(visibility);
@@ -3727,14 +3727,16 @@ impl Parser {
         Ok(Value::instruction(ty, opcode, Some("constexpr".to_string())))
     }
 
-    fn parse_parameters(&mut self) -> ParseResult<(Vec<(Type, String)>, Vec<crate::function::ParameterAttributes>)> {
+    fn parse_parameters(&mut self) -> ParseResult<(Vec<(Type, String)>, Vec<crate::function::ParameterAttributes>, bool)> {
         let mut params = Vec::new();
         let mut param_attrs = Vec::new();
+        let mut is_vararg = false;
 
         while !self.check(&Token::RParen) && !self.is_at_end() {
             // Check for varargs (just ellipsis with no type)
             if self.check(&Token::Ellipsis) {
                 self.advance();
+                is_vararg = true;
                 break;
             }
 
@@ -3758,7 +3760,7 @@ impl Parser {
             }
         }
 
-        Ok((params, param_attrs))
+        Ok((params, param_attrs, is_vararg))
     }
 
     fn parse_parameter_types(&mut self) -> ParseResult<(Vec<Type>, Vec<crate::function::ParameterAttributes>, bool)> {
@@ -4126,6 +4128,7 @@ impl Parser {
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if matches!(attr.as_str(), "noundef") {
                     self.advance();
+                    attrs.noundef = true;
                     continue;
                 }
                 // Handle identifier-based attributes with parameters: nofpclass(...), range(...), etc.

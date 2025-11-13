@@ -380,6 +380,50 @@ impl Verifier {
     fn verify_global_variable(&mut self, global: &crate::module::GlobalVariable) {
         use crate::module::{Linkage, Visibility};
 
+        // Global variables cannot have token type
+        if global.ty.is_token() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "invalid type for global variable".to_string(),
+                location: format!("global variable @{}", global.name),
+            });
+        }
+
+        // Global variable initializer must be sized
+        if global.initializer.is_some() && !global.ty.is_sized() {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Global variable initializer must be sized".to_string(),
+                location: format!("global variable @{}", global.name),
+            });
+        }
+
+        // Appending linkage can only be used with global arrays
+        if matches!(global.linkage, Linkage::Appending) {
+            if !global.ty.is_array() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Only global arrays can have appending linkage!".to_string(),
+                    location: format!("ptr @{}", global.name),
+                });
+            }
+        }
+
+        // Check intrinsic global variables
+        if global.name == "llvm.used" || global.name == "llvm.compiler.used" {
+            // Must be array of pointers
+            let valid_type = if let Some(array_info) = global.ty.array_info() {
+                let (elem_type, _) = array_info;
+                elem_type.is_pointer()
+            } else {
+                false
+            };
+
+            if !valid_type {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "wrong type for intrinsic global variable".to_string(),
+                    location: format!("global variable @{}", global.name),
+                });
+            }
+        }
+
         // Check linkage + visibility constraints
         // Private/internal linkage requires default visibility
         if matches!(global.linkage, Linkage::Private | Linkage::Internal) {
@@ -556,13 +600,47 @@ impl Verifier {
         }
 
         // Verify parameter types
-        if let Some((ret_type, param_types, _)) = fn_type.function_info() {
+        if let Some((ret_type, param_types, is_varargs)) = fn_type.function_info() {
+            use crate::function::CallingConvention;
+
             // Check return type - non-intrinsic functions cannot return token
             if ret_type.is_token() && !fn_name.starts_with("llvm.") {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: "Function returns a token but isn't an intrinsic".to_string(),
                     location: format!("function {}", fn_name),
                 });
+            }
+
+            // Check calling convention restrictions on return type
+            let cc = function.calling_convention();
+            match cc {
+                CallingConvention::AMDGPU_Kernel | CallingConvention::SPIR_Kernel => {
+                    if !ret_type.is_void() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention requires void return type".to_string(),
+                            location: format!("function {}", fn_name),
+                        });
+                    }
+                }
+                _ => {}
+            }
+
+            // Check calling convention restrictions on varargs
+            match cc {
+                CallingConvention::AMDGPU_Kernel |
+                CallingConvention::AMDGPU_VS |
+                CallingConvention::AMDGPU_GS |
+                CallingConvention::AMDGPU_PS |
+                CallingConvention::AMDGPU_CS |
+                CallingConvention::SPIR_Kernel => {
+                    if is_varargs {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention does not support varargs or perfect forwarding!".to_string(),
+                            location: format!("function {}", fn_name),
+                        });
+                    }
+                }
+                _ => {}
             }
 
             for (idx, param_type) in param_types.iter().enumerate() {
@@ -1540,6 +1618,13 @@ impl Verifier {
                                 location: "alloca instruction".to_string(),
                             });
                         }
+                        // Cannot allocate token type
+                        if pointee.is_token() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "invalid type for alloca".to_string(),
+                                location: "alloca instruction".to_string(),
+                            });
+                        }
                     }
                 }
             }
@@ -1805,7 +1890,7 @@ impl Verifier {
                     // Value must be sized (structs are sized in LLVM)
                     if !value_type.is_sized() {
                         self.errors.push(VerificationError::InvalidInstruction {
-                            reason: format!("store value must be sized type, got {:?}", value_type),
+                            reason: "storing unsized types is not allowed".to_string(),
                             location: "store instruction".to_string(),
                         });
                     }
@@ -1853,7 +1938,7 @@ impl Verifier {
 
                     if !result_type.is_sized() {
                         self.errors.push(VerificationError::InvalidInstruction {
-                            reason: format!("load result must be sized type, got {:?}", result_type),
+                            reason: "loading unsized types is not allowed".to_string(),
                             location: "load instruction".to_string(),
                         });
                     }
@@ -2267,6 +2352,8 @@ impl Verifier {
 
     /// Verify parameter attributes
     fn verify_parameter_attributes(&mut self, function: &Function) {
+        use crate::function::CallingConvention;
+
         let fn_name = function.name();
         let fn_type = function.get_type();
         let is_varargs = fn_type.function_info().map(|(_,_,v)| v).unwrap_or(false);
@@ -2314,6 +2401,16 @@ impl Verifier {
             if !return_type.is_integer() {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: format!("Attribute 'zeroext' applied to incompatible type!"),
+                    location: format!("@{}", fn_name),
+                });
+            }
+        }
+
+        // Check noundef on return type - cannot be applied to void
+        if ret_attrs.noundef {
+            if return_type.is_void() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'noundef' applied to incompatible type!"),
                     location: format!("@{}", fn_name),
                 });
             }
@@ -2424,6 +2521,15 @@ impl Verifier {
                         location: format!("@{}", fn_name),
                     });
                 }
+
+                // Check calling convention restrictions on sret
+                let cc = function.calling_convention();
+                if matches!(cc, CallingConvention::AMDGPU_Kernel) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention does not allow sret".to_string(),
+                        location: format!("function {}", fn_name),
+                    });
+                }
             }
 
             // Check byval attribute - must be pointer type
@@ -2432,6 +2538,15 @@ impl Verifier {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'byval(i32)' applied to incompatible type!"),
                         location: format!("@{}", fn_name),
+                    });
+                }
+
+                // Check calling convention restrictions on byval
+                let cc = function.calling_convention();
+                if matches!(cc, CallingConvention::AMDGPU_Kernel) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Calling convention disallows byval".to_string(),
+                        location: format!("function {}", fn_name),
                     });
                 }
 
@@ -2901,6 +3016,43 @@ impl Verifier {
     fn verify_intrinsic_call(&mut self, inst: &Instruction, intrinsic_name: &str) {
         let operands = inst.operands();
 
+        // Check if intrinsic varargs declaration matches requirements
+        if operands.len() >= 1 {
+            let callee = &operands[0];
+            let callee_type = callee.get_type();
+
+            if let Some(fn_type) = if callee_type.is_pointer() {
+                callee_type.pointee_type()
+            } else if callee_type.is_function() {
+                Some(callee_type)
+            } else {
+                None
+            } {
+                if let Some((_, _, declared_varargs)) = fn_type.function_info() {
+                    // Check intrinsics that MUST be varargs
+                    if intrinsic_name.starts_with("llvm.experimental.stackmap") ||
+                       intrinsic_name.starts_with("llvm.experimental.patchpoint") {
+                        if !declared_varargs {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Callsite was not defined with variable arguments!".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+
+                    // Check intrinsics that MUST NOT be varargs
+                    if intrinsic_name == "llvm.donothing" {
+                        if declared_varargs {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Intrinsic was not defined with variable arguments!".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
         // Check immarg parameters - some intrinsic parameters must be immediate (constant) values
         self.verify_intrinsic_immarg(inst, intrinsic_name, operands);
 
@@ -3070,19 +3222,13 @@ impl Verifier {
         }
 
         // llvm.va_start - must be called in a varargs function
-        // TODO: Re-enable once parser correctly sets varargs flag
-        // Currently causing false positive on tbaa-allowed.ll
         if intrinsic_name == "llvm.va_start" {
-            // Temporarily disabled to avoid false positive
-            // The parser may not be correctly setting the varargs flag on function types
-            /*
             if !self.current_function_is_varargs {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: "va_start called in a non-varargs function".to_string(),
                     location: format!("call to {}", intrinsic_name),
                 });
             }
-            */
         }
 
         // llvm.abs - integer absolute value intrinsic
