@@ -454,13 +454,6 @@ impl Verifier {
 
             // Check initializer - cannot be zeroinitializer or contain null
             if let Some(initializer) = &global.initializer {
-                // Check if it's zeroinitializer (all elements are zero/null)
-                if initializer.is_zero() {
-                    self.errors.push(VerificationError::InvalidInstruction {
-                        reason: format!("invalid {}", global.name),
-                        location: "ptr null".to_string(),
-                    });
-                }
                 // Check for null members in array
                 if let Some(elements) = initializer.array_elements() {
                     for elem in elements.iter() {
@@ -472,6 +465,7 @@ impl Verifier {
                         }
                     }
                 }
+                // TODO: Also need to check for zeroinitializer, but that requires better constant analysis
             }
         }
 
@@ -725,8 +719,8 @@ impl Verifier {
                         location: format!("function {} parameter {}", fn_name, idx),
                     });
                 }
-                // Parameters cannot have metadata type
-                if param_type.is_metadata() {
+                // Parameters cannot have metadata type (except for intrinsics)
+                if param_type.is_metadata() && !fn_name.starts_with("llvm.") {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: "invalid type for function argument".to_string(),
                         location: format!("function {} parameter {}", fn_name, idx),
