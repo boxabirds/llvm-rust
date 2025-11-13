@@ -234,6 +234,7 @@ impl Verifier {
 
         // Verify module-level metadata
         self.verify_module_flags(module);
+        self.verify_named_metadata(module);
 
         if self.errors.is_empty() {
             Ok(())
@@ -2260,6 +2261,43 @@ impl Verifier {
 
         // Validate exception handling control flow
         self.verify_exception_handling_cfg(function);
+    }
+
+    /// Verify named module metadata (llvm.commandline, etc.)
+    fn verify_named_metadata(&mut self, module: &Module) {
+        // Verify llvm.commandline metadata structure
+        if let Some(cmdline_entries) = module.get_named_metadata("llvm.commandline") {
+            // cmdline_entries is a Vec<Metadata>
+            // Each entry must be a metadata tuple with exactly one string operand
+            for entry in &cmdline_entries {
+                if let Some(entry_ops) = entry.operands() {
+                    if entry_ops.len() != 1 {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "incorrect number of operands in llvm.commandline metadata".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    } else if !entry_ops[0].is_string() {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "llvm.commandline metadata entry must be a string".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    }
+                } else {
+                    // Not a tuple, check if it's a single string
+                    if !entry.is_string() {
+                        self.errors.push(VerificationError::InvalidMetadata {
+                            reason: "llvm.commandline entry must be a metadata node with one string".to_string(),
+                            location: "llvm.commandline".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+
+        // TODO: Add more named metadata validations as needed
+        // - llvm.dbg.cu
+        // - llvm.ident
+        // - llvm.module.flags (already done in verify_module_flags)
     }
 
     /// Verify exception handling control flow constraints
