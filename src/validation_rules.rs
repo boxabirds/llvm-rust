@@ -267,6 +267,45 @@ impl ValidationRules {
                 });
             }
         }
+
+        // align can only be applied to pointer types
+        if let Some(align_val) = attrs.align {
+            if !param_type.is_pointer() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: format!("Attribute 'align {}' applied to incompatible type!", align_val),
+                    location: format!("@{}", func_name),
+                });
+            }
+
+            // Alignment must be a power of two
+            if align_val == 0 || (align_val & (align_val - 1)) != 0 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "alignment is not a power of two".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+
+            // Check for huge alignments (> 2^29)
+            const MAX_ALIGN: u32 = 1 << 29;
+            if align_val > MAX_ALIGN {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "huge alignments are not supported yet".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+        }
+
+        // immarg must only be used with constant arguments (checked during call validation)
+        // Note: The actual check for immarg requires checking call sites, which is more complex
+        // For now, we just validate that immarg is only on integer types
+        if attrs.immarg {
+            if !param_type.is_integer() && !param_type.is_vector() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg attribute only applies to integers and vectors".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+        }
     }
 }
 
