@@ -128,6 +128,7 @@ pub struct ParameterAttributes {
     pub inreg: bool,
     pub byval: Option<Type>,
     pub inalloca: Option<Type>,
+    pub byref: Option<Type>,
     pub sret: Option<Type>,
     pub noalias: bool,
     pub nocapture: bool,

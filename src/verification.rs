@@ -2288,6 +2288,9 @@ impl Verifier {
                 // Just a note for future enhancement
             }
         }
+
+        // TODO: Add validation that invoke results cannot be used in unwind paths
+        // This requires proper CFG analysis and SSA def-use chains
     }
 
     /// Verify calling convention constraints
@@ -2733,6 +2736,57 @@ impl Verifier {
                 if !param_type.is_pointer() {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: format!("Attribute 'dereferenceable' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check byref attribute
+            if let Some(byref_ty) = &param_attrs.byref {
+                // Must be pointer type
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: format!("Attribute 'byref(i32)' applied to incompatible type!"),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+
+                // byref type must be sized
+                if !byref_ty.is_sized() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attribute 'byref' does not support unsized types!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+
+                // Check for incompatible attribute combinations with byref
+                if param_attrs.byval.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.inalloca.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.sret.is_some() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.inreg {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
+                        location: format!("@{}", fn_name),
+                    });
+                }
+                if param_attrs.nest {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
                         location: format!("@{}", fn_name),
                     });
                 }

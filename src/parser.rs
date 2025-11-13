@@ -4486,6 +4486,22 @@ impl Parser {
                 continue;
             }
 
+            // Handle byref(type) - identifier-based attribute
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "byref" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        if let Ok(ty) = self.parse_type() {
+                            attrs.byref = Some(ty);
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
             // Handle dereferenceable(N)
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if attr == "dereferenceable" {
