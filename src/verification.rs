@@ -2752,6 +2752,9 @@ impl Verifier {
     fn verify_intrinsic_call(&mut self, inst: &Instruction, intrinsic_name: &str) {
         let operands = inst.operands();
 
+        // Check immarg parameters - some intrinsic parameters must be immediate (constant) values
+        self.verify_intrinsic_immarg(inst, intrinsic_name, operands);
+
         // llvm.va_start - must be called in a varargs function
         // Note: Temporarily disabled - need to ensure parser correctly sets is_varargs
         // if intrinsic_name == "llvm.va_start" {
@@ -3008,6 +3011,165 @@ impl Verifier {
                         });
                     }
                 }
+            }
+        }
+    }
+
+    /// Verify immarg (immediate argument) parameters for intrinsics
+    /// Certain intrinsic parameters must be constant values, not variables
+    fn verify_intrinsic_immarg(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+        // Helper to check if operand at index is not a constant
+        let check_immarg = |idx: usize| -> bool {
+            if operands.len() > idx {
+                let operand = &operands[idx];
+                // Operands with names are variables (non-constant)
+                // Constants typically don't have names, or are represented differently
+                !operand.is_constant()
+            } else {
+                false
+            }
+        };
+
+        // Define immarg parameter positions for each intrinsic family
+        // Format: (intrinsic_prefix, vec![param_indices_that_must_be_constant])
+        // Note: indices include the function itself at position 0, so actual args start at 1
+
+        // llvm.memcpy, llvm.memmove, llvm.memset - is_volatile must be constant
+        if intrinsic_name.starts_with("llvm.memcpy.") ||
+           intrinsic_name.starts_with("llvm.memmove.") ||
+           intrinsic_name.starts_with("llvm.memset.") {
+            if check_immarg(4) { // is_volatile parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.memcpy.element.unordered.atomic - element_size must be constant
+        if intrinsic_name.starts_with("llvm.memcpy.element.unordered.atomic") ||
+           intrinsic_name.starts_with("llvm.memmove.element.unordered.atomic") ||
+           intrinsic_name.starts_with("llvm.memset.element.unordered.atomic") {
+            if check_immarg(4) { // element_size parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.returnaddress, llvm.frameaddress - level must be constant
+        if intrinsic_name.starts_with("llvm.returnaddress") ||
+           intrinsic_name.starts_with("llvm.frameaddress") {
+            if check_immarg(1) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.objectsize - boolean flags must be constant
+        if intrinsic_name.starts_with("llvm.objectsize.") {
+            for i in 2..5 {
+                if check_immarg(i) {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg operand has non-immediate parameter".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                    break;
+                }
+            }
+        }
+
+        // llvm.smul.fix, llvm.umul.fix, llvm.smul.fix.sat, llvm.umul.fix.sat - scale must be constant
+        if intrinsic_name.starts_with("llvm.smul.fix.") ||
+           intrinsic_name.starts_with("llvm.umul.fix.") {
+            if check_immarg(3) { // scale parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.invariant.start - size must be constant
+        if intrinsic_name.starts_with("llvm.invariant.start.") {
+            if check_immarg(1) { // size parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.invariant.end - size must be constant
+        if intrinsic_name.starts_with("llvm.invariant.end.") {
+            if check_immarg(2) { // size parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.prefetch - rw, locality, cache type must be constant
+        if intrinsic_name.starts_with("llvm.prefetch") {
+            if check_immarg(2) || check_immarg(3) || check_immarg(4) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.localrecover - index must be constant
+        if intrinsic_name.starts_with("llvm.localrecover") {
+            if check_immarg(3) { // index parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.experimental.gc.statepoint - ID, num_patch_bytes, num_call_args, flags must be constant
+        if intrinsic_name.starts_with("llvm.experimental.gc.statepoint.") {
+            if check_immarg(1) || check_immarg(2) || check_immarg(4) || check_immarg(5) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.experimental.patchpoint - ID, num_bytes, num_args must be constant
+        if intrinsic_name.starts_with("llvm.experimental.patchpoint.") {
+            if check_immarg(1) || check_immarg(2) || check_immarg(4) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.hwasan.check.memaccess - access_info must be constant
+        if intrinsic_name.starts_with("llvm.hwasan.check.memaccess") {
+            if check_immarg(3) { // access_info parameter
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+        }
+
+        // llvm.eh.sjlj.callsite - callsite index must be constant
+        if intrinsic_name.starts_with("llvm.eh.sjlj.callsite") {
+            if check_immarg(1) {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "immarg operand has non-immediate parameter".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
             }
         }
     }
