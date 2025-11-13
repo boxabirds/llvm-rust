@@ -820,6 +820,9 @@ impl<'a> Verifier<'a> {
         // Verify control flow
         self.verify_control_flow(function);
 
+        // Verify invoke result usage
+        self.verify_invoke_results(function);
+
         // Verify calling convention constraints
         self.verify_calling_convention(function);
     }
@@ -2268,6 +2271,52 @@ impl<'a> Verifier<'a> {
 
         // Validate exception handling control flow
         self.verify_exception_handling_cfg(function);
+    }
+
+    /// Verify that invoke results are not used in unwind blocks
+    fn verify_invoke_results(&mut self, function: &Function) {
+        // Collect all invoke instructions and their unwind successors
+        let mut invoke_results_and_unwind_blocks = Vec::new();
+
+        for bb in function.basic_blocks() {
+            for inst in bb.instructions() {
+                if inst.opcode() == Opcode::Invoke {
+                    // Get the result value if it exists
+                    if let Some(result) = inst.result() {
+                        if let Some(result_name) = result.name() {
+                            // Get the unwind successor (second successor)
+                            if let Some(unwind_label) = inst.unwind_successor() {
+                                invoke_results_and_unwind_blocks.push((result_name.to_string(), unwind_label.to_string()));
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Now check that these invoke results are not used in their unwind blocks
+        for (invoke_result, unwind_label) in invoke_results_and_unwind_blocks {
+            // Find the unwind block
+            for bb in function.basic_blocks() {
+                if let Some(bb_name) = bb.name() {
+                    if bb_name == unwind_label {
+                        // This is the unwind block - check if invoke result is used here
+                        for inst in bb.instructions() {
+                            for operand in inst.operands() {
+                                if let Some(operand_name) = operand.name() {
+                                    if operand_name == invoke_result {
+                                        self.errors.push(VerificationError::InvalidSSA {
+                                            value: invoke_result.clone(),
+                                            location: format!("invoke result used in unwind block {}", bb_name),
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Verify named module metadata (llvm.commandline, etc.)

@@ -1270,7 +1270,7 @@ impl Parser {
         };
 
         // Parse operands and get result type if instruction produces one
-        let (operands, result_type, gep_source_type, alignment, is_atomic) = self.parse_instruction_operands(opcode)?;
+        let (operands, result_type, gep_source_type, alignment, is_atomic, successors) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -1342,6 +1342,11 @@ impl Parser {
         // Set atomic flag if specified
         if is_atomic {
             inst.set_atomic(true);
+        }
+
+        // Set successors for branching instructions
+        if !successors.is_empty() {
+            inst.set_successors(successors);
         }
 
         // Attach metadata to the instruction
@@ -1426,12 +1431,13 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool)> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool, Vec<String>)> {
         let mut operands = Vec::new();
         let mut result_type: Option<Type> = None;
         let mut gep_source_type_field: Option<Type> = None;
         let mut alignment: Option<u64> = None;
         let mut is_atomic = false;
+        let mut successors: Vec<String> = Vec::new();
 
         // Parse based on instruction type
         match opcode {
@@ -1447,7 +1453,7 @@ impl Parser {
                         // Check if current token is followed by colon (label definition)
                         if self.peek_ahead(1) == Some(&Token::Colon) {
                             // This is a label, not a return value
-                            return Ok((operands, result_type, None, None, false));
+                            return Ok((operands, result_type, None, None, false, Vec::new()));
                         }
                         // Try to parse a value - if the type is void, there might not be one
                         if !ty.is_void() {
@@ -2020,6 +2026,10 @@ impl Parser {
                 self.consume(&Token::To)?;
                 self.consume(&Token::Label)?;
                 let normal_dest = self.expect_local_ident()?;
+
+                // Add to successors for CFG analysis
+                successors.push(normal_dest.clone());
+
                 operands.push(Value::new(
                     self.context.label_type(),
                     crate::value::ValueKind::BasicBlock,
@@ -2034,6 +2044,10 @@ impl Parser {
                 }
                 self.consume(&Token::Label)?;
                 let exception_dest = self.expect_local_ident()?;
+
+                // Add to successors for CFG analysis
+                successors.push(exception_dest.clone());
+
                 operands.push(Value::new(
                     self.context.label_type(),
                     crate::value::ValueKind::BasicBlock,
@@ -2424,7 +2438,7 @@ impl Parser {
             }
         }
 
-        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic))
+        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic, successors))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {

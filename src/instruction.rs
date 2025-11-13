@@ -25,6 +25,9 @@ pub struct Instruction {
 
     // Alignment for load, store, alloca instructions
     alignment: Option<u64>,
+
+    // Successor labels for branch/invoke/switch instructions
+    successors: Vec<String>,  // e.g., for br: ["label"], for invoke: ["normal_label", "unwind_label"]
 }
 
 /// Instruction opcodes
@@ -132,6 +135,7 @@ impl Instruction {
             is_volatile: false,
             atomic_ordering: None,
             alignment: None,
+            successors: Vec::new(),
         }
     }
 
@@ -258,6 +262,36 @@ impl Instruction {
     /// Get the alignment for this instruction
     pub fn alignment(&self) -> Option<u64> {
         self.alignment
+    }
+
+    // Successor accessors (for branch/invoke/switch instructions)
+
+    /// Set successors for branching instructions
+    pub fn set_successors(&mut self, successors: Vec<String>) {
+        self.successors = successors;
+    }
+
+    /// Get successors for branching instructions
+    pub fn successors(&self) -> &[String] {
+        &self.successors
+    }
+
+    /// Get the normal successor for invoke (first successor)
+    pub fn normal_successor(&self) -> Option<&str> {
+        if self.opcode == Opcode::Invoke {
+            self.successors.get(0).map(|s| s.as_str())
+        } else {
+            None
+        }
+    }
+
+    /// Get the unwind successor for invoke (second successor)
+    pub fn unwind_successor(&self) -> Option<&str> {
+        if self.opcode == Opcode::Invoke {
+            self.successors.get(1).map(|s| s.as_str())
+        } else {
+            None
+        }
     }
 
     // Atomic/volatile accessors
