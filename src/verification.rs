@@ -2306,11 +2306,6 @@ impl<'a> Verifier<'a> {
         // Verify llvm.ident metadata structure
         if let Some(ident_entries) = module.get_named_metadata("llvm.ident") {
             for entry in &ident_entries {
-                // Skip reference nodes - they would need to be resolved first
-                if entry.as_reference().is_some() {
-                    continue;
-                }
-
                 if let Some(entry_ops) = entry.operands() {
                     if entry_ops.len() != 1 {
                         self.errors.push(VerificationError::InvalidMetadata {

@@ -317,9 +317,29 @@ impl Parser {
 
     /// Resolve metadata forward references and populate module structures
     fn resolve_metadata_references(&self, module: &Module) {
-        // Handle !llvm.module.flags
-        // The module flags metadata is a tuple of references like !{!0, !1, !2}
-        // Each reference points to a flag definition like !0 = !{i32 1, !"name", i32 value}
+        // Resolve all named metadata (llvm.*)
+        // Named metadata like !llvm.ident = !{!0, !1} contains references that need resolution
+
+        // Get a list of all llvm.* named metadata
+        let named_metadata_keys: Vec<String> = self.metadata_registry.keys()
+            .filter(|k| k.starts_with("llvm."))
+            .cloned()
+            .collect();
+
+        for key in named_metadata_keys {
+            if let Some(metadata) = self.metadata_registry.get(&key) {
+                if let Some(refs) = metadata.operands() {
+                    // Resolve all references and collect them
+                    let resolved_metadata: Vec<_> = refs.iter()
+                        .map(|ref_node| self.resolve_metadata_node(ref_node))
+                        .collect();
+                    // Replace with resolved versions
+                    module.add_named_metadata(key.clone(), resolved_metadata);
+                }
+            }
+        }
+
+        // Handle !llvm.module.flags specifically for the module flags structure
         if let Some(module_flags_md) = self.metadata_registry.get("llvm.module.flags") {
             if let Some(flag_list) = module_flags_md.operands() {
                 // Each element in flag_list is a reference to an actual flag
