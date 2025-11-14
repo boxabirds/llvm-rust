@@ -2408,28 +2408,8 @@ impl<'a> Verifier<'a> {
 
     fn verify_diexpression(&mut self, metadata: &crate::metadata::Metadata) {
         // DIExpression contains DWARF operations
-        // Some operations like DW_OP_swap are invalid
-
-        // Get the operands (the DWARF operations)
-        if let Some(operands) = metadata.operands() {
-            for operand in operands {
-                if let Some(name) = operand.get_name() {
-                    if name == "DW_OP_swap" {
-                        self.errors.push(VerificationError::InvalidDebugInfo {
-                            reason: "invalid expression".to_string(),
-                            location: "DIExpression".to_string(),
-                        });
-                    }
-                } else if let Some(s) = operand.as_string() {
-                    if s == "DW_OP_swap" {
-                        self.errors.push(VerificationError::InvalidDebugInfo {
-                            reason: "invalid expression".to_string(),
-                            location: "DIExpression".to_string(),
-                        });
-                    }
-                }
-            }
-        }
+        // Note: DW_OP_swap and other DWARF operations are valid
+        // Removed overly strict validation that rejected valid expressions
     }
 
     fn verify_dicompositetype(&mut self, metadata: &crate::metadata::Metadata) {
