@@ -5242,6 +5242,12 @@ impl Parser {
                                         .collect();
                                     attrs.allockind = Some(kinds);
                                     self.advance(); // consume string
+                                } else {
+                                    // Empty parentheses or missing value
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "expected allockind value".to_string(),
+                                        position: self.current,
+                                    });
                                 }
                                 self.match_token(&Token::RParen); // consume )
                             }

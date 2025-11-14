@@ -107,7 +107,7 @@
 ✓ NEGATIVE: alloca-invalid-type-2.ll
 ✓ NEGATIVE: alloca-invalid-type.ll
 ✓ POSITIVE: alloca-size-one.ll
-✗ NEGATIVE (parsed but should fail): allockind-missing.ll
+✓ NEGATIVE: allockind-missing.ll
 ✓ NEGATIVE: allockind.ll
 ✓ POSITIVE: amdgcn-intrinsic-attributes.ll
 ✓ POSITIVE: amdgcn-unreachable.ll
