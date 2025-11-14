@@ -226,11 +226,16 @@ impl Parser {
             // Parse attribute group definitions: attributes #0 = { ... }
             if self.match_token(&Token::Attributes) {
                 // Get attribute group ID (#0, #1, etc.)
-                let mut group_id = String::new();
-                if let Some(Token::AttrGroupId(num)) = self.peek() {
-                    group_id = format!("#{}", num);
+                let group_id = if let Some(Token::AttrGroupId(num)) = self.peek() {
+                    let id = format!("#{}", num);
                     self.advance();
-                }
+                    id
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected attribute group id".to_string(),
+                        position: self.current,
+                    });
+                };
                 // Consume '='
                 self.match_token(&Token::Equal);
                 // Parse attribute list in braces
@@ -259,9 +264,7 @@ impl Parser {
                     }
                     self.match_token(&Token::RBrace);
                 }
-                if !group_id.is_empty() {
-                    self.attribute_groups.insert(group_id, attrs);
-                }
+                self.attribute_groups.insert(group_id, attrs);
                 continue;
             }
 

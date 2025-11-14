@@ -268,7 +268,7 @@
 ✓ NEGATIVE: invalid-atomicrmw-fsub-must-be-fp-type.ll
 ✓ NEGATIVE: invalid-atomicrmw-scalable.ll
 ✓ NEGATIVE: invalid-atomicrmw-xchg-fp-vector.ll
-✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
+✓ NEGATIVE: invalid-attrgrp.ll
 ✓ NEGATIVE: invalid-byval-type2.ll
 ✓ NEGATIVE: invalid-byval-type3.ll
 ✗ NEGATIVE (parsed but should fail): invalid-c-style-comment0.ll
