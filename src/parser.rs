@@ -1830,6 +1830,15 @@ impl Parser {
                 // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
                 self.skip_instruction_flags();
                 let ty = self.parse_type()?;
+
+                // Validate that phi node has a first-class type (not function, void, or label)
+                if ty.is_function() || ty.is_void() || ty.is_label() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "phi node must have first class type".to_string(),
+                        position: self.current,
+                    });
+                }
+
                 result_type = Some(ty.clone());
                 while !self.is_at_end() {
                     if !self.match_token(&Token::LBracket) {
@@ -4173,7 +4182,7 @@ impl Parser {
             let ty = self.parse_type()?;
 
             // Parse parameter attributes
-            let attrs = self.parse_parameter_attributes();
+            let attrs = self.parse_parameter_attributes()?;
 
             let name = if let Some(Token::LocalIdent(n)) = self.peek().cloned() {
                 self.advance();
@@ -4210,7 +4219,7 @@ impl Parser {
             types.push(ty);
 
             // Parse parameter attributes
-            let attrs = self.parse_parameter_attributes();
+            let attrs = self.parse_parameter_attributes()?;
             param_attrs.push(attrs);
 
             // Skip local ident if present
@@ -4781,7 +4790,7 @@ impl Parser {
         }
     }
 
-    fn parse_parameter_attributes(&mut self) -> crate::function::ParameterAttributes {
+    fn parse_parameter_attributes(&mut self) -> ParseResult<crate::function::ParameterAttributes> {
         use crate::function::ParameterAttributes;
         let mut attrs = ParameterAttributes::default();
         let mut attr_count = 0;
@@ -4876,7 +4885,27 @@ impl Parser {
                 },
                 Some(Token::Align) => {
                     self.advance();
-                    if let Some(Token::Integer(n)) = self.peek() {
+                    // Handle both `align N` and `align(N)` forms
+                    if self.check(&Token::LParen) {
+                        // align(N) form
+                        self.advance(); // consume (
+                        if let Some(Token::Integer(n)) = self.peek() {
+                            attrs.align = Some(*n as u32);
+                            self.advance();
+                        } else {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "expected integer".to_string(),
+                                position: self.current,
+                            });
+                        }
+                        if !self.match_token(&Token::RParen) {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "expected ')'".to_string(),
+                                position: self.current,
+                            });
+                        }
+                    } else if let Some(Token::Integer(n)) = self.peek() {
+                        // align N form (without parentheses)
                         attrs.align = Some(*n as u32);
                         self.advance();
                     }
@@ -4887,37 +4916,80 @@ impl Parser {
             }
 
             // Handle attributes with type parameters: byval(type), sret(type), inalloca(type)
+            // In opaque pointer mode, these REQUIRE the type parameter in parentheses
             if self.match_token(&Token::Byval) {
-                if self.check(&Token::LParen) {
-                    self.advance(); // consume (
-                    if let Ok(ty) = self.parse_type() {
-                        attrs.byval = Some(ty);
-                    }
-                    self.match_token(&Token::RParen); // consume )
+                if !self.check(&Token::LParen) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected '('".to_string(),
+                        position: self.current,
+                    });
+                }
+                self.advance(); // consume (
+                if let Ok(ty) = self.parse_type() {
+                    attrs.byval = Some(ty);
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected type".to_string(),
+                        position: self.current,
+                    });
+                }
+                if !self.match_token(&Token::RParen) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected ')'".to_string(),
+                        position: self.current,
+                    });
                 }
                 attr_count += 1;
                 continue;
             }
 
             if self.match_token(&Token::Sret) {
-                if self.check(&Token::LParen) {
-                    self.advance(); // consume (
-                    if let Ok(ty) = self.parse_type() {
-                        attrs.sret = Some(ty);
-                    }
-                    self.match_token(&Token::RParen); // consume )
+                if !self.check(&Token::LParen) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected '('".to_string(),
+                        position: self.current,
+                    });
+                }
+                self.advance(); // consume (
+                if let Ok(ty) = self.parse_type() {
+                    attrs.sret = Some(ty);
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected type".to_string(),
+                        position: self.current,
+                    });
+                }
+                if !self.match_token(&Token::RParen) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected ')'".to_string(),
+                        position: self.current,
+                    });
                 }
                 attr_count += 1;
                 continue;
             }
 
             if self.match_token(&Token::Inalloca) {
-                if self.check(&Token::LParen) {
-                    self.advance(); // consume (
-                    if let Ok(ty) = self.parse_type() {
-                        attrs.inalloca = Some(ty);
-                    }
-                    self.match_token(&Token::RParen); // consume )
+                if !self.check(&Token::LParen) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected '('".to_string(),
+                        position: self.current,
+                    });
+                }
+                self.advance(); // consume (
+                if let Ok(ty) = self.parse_type() {
+                    attrs.inalloca = Some(ty);
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected type".to_string(),
+                        position: self.current,
+                    });
+                }
+                if !self.match_token(&Token::RParen) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected ')'".to_string(),
+                        position: self.current,
+                    });
                 }
                 attr_count += 1;
                 continue;
@@ -4927,12 +4999,26 @@ impl Parser {
             if let Some(Token::Identifier(attr)) = self.peek() {
                 if attr == "byref" {
                     self.advance();
-                    if self.check(&Token::LParen) {
-                        self.advance(); // consume (
-                        if let Ok(ty) = self.parse_type() {
-                            attrs.byref = Some(ty);
-                        }
-                        self.match_token(&Token::RParen); // consume )
+                    if !self.check(&Token::LParen) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "expected '('".to_string(),
+                            position: self.current,
+                        });
+                    }
+                    self.advance(); // consume (
+                    if let Ok(ty) = self.parse_type() {
+                        attrs.byref = Some(ty);
+                    } else {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "expected type".to_string(),
+                            position: self.current,
+                        });
+                    }
+                    if !self.match_token(&Token::RParen) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "expected ')'".to_string(),
+                            position: self.current,
+                        });
                     }
                     attr_count += 1;
                     continue;
@@ -5031,7 +5117,7 @@ impl Parser {
             attr_count += 1;
         }
 
-        attrs
+        Ok(attrs)
     }
 
     fn parse_function_attributes(&mut self) -> crate::function::FunctionAttributes {
