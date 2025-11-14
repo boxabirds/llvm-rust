@@ -2,26 +2,27 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 204/338 tests passing (60.4%)
+**Current Status**: 209/338 tests passing (61.8%)
 **Target**: 338/338 tests passing (100%)
 
-**Current Session** (200 → 204, +4 tests, +1.2%):
-- ✅ Invoke result validation - 3 tests fixed
-  - 2009-05-29-InvokeResult1.ll ✅
-  - 2009-05-29-InvokeResult2.ll ✅
-  - 2009-05-29-InvokeResult3.ll ✅ (PHI node validation)
-- ✅ Invoke results cannot be used in unwind blocks
-- ✅ PHI nodes cannot use invoke results from unwind paths
-- ✅ Test infrastructure: negative test detection improved (+4 negative tests found)
+**Current Session** (200 → 209, +9 tests, +2.7%):
+- ✅ Scalable vector validation - 5 tests fixed
+  - scalable-global-vars.ll ✅
+  - scalable-vector-struct-alloca.ll ✅
+  - scalable-vector-struct-load.ll ✅
+  - scalable-vector-struct-store.ll ✅
+  - scalable-vector-struct-gep.ll ✅
+- ✅ Parser: scalable vectors marked with size=0
+- ✅ Globals/alloca/load/store/GEP cannot use scalable types
+- ✅ Invoke result validation - 3 tests fixed (204 → 209)
+  - 2009-05-29-InvokeResult1/2/3.ll
+  - PHI nodes cannot use invoke results from unwind paths
+- ✅ Test infrastructure improved (+9 negative tests classified)
 
-**Previous Session** (200 → 200, test infrastructure):
-- ✅ Test runner whitespace handling
-- ✅ Unsized type load validation
-- ✅ Contains scalable type helper added
-
-**Earlier Session** (194 → 200, +6 tests):
-- ✅ Operand bundle integration COMPLETE
-- ✅ Alias/attribute/calling convention validation
+**Previous Sessions**:
+- Session 3 (200 → 200): Test infrastructure
+- Session 2 (194 → 200, +6): Operand bundles
+- Session 1: Alias/attribute/CC validation
 
 **Major Milestones**:
 - ✅ **OPERAND BUNDLE INTEGRATION COMPLETE!**
