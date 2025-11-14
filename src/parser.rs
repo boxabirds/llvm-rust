@@ -1830,6 +1830,15 @@ impl Parser {
                 // phi [fast-math-flags] type [ val1, %bb1 ], [ val2, %bb2 ], ...
                 self.skip_instruction_flags();
                 let ty = self.parse_type()?;
+
+                // Validate that phi node has a first-class type (not function, void, or label)
+                if ty.is_function() || ty.is_void() || ty.is_label() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "phi node must have first class type".to_string(),
+                        position: self.current,
+                    });
+                }
+
                 result_type = Some(ty.clone());
                 while !self.is_at_end() {
                     if !self.match_token(&Token::LBracket) {
