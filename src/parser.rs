@@ -1713,8 +1713,8 @@ impl Parser {
                 is_atomic = self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
-                let _val_ty = self.parse_type()?;
-                let val = self.parse_value()?;
+                let val_ty = self.parse_type()?;
+                let val = self.parse_value_with_type(Some(&val_ty))?;
                 operands.push(val);
                 self.consume(&Token::Comma)?;
 
