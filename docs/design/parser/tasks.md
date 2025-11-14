@@ -59,17 +59,10 @@ This document breaks down the parser enhancement design into trackable, dependen
 
 ### 1.3 Array Initializer Representation
 
-- [ ] **Task 1.3.1**: Add ConstantArray variant to ValueKind enum
-  - File: `src/value.rs`
-  - Add variant: `ConstantArray { element_type: Type, elements: Vec<Value> }`
-  - Tests enabled: (prerequisite for array tests)
-
-- [ ] **Task 1.3.2**: Modify parser to preserve array elements
-  - File: `src/parser.rs`
-  - Find array constant parsing (around line 930)
-  - Store parsed elements in Vec<Value> instead of discarding
-  - Create ConstantArray with element_type and elements
-  - Tests enabled: (prerequisite for array tests)
+- [x] **Task 1.3.1**: Add ConstantArray variant to ValueKind enum (COMPLETED - already existed)
+- [x] **Task 1.3.2**: Modify parser to preserve array elements (COMPLETED)
+  - Parser now creates ConstantArray with actual elements
+  - Commit: 17960a1
 
 - [ ] **Task 1.3.3**: Add validation for array bounds in GEP
   - File: `src/verification.rs`
