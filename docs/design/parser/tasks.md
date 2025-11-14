@@ -2,14 +2,19 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 196/338 tests passing (57.9%)
+**Current Status**: 198/338 tests passing (58.5%)
 **Target**: 338/338 tests passing (100%)
 
 **Recent Progress** (session update):
-- ✅ alias.ll now passing (alias verification implemented)
-- ✅ writable-attr.ll now passing (writable attribute validation)
+- ✅ alias.ll now passing (alias verification implemented +1)
+- ✅ writable-attr.ll now passing (writable attribute validation +1)
+- ✅ x86_intr.ll now passing (x86_intrcc byval parameter validation +1)
+- ✅ Array element preservation (one test improved +1)
 - ⚠️ vscale_range attribute added but test still failing (needs debug)
 - ✅ All calling conventions added to enum and parser
+- ✅ Extended AMDGPU calling convention call restrictions
+
+**Progress**: +4 tests this session (194 → 198)
 
 ---
 
