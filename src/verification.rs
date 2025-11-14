@@ -1735,8 +1735,16 @@ impl<'a> Verifier<'a> {
                 use crate::function::CallingConvention;
                 let cc = self.current_function_calling_convention;
                 match cc {
-                    // Note: AMDGPU_CS_Chain and _Preserve removed - they DO allow calls
                     CallingConvention::AMDGPU_Kernel |
+                    CallingConvention::AMDGPU_VS |
+                    CallingConvention::AMDGPU_GS |
+                    CallingConvention::AMDGPU_PS |
+                    CallingConvention::AMDGPU_CS |
+                    CallingConvention::AMDGPU_CS_Chain |
+                    CallingConvention::AMDGPU_CS_Chain_Preserve |
+                    CallingConvention::AMDGPU_HS |
+                    CallingConvention::AMDGPU_LS |
+                    CallingConvention::AMDGPU_ES |
                     CallingConvention::SPIR_Kernel => {
                         self.errors.push(VerificationError::InvalidInstruction {
                             reason: "calling convention does not permit calls".to_string(),
