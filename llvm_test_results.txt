@@ -155,7 +155,7 @@
 ✓ NEGATIVE: cmpxchg-ordering-2.ll
 ✓ NEGATIVE: cmpxchg-ordering-3.ll
 ✓ NEGATIVE: cmpxchg-ordering-4.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering.ll
+✓ NEGATIVE: cmpxchg-ordering.ll
 ✓ POSITIVE: comment.ll
 ✗ NEGATIVE (parsed but should fail): constant-getelementptr-scalable_pointee.ll
 ✓ NEGATIVE: constant-splat-diagnostics.ll

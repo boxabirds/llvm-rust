@@ -2033,21 +2033,23 @@ impl Parser {
 
                 // Parse operation (xchg, add, sub, and, or, xor, max, min, umax, umin, etc.)
                 // These can be opcodes (Add, Sub, etc.) or identifiers (xchg, max, min, etc.)
-                if let Some(token) = self.peek() {
-                    match token {
-                        // Match known atomic RMW operation tokens/keywords
-                        Token::Add | Token::Sub | Token::And | Token::Or | Token::Xor |
-                        Token::Identifier(_) => {
-                            self.advance(); // Skip the operation
-                        }
-                        _ => {
-                            // Unknown operation, try to skip anyway
-                            self.advance();
-                        }
-                    }
+                let operation = if let Some(token) = self.peek().cloned() {
+                    let op_name = match &token {
+                        Token::Add => "add",
+                        Token::Sub => "sub",
+                        Token::And => "and",
+                        Token::Or => "or",
+                        Token::Xor => "xor",
+                        Token::FAdd => "fadd",
+                        Token::FSub => "fsub",
+                        Token::Identifier(s) => s.as_str(),
+                        _ => "",
+                    };
+                    self.advance();
+                    op_name.to_string()
                 } else {
                     return Err(ParseError::UnexpectedEOF);
-                }
+                };
 
                 // Parse pointer type and value
                 let _ptr_ty = self.parse_type()?;
@@ -2057,6 +2059,42 @@ impl Parser {
                 // Parse value type and value
                 let val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
+
+                // Validate operand type for atomic RMW operation
+                match operation.as_str() {
+                    "add" | "sub" | "and" | "or" | "xor" | "nand" |
+                    "max" | "min" | "umax" | "umin" => {
+                        // Integer operations require integer type (scalar or vector of integers)
+                        let is_valid = if val_ty.is_vector() {
+                            // For vectors, check if element type is integer
+                            val_ty.vector_info().map(|(elem, _)| elem.is_integer()).unwrap_or(false)
+                        } else {
+                            val_ty.is_integer()
+                        };
+                        if !is_valid {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("atomicrmw {} operand must be an integer", operation),
+                                position: self.current,
+                            });
+                        }
+                    }
+                    "fadd" | "fsub" | "fmax" | "fmin" => {
+                        // Floating-point operations require float type (scalar or vector of floats)
+                        let is_valid = if val_ty.is_vector() {
+                            // For vectors, check if element type is float
+                            val_ty.vector_info().map(|(elem, _)| elem.is_float()).unwrap_or(false)
+                        } else {
+                            val_ty.is_float()
+                        };
+                        if !is_valid {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("atomicrmw {} operand must be a floating point type", operation),
+                                position: self.current,
+                            });
+                        }
+                    }
+                    _ => {} // xchg and other operations accept any type
+                }
 
                 // atomicrmw returns the old value, same type as the value parameter
                 result_type = Some(val_ty);
