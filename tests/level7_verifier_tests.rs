@@ -49,8 +49,10 @@ fn test_parse_verifier_tests() {
         };
 
         // Check if this is a negative test (expected to fail)
+        // Negative tests can use "RUN: not llvm-as", "RUN: not llvm-dis", or "RUN: not opt"
         let is_negative_test = content.contains("RUN: not llvm-as") ||
-                               content.contains("RUN: not llvm-dis");
+                               content.contains("RUN: not llvm-dis") ||
+                               content.contains("RUN: not opt");
 
         let start = Instant::now();
         let ctx = Context::new();
