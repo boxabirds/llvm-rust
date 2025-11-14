@@ -3861,17 +3861,28 @@ impl Parser {
             Token::LBracket => {
                 // Array constant: [type val1, type val2, ...]
                 self.advance(); // consume '['
+
+                let mut elements = Vec::new();
                 while !self.check(&Token::RBracket) && !self.is_at_end() {
-                    let _ty = self.parse_type()?;
-                    let _val = self.parse_value()?;
+                    let elem_ty = self.parse_type()?;
+                    let elem_val = self.parse_value_with_type(Some(&elem_ty))?;
+                    elements.push(elem_val);
                     if !self.match_token(&Token::Comma) {
                         break;
                     }
                 }
                 self.consume(&Token::RBracket)?;
-                // Return placeholder array constant with expected type
-                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
-                Ok(Value::zero_initializer(ty))
+
+                // Create ConstantArray with actual elements
+                let ty = expected_type.cloned().unwrap_or_else(|| {
+                    // If no expected type, infer from elements
+                    if let Some(first_elem) = elements.first() {
+                        self.context.array_type(first_elem.get_type().clone(), elements.len())
+                    } else {
+                        self.context.void_type()
+                    }
+                });
+                Ok(Value::const_array(ty, elements))
             }
             Token::LBrace => {
                 // Struct constant: { type val1, type val2, ... }
