@@ -256,10 +256,10 @@
 ✓ POSITIVE: insertextractvalue.ll
 ✓ NEGATIVE: insertvalue-invalid-idx.ll
 ✓ NEGATIVE: insertvalue-invalid-type.ll
-✗ NEGATIVE (parsed but should fail): internal-hidden-alias.ll
+✓ NEGATIVE: internal-hidden-alias.ll
 ✓ NEGATIVE: internal-hidden-function.ll
 ✓ NEGATIVE: internal-hidden-variable.ll
-✗ NEGATIVE (parsed but should fail): internal-protected-alias.ll
+✓ NEGATIVE: internal-protected-alias.ll
 ✓ NEGATIVE: internal-protected-function.ll
 ✓ NEGATIVE: internal-protected-variable.ll
 ✓ NEGATIVE: invalid-addrspace.ll
@@ -429,10 +429,10 @@
 ✓ POSITIVE: opaque-ptr.ll
 ✗ NEGATIVE (parsed but should fail): phi-first-class-type.ll
 ✓ POSITIVE: pr119818.ll
-✗ NEGATIVE (parsed but should fail): private-hidden-alias.ll
+✓ NEGATIVE: private-hidden-alias.ll
 ✓ NEGATIVE: private-hidden-function.ll
 ✓ NEGATIVE: private-hidden-variable.ll
-✗ NEGATIVE (parsed but should fail): private-protected-alias.ll
+✓ NEGATIVE: private-protected-alias.ll
 ✓ NEGATIVE: private-protected-function.ll
 ✓ NEGATIVE: private-protected-variable.ll
 ✓ POSITIVE: ptrauth-const.ll

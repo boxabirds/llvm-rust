@@ -9,7 +9,7 @@
 
 use crate::function::{Function, ParameterAttributes, CallingConvention};
 use crate::types::Type;
-use crate::module::Module;
+use crate::module::{Module, Linkage, Visibility};
 use crate::verification::VerificationError;
 
 /// Collection of IR validation rules
@@ -29,6 +29,16 @@ impl ValidationRules {
         // Validate all functions
         for function in module.functions() {
             self.validate_function(&function);
+        }
+
+        // Validate all globals
+        for global in module.globals() {
+            self.validate_global_linkage_visibility(&global.name, global.linkage, global.visibility);
+        }
+
+        // Validate all aliases
+        for alias in module.aliases() {
+            self.validate_global_linkage_visibility(&alias.name, alias.linkage, alias.visibility);
         }
 
         if self.errors.is_empty() {
@@ -351,6 +361,25 @@ impl ValidationRules {
                     location: format!("@{}", func_name),
                 });
             }
+        }
+    }
+
+    /// Validate global variable or alias linkage-visibility combinations
+    ///
+    /// LLVM requires that symbols with local linkage (Internal or Private)
+    /// must have default visibility. Hidden or protected visibility is only
+    /// allowed for symbols with non-local linkage.
+    ///
+    /// Reference: LLVM tests internal-hidden-alias.ll, private-protected-alias.ll, etc.
+    /// Expected to fix ~4-5 tests
+    fn validate_global_linkage_visibility(&mut self, name: &str, linkage: Linkage, visibility: Visibility) {
+        // Symbols with local linkage (Internal or Private) must have default visibility
+        if matches!(linkage, Linkage::Internal | Linkage::Private)
+            && !matches!(visibility, Visibility::Default) {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "symbol with local linkage must have default visibility".to_string(),
+                location: format!("@{}", name),
+            });
         }
     }
 }

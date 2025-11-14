@@ -150,7 +150,32 @@ impl Parser {
                 let mut idx = 2;
                 // Skip linkage/visibility keywords
                 while let Some(tok) = self.peek_ahead(idx) {
-                    if matches!(tok, Token::Identifier(_)) {
+                    // Skip linkage keywords
+                    if matches!(tok, Token::Private | Token::Internal | Token::External |
+                                     Token::Weak | Token::Linkonce | Token::Linkonce_odr | Token::Weak_odr |
+                                     Token::Available_externally | Token::Extern_weak |
+                                     Token::Common | Token::Appending) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip visibility keywords
+                    if matches!(tok, Token::Hidden | Token::Protected | Token::Default) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip DLL storage class
+                    if matches!(tok, Token::Dllimport | Token::Dllexport) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip other global attributes
+                    if matches!(tok, Token::Thread_local | Token::Unnamed_addr | Token::Local_unnamed_addr |
+                                     Token::Dso_local | Token::Dso_preemptable) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip identifiers (for thread_local modes, etc.)
+                    if matches!(tok, Token::Identifier(_) | Token::LParen | Token::RParen) {
                         idx += 1;
                         continue;
                     }
