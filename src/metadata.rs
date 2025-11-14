@@ -33,13 +33,188 @@ enum MetadataData {
         name: String,
         fields: std::collections::HashMap<String, Metadata>
     },
-    /// Debug info metadata
+    /// Typed metadata node (DILocation, DISubrange, DICompositeType, etc.)
+    TypedNode(MetadataNode),
+    /// Debug info metadata (legacy)
     DebugInfo(Box<DebugInfo>),
     /// Reference to numbered metadata (!0, !1, etc.) - to be resolved later
     Reference(String),
 }
 
-/// Debug information kinds
+/// Typed metadata nodes for structured debug information
+#[derive(Clone)]
+pub enum MetadataNode {
+    /// DILocation - source location information
+    DILocation(DILocation),
+    /// DISubrange - array bounds information
+    DISubrange(DISubrange),
+    /// DICompositeType - struct, union, array types
+    DICompositeType(DICompositeType),
+    /// DIBasicType - fundamental types
+    DIBasicType(DIBasicType),
+    /// DILocalVariable - local variable debug info
+    DILocalVariable(DILocalVariable),
+    /// DIExpression - DWARF expression
+    DIExpression(DIExpression),
+    /// DISubprogram - function debug info
+    DISubprogram(DISubprogram),
+    /// DIFile - source file information
+    DIFile(DIFile),
+    /// DICompileUnit - compilation unit
+    DICompileUnit(DICompileUnit),
+    /// Generic - untyped metadata node
+    Generic,
+}
+
+/// DILocation - represents a source code location
+#[derive(Clone)]
+pub struct DILocation {
+    pub line: u32,
+    pub column: u32,
+    pub scope: Option<Box<Metadata>>,
+    pub inlined_at: Option<Box<Metadata>>,
+}
+
+/// DISubrange - represents array bounds
+#[derive(Clone)]
+pub struct DISubrange {
+    pub count: Option<i64>,
+    pub lower_bound: Option<i64>,
+    pub upper_bound: Option<i64>,
+    pub stride: Option<i64>,
+}
+
+/// DICompositeType - represents composite types (struct, union, array, etc.)
+#[derive(Clone)]
+pub struct DICompositeType {
+    pub tag: DwarfTag,
+    pub name: Option<String>,
+    pub file: Option<Box<Metadata>>,
+    pub line: Option<u32>,
+    pub scope: Option<Box<Metadata>>,
+    pub base_type: Option<Box<Metadata>>,
+    pub size: Option<u64>,
+    pub align: Option<u64>,
+    pub offset: Option<u64>,
+    pub flags: Option<u32>,
+    pub elements: Option<Box<Metadata>>,
+    pub runtime_lang: Option<u32>,
+    pub vtable_holder: Option<Box<Metadata>>,
+    pub template_params: Option<Box<Metadata>>,
+    pub identifier: Option<String>,
+    pub discriminator: Option<Box<Metadata>>,
+    pub data_location: Option<Box<Metadata>>,
+    pub associated: Option<Box<Metadata>>,
+    pub allocated: Option<Box<Metadata>>,
+    pub rank: Option<Box<Metadata>>,
+    pub annotations: Option<Box<Metadata>>,
+}
+
+/// DIBasicType - represents fundamental types
+#[derive(Clone)]
+pub struct DIBasicType {
+    pub name: String,
+    pub size: u64,
+    pub encoding: DwarfEncoding,
+    pub align: Option<u64>,
+    pub flags: Option<u32>,
+}
+
+/// DILocalVariable - represents a local variable
+#[derive(Clone)]
+pub struct DILocalVariable {
+    pub name: String,
+    pub arg: Option<u32>,
+    pub file: Option<Box<Metadata>>,
+    pub line: Option<u32>,
+    pub type_ref: Option<Box<Metadata>>,
+    pub scope: Option<Box<Metadata>>,
+    pub flags: Option<u32>,
+}
+
+/// DIExpression - DWARF expression for location descriptions
+#[derive(Clone)]
+pub struct DIExpression {
+    pub operations: Vec<DwarfOp>,
+}
+
+/// DWARF operations for DIExpression
+#[derive(Clone, Debug)]
+pub enum DwarfOp {
+    DW_OP_deref,
+    DW_OP_plus_uconst(u64),
+    DW_OP_constu(u64),
+    DW_OP_LLVM_fragment { offset: u64, size: u64 },
+    DW_OP_stack_value,
+    DW_OP_swap,
+    DW_OP_xderef,
+    DW_OP_push_object_address,
+    DW_OP_over,
+    DW_OP_LLVM_convert { offset: u64, encoding: u8 },
+    DW_OP_LLVM_tag_offset(u64),
+    DW_OP_LLVM_entry_value(u64),
+    DW_OP_LLVM_arg(u64),
+    Generic(String),
+}
+
+/// DISubprogram - represents a function
+#[derive(Clone)]
+pub struct DISubprogram {
+    pub name: String,
+    pub linkage_name: Option<String>,
+    pub scope: Option<Box<Metadata>>,
+    pub file: Option<Box<Metadata>>,
+    pub line: Option<u32>,
+    pub type_ref: Option<Box<Metadata>>,
+    pub scope_line: Option<u32>,
+    pub contains_params: Option<Box<Metadata>>,
+    pub virtuality: Option<u32>,
+    pub virtual_index: Option<u32>,
+    pub this_adjustment: Option<i64>,
+    pub flags: Option<u32>,
+    pub is_optimized: Option<bool>,
+    pub unit: Option<Box<Metadata>>,
+    pub template_params: Option<Box<Metadata>>,
+    pub declaration: Option<Box<Metadata>>,
+    pub retained_nodes: Option<Box<Metadata>>,
+    pub thrown_types: Option<Box<Metadata>>,
+    pub annotations: Option<Box<Metadata>>,
+}
+
+/// DIFile - represents a source file
+#[derive(Clone)]
+pub struct DIFile {
+    pub filename: String,
+    pub directory: String,
+    pub checksumkind: Option<String>,
+    pub checksum: Option<String>,
+    pub source: Option<String>,
+}
+
+/// DICompileUnit - represents a compilation unit
+#[derive(Clone)]
+pub struct DICompileUnit {
+    pub language: DwarfLang,
+    pub file: Box<Metadata>,
+    pub producer: Option<String>,
+    pub is_optimized: bool,
+    pub flags: Option<String>,
+    pub runtime_version: u32,
+    pub split_debug_filename: Option<String>,
+    pub emission_kind: Option<u32>,
+    pub enums: Option<Box<Metadata>>,
+    pub retained_types: Option<Box<Metadata>>,
+    pub globals: Option<Box<Metadata>>,
+    pub imports: Option<Box<Metadata>>,
+    pub macros: Option<Box<Metadata>>,
+    pub dwo_id: Option<u64>,
+    pub split_debug_inlining: Option<bool>,
+    pub debug_info_for_profiling: Option<bool>,
+    pub name_table_kind: Option<u32>,
+    pub range_lists_are_address_length: Option<bool>,
+}
+
+/// Debug information kinds (legacy - to be migrated to MetadataNode)
 #[derive(Clone)]
 pub enum DebugInfo {
     /// Compile unit
@@ -167,6 +342,12 @@ pub enum DwarfTag {
     UnionType = 0x17,
     UnspecifiedParameters = 0x18,
     Variant = 0x19,
+    // LLVM constant names (DW_TAG_*)
+    DW_TAG_array_type,
+    DW_TAG_structure_type,
+    DW_TAG_union_type,
+    DW_TAG_class_type,
+    DW_TAG_enumeration_type,
 }
 
 impl Metadata {
@@ -230,6 +411,13 @@ impl Metadata {
     pub fn debug_info(info: DebugInfo) -> Self {
         Self {
             data: Arc::new(MetadataData::DebugInfo(Box::new(info))),
+        }
+    }
+
+    /// Create typed metadata node
+    pub fn typed_node(node: MetadataNode) -> Self {
+        Self {
+            data: Arc::new(MetadataData::TypedNode(node)),
         }
     }
 
@@ -298,6 +486,38 @@ impl Metadata {
     pub fn as_debug_info(&self) -> Option<&DebugInfo> {
         match &*self.data {
             MetadataData::DebugInfo(di) => Some(di),
+            _ => None,
+        }
+    }
+
+    /// Get typed metadata node
+    pub fn as_typed_node(&self) -> Option<&MetadataNode> {
+        match &*self.data {
+            MetadataData::TypedNode(node) => Some(node),
+            _ => None,
+        }
+    }
+
+    /// Get DICompositeType if this is one
+    pub fn as_di_composite_type(&self) -> Option<&DICompositeType> {
+        match &*self.data {
+            MetadataData::TypedNode(MetadataNode::DICompositeType(ct)) => Some(ct),
+            _ => None,
+        }
+    }
+
+    /// Get DISubrange if this is one
+    pub fn as_di_subrange(&self) -> Option<&DISubrange> {
+        match &*self.data {
+            MetadataData::TypedNode(MetadataNode::DISubrange(sr)) => Some(sr),
+            _ => None,
+        }
+    }
+
+    /// Get DIExpression if this is one
+    pub fn as_di_expression(&self) -> Option<&DIExpression> {
+        match &*self.data {
+            MetadataData::TypedNode(MetadataNode::DIExpression(expr)) => Some(expr),
             _ => None,
         }
     }
@@ -392,6 +612,18 @@ impl fmt::Display for Metadata {
                 }
                 write!(f, ")")
             }
+            MetadataData::TypedNode(node) => match node {
+                MetadataNode::DICompositeType(_) => write!(f, "!DICompositeType(...)"),
+                MetadataNode::DISubrange(_) => write!(f, "!DISubrange(...)"),
+                MetadataNode::DIExpression(_) => write!(f, "!DIExpression(...)"),
+                MetadataNode::DILocation(_) => write!(f, "!DILocation(...)"),
+                MetadataNode::DIBasicType(_) => write!(f, "!DIBasicType(...)"),
+                MetadataNode::DILocalVariable(_) => write!(f, "!DILocalVariable(...)"),
+                MetadataNode::DISubprogram(_) => write!(f, "!DISubprogram(...)"),
+                MetadataNode::DIFile(_) => write!(f, "!DIFile(...)"),
+                MetadataNode::DICompileUnit(_) => write!(f, "!DICompileUnit(...)"),
+                MetadataNode::Generic => write!(f, "!DINode"),
+            },
             MetadataData::DebugInfo(_) => write!(f, "!DINode"),
         }
     }
