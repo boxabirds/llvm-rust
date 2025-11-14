@@ -208,8 +208,8 @@
 ✓ POSITIVE: dso_local_equivalent.ll
 ✓ POSITIVE: export-symbol-anonymous-class.ll
 ✓ POSITIVE: externally-initialized.ll
-✗ NEGATIVE (parsed but should fail): extractvalue-invalid-idx.ll
-✗ NEGATIVE (parsed but should fail): extractvalue-no-idx.ll
+✓ NEGATIVE: extractvalue-invalid-idx.ll
+✓ NEGATIVE: extractvalue-no-idx.ll
 ✓ POSITIVE: fast-math-flags.ll
 ✓ POSITIVE: flags.ll
 ✓ POSITIVE: fp-intrinsics-attr.ll
@@ -254,20 +254,20 @@
 ✓ NEGATIVE: inline-asm-constraint-error.ll
 ✓ NEGATIVE: inrange-errors.ll
 ✓ POSITIVE: insertextractvalue.ll
-✗ NEGATIVE (parsed but should fail): insertvalue-invalid-idx.ll
-✗ NEGATIVE (parsed but should fail): insertvalue-invalid-type.ll
-✗ NEGATIVE (parsed but should fail): internal-hidden-alias.ll
+✓ NEGATIVE: insertvalue-invalid-idx.ll
+✓ NEGATIVE: insertvalue-invalid-type.ll
+✓ NEGATIVE: internal-hidden-alias.ll
 ✓ NEGATIVE: internal-hidden-function.ll
 ✓ NEGATIVE: internal-hidden-variable.ll
-✗ NEGATIVE (parsed but should fail): internal-protected-alias.ll
+✓ NEGATIVE: internal-protected-alias.ll
 ✓ NEGATIVE: internal-protected-function.ll
 ✓ NEGATIVE: internal-protected-variable.ll
 ✓ NEGATIVE: invalid-addrspace.ll
 ✓ NEGATIVE: invalid-atomicrmw-add-must-be-integer-type.ll
 ✓ NEGATIVE: invalid-atomicrmw-fadd-must-be-fp-type.ll
 ✓ NEGATIVE: invalid-atomicrmw-fsub-must-be-fp-type.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-scalable.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-xchg-fp-vector.ll
+✓ NEGATIVE: invalid-atomicrmw-scalable.ll
+✓ NEGATIVE: invalid-atomicrmw-xchg-fp-vector.ll
 ✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
 ✗ NEGATIVE (parsed but should fail): invalid-byval-type2.ll
 ✗ NEGATIVE (parsed but should fail): invalid-byval-type3.ll
@@ -406,7 +406,7 @@
 ✗ NEGATIVE (parsed but should fail): missing-tbaa.ll
 ✓ POSITIVE: multi-mod-disassemble.ll
 ✓ POSITIVE: multi-summary-disassemble.ll
-✗ NEGATIVE (parsed but should fail): mustprogress-parse-error-0.ll
+✓ NEGATIVE: mustprogress-parse-error-0.ll
 ✓ NEGATIVE: mustprogress-parse-error-1.ll
 ✗ NEGATIVE (parsed but should fail): mustprogress-parse-error-2.ll
 ✗ NEGATIVE (parsed but should fail): musttail-invalid-1.ll
@@ -421,7 +421,7 @@
 ✓ POSITIVE: non-global-value-max-name-size-2.ll
 ✓ POSITIVE: non-global-value-max-name-size.ll
 ✓ POSITIVE: numbered-values.ll
-✗ NEGATIVE (parsed but should fail): opaque-ptr-cmpxchg.ll
+✓ NEGATIVE: opaque-ptr-cmpxchg.ll
 ✓ POSITIVE: opaque-ptr-intrinsic-remangling.ll
 ✗ NEGATIVE (parsed but should fail): opaque-ptr-invalid-forward-ref-2.ll
 ✗ NEGATIVE (parsed but should fail): opaque-ptr-invalid-forward-ref.ll
@@ -429,10 +429,10 @@
 ✓ POSITIVE: opaque-ptr.ll
 ✗ NEGATIVE (parsed but should fail): phi-first-class-type.ll
 ✓ POSITIVE: pr119818.ll
-✗ NEGATIVE (parsed but should fail): private-hidden-alias.ll
+✓ NEGATIVE: private-hidden-alias.ll
 ✓ NEGATIVE: private-hidden-function.ll
 ✓ NEGATIVE: private-hidden-variable.ll
-✗ NEGATIVE (parsed but should fail): private-protected-alias.ll
+✓ NEGATIVE: private-protected-alias.ll
 ✓ NEGATIVE: private-protected-function.ll
 ✓ NEGATIVE: private-protected-variable.ll
 ✓ POSITIVE: ptrauth-const.ll

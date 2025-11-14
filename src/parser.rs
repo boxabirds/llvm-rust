@@ -150,7 +150,32 @@ impl Parser {
                 let mut idx = 2;
                 // Skip linkage/visibility keywords
                 while let Some(tok) = self.peek_ahead(idx) {
-                    if matches!(tok, Token::Identifier(_)) {
+                    // Skip linkage keywords
+                    if matches!(tok, Token::Private | Token::Internal | Token::External |
+                                     Token::Weak | Token::Linkonce | Token::Linkonce_odr | Token::Weak_odr |
+                                     Token::Available_externally | Token::Extern_weak |
+                                     Token::Common | Token::Appending) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip visibility keywords
+                    if matches!(tok, Token::Hidden | Token::Protected | Token::Default) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip DLL storage class
+                    if matches!(tok, Token::Dllimport | Token::Dllexport) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip other global attributes
+                    if matches!(tok, Token::Thread_local | Token::Unnamed_addr | Token::Local_unnamed_addr |
+                                     Token::Dso_local | Token::Dso_preemptable) {
+                        idx += 1;
+                        continue;
+                    }
+                    // Skip identifiers (for thread_local modes, etc.)
+                    if matches!(tok, Token::Identifier(_) | Token::LParen | Token::RParen) {
                         idx += 1;
                         continue;
                     }
@@ -1968,8 +1993,16 @@ impl Parser {
                 self.consume(&Token::Comma)?;
 
                 // Parse new type and value
-                let _new_ty = self.parse_type()?;
+                let new_ty = self.parse_type()?;
                 let _new = self.parse_value()?;
+
+                // Validate that compare value and new value types match
+                if cmp_ty != new_ty {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "compare value and new value type do not match".to_string(),
+                        position: self.current,
+                    });
+                }
 
                 // cmpxchg returns { type, i1 } - old value and success flag
                 let struct_ty = crate::types::Type::struct_type(
@@ -2093,7 +2126,21 @@ impl Parser {
                             });
                         }
                     }
-                    _ => {} // xchg and other operations accept any type
+                    "xchg" => {
+                        // xchg requires integer, floating point scalar, or pointer
+                        // Floating-point vectors are NOT allowed
+                        if val_ty.is_vector() {
+                            if let Some((elem, _)) = val_ty.vector_info() {
+                                if elem.is_float() {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "atomicrmw xchg operand must be an integer, floating point, or pointer type".to_string(),
+                                        position: self.current,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    _ => {} // Other operations accept any type
                 }
 
                 // atomicrmw returns the old value, same type as the value parameter
@@ -2254,13 +2301,29 @@ impl Parser {
                         let idx = *idx as usize;
                         indices.push(idx);
 
-                        // Navigate to the indexed element type
+                        // Navigate to the indexed element type and validate
                         if let Some(fields) = current_ty.struct_fields() {
-                            if idx < fields.len() {
-                                current_ty = fields[idx].clone();
+                            if idx >= fields.len() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for extractvalue".to_string(),
+                                    position: self.current,
+                                });
                             }
-                        } else if let Some((elem_ty, _size)) = current_ty.array_info() {
+                            current_ty = fields[idx].clone();
+                        } else if let Some((elem_ty, size)) = current_ty.array_info() {
+                            // Check for indexing into zero-sized array
+                            if size == 0 {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for extractvalue".to_string(),
+                                    position: self.current,
+                                });
+                            }
                             current_ty = elem_ty.clone();
+                        } else {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "invalid indices for extractvalue".to_string(),
+                                position: self.current,
+                            });
                         }
 
                         let idx_val = Value::new(
@@ -2273,6 +2336,14 @@ impl Parser {
                     } else {
                         break;
                     }
+                }
+
+                // Validate that at least one index was provided
+                if indices.is_empty() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected index".to_string(),
+                        position: self.current,
+                    });
                 }
 
                 // Result type is the final type after following all indices
@@ -2289,12 +2360,43 @@ impl Parser {
                 let elem = self.parse_value_with_type(Some(&elem_ty))?;
                 operands.push(elem);
 
-                // Parse indices
+                // Navigate through indices to find the target type
+                let mut current_ty = agg_ty.clone();
+                let mut indices = Vec::new();
+
                 while self.match_token(&Token::Comma) {
                     if let Some(Token::Integer(idx)) = self.peek() {
+                        let idx = *idx as usize;
+                        indices.push(idx);
+
+                        // Navigate to the indexed element type and validate
+                        if let Some(fields) = current_ty.struct_fields() {
+                            if idx >= fields.len() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for insertvalue".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            current_ty = fields[idx].clone();
+                        } else if let Some((elem_type, size)) = current_ty.array_info() {
+                            // Check for indexing into zero-sized array
+                            if size == 0 {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for insertvalue".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            current_ty = elem_type.clone();
+                        } else {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "invalid indices for insertvalue".to_string(),
+                                position: self.current,
+                            });
+                        }
+
                         let idx_val = Value::new(
                             self.context.int_type(32),
-                            crate::value::ValueKind::ConstantInt { value: *idx as i64 },
+                            crate::value::ValueKind::ConstantInt { value: idx as i64 },
                             Some(idx.to_string())
                         );
                         operands.push(idx_val);
@@ -2302,6 +2404,17 @@ impl Parser {
                     } else {
                         break;
                     }
+                }
+
+                // Validate that the inserted element type matches the target field type
+                if !indices.is_empty() && elem_ty != current_ty {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!(
+                            "insertvalue operand and field disagree in type: '{}' instead of '{}'",
+                            elem_ty, current_ty
+                        ),
+                        position: self.current,
+                    });
                 }
 
                 // Result type is same as aggregate type
@@ -4755,6 +4868,12 @@ impl Parser {
                     attr_count += 1;
                     continue;
                 },
+                Some(Token::Mustprogress) => {
+                    self.advance();
+                    attrs.mustprogress = true;
+                    attr_count += 1;
+                    continue;
+                },
                 Some(Token::Align) => {
                     self.advance();
                     if let Some(Token::Integer(n)) = self.peek() {
@@ -4967,7 +5086,6 @@ impl Parser {
                        self.match_token(&Token::Safestack) ||
                        self.match_token(&Token::Nocf_check) ||
                        self.match_token(&Token::Shadowcallstack) ||
-                       self.match_token(&Token::Mustprogress) ||
                        self.match_token(&Token::Strictfp) ||
                        self.match_token(&Token::Nobuiltin) ||
                        self.match_token(&Token::Noduplicate) ||
