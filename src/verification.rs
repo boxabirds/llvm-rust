@@ -4060,6 +4060,19 @@ impl<'a> Verifier<'a> {
             // The relocated value must be a pointer type
             // The result address space must match the relocated value address space
 
+            // Check that the token is not "none"
+            if operands.len() >= 2 {
+                let token_arg = &operands[1]; // operands[0] is function, operands[1] is token
+
+                // Check if the token argument is undef or poison (which represents "none")
+                if token_arg.name() == Some("none") || token_arg.name() == Some("undef") {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "gc relocate is incorrectly tied to the statepoint".to_string(),
+                        location: "(undef, undef)".to_string(),
+                    });
+                }
+            }
+
             if let Some(result) = inst.result() {
                 let result_type = result.get_type();
 
