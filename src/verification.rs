@@ -1125,10 +1125,23 @@ impl<'a> Verifier<'a> {
 
         let location = format!("instruction {:?}", inst.opcode());
 
-        // Note: LLVM allows self-referential instructions in unreachable code
-        // The value is undefined/poison, which is semantically valid
-        // Removed overly strict check that rejected valid LLVM IR
-        // (e.g., %x = add i32 %x, 1 in unreachable blocks)
+        // Check for self-referential instructions (except PHI nodes)
+        // Only PHI nodes may reference their own value
+        if inst.opcode() != Opcode::PHI {
+            if let Some(result_name) = inst.result().and_then(|v| v.name()) {
+                for operand in inst.operands() {
+                    if let Some(operand_name) = operand.name() {
+                        if result_name == operand_name {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Only PHI nodes may reference their own value".to_string(),
+                                location: format!("{:?} instruction", inst.opcode()),
+                            });
+                            break;
+                        }
+                    }
+                }
+            }
+        }
 
         // Verify metadata attachments
         self.verify_instruction_metadata(inst, &location);
