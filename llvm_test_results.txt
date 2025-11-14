@@ -1,0 +1,495 @@
+✓ POSITIVE: 2002-03-08-NameCollision.ll
+✓ POSITIVE: 2002-03-08-NameCollision2.ll
+✓ POSITIVE: 2002-04-07-HexFloatConstants.ll
+✓ POSITIVE: 2002-04-07-InfConstant.ll
+✓ POSITIVE: 2002-04-29-NameBinding.ll
+✓ POSITIVE: 2002-05-02-InvalidForwardRef.ll
+✓ POSITIVE: 2002-07-14-OpaqueType.ll
+✓ POSITIVE: 2002-07-25-QuoteInString.ll
+✓ POSITIVE: 2002-07-25-ReturnPtrFunction.ll
+✓ POSITIVE: 2002-07-31-SlashInString.ll
+✓ POSITIVE: 2002-08-15-CastAmbiguity.ll
+✓ POSITIVE: 2002-08-15-ConstantExprProblem.ll
+✓ POSITIVE: 2002-08-15-UnresolvedGlobalReference.ll
+✓ POSITIVE: 2002-08-16-ConstExprInlined.ll
+✓ POSITIVE: 2002-08-19-BytecodeReader.ll
+✓ POSITIVE: 2002-08-22-DominanceProblem.ll
+✓ POSITIVE: 2002-10-08-LargeArrayPerformance.ll
+✓ POSITIVE: 2002-10-13-ConstantEncodingProblem.ll
+✓ POSITIVE: 2002-12-15-GlobalResolve.ll
+✓ POSITIVE: 2003-01-30-UnsignedString.ll
+✓ NEGATIVE: 2003-04-15-ConstantInitAssertion.ll
+✓ POSITIVE: 2003-04-25-UnresolvedGlobalReference.ll
+✓ POSITIVE: 2003-05-03-BytecodeReaderProblem.ll
+✓ POSITIVE: 2003-05-12-MinIntProblem.ll
+✓ POSITIVE: 2003-05-15-AssemblerProblem.ll
+✓ POSITIVE: 2003-05-15-SwitchBug.ll
+✓ POSITIVE: 2003-05-21-ConstantShiftExpr.ll
+✓ POSITIVE: 2003-05-21-EmptyStructTest.ll
+✓ NEGATIVE: 2003-05-21-MalformedStructCrash.ll
+✓ POSITIVE: 2003-08-20-ConstantExprGEP-Fold.ll
+✓ POSITIVE: 2003-08-21-ConstantExprCast-Fold.ll
+✗ NEGATIVE (parsed but should fail): 2003-11-11-ImplicitRename.ll
+✓ POSITIVE: 2003-11-12-ConstantExprCast.ll
+✓ NEGATIVE: 2003-11-24-SymbolTableCrash.ll
+✓ POSITIVE: 2004-01-11-getelementptrfolding.ll
+✓ POSITIVE: 2004-01-20-MaxLongLong.ll
+✓ POSITIVE: 2004-02-01-NegativeZero.ll
+✗ POSITIVE (failed but should parse): 2004-02-27-SelfUseAssertError.ll
+✓ NEGATIVE: 2004-03-30-UnclosedFunctionCrash.ll
+✓ POSITIVE: 2004-04-04-GetElementPtrIndexTypes.ll
+✓ POSITIVE: 2004-06-07-VerifierBug.ll
+✓ POSITIVE: 2004-10-22-BCWriterUndefBug.ll
+✗ NEGATIVE (parsed but should fail): 2004-11-28-InvalidTypeCrash.ll
+✓ POSITIVE: 2005-01-03-FPConstantDisassembly.ll
+✓ POSITIVE: 2005-01-31-CallingAggregateFunction.ll
+✓ NEGATIVE: 2005-05-05-OpaqueUndefValues.ll
+✓ POSITIVE: 2005-12-21-ZeroInitVector.ll
+✓ NEGATIVE: 2006-09-28-CrashOnInvalid.ll
+✓ POSITIVE: 2006-12-09-Cast-To-Bool.ll
+✗ NEGATIVE (parsed but should fail): 2007-01-02-Undefined-Arg-Type.ll
+✓ POSITIVE: 2007-01-05-Cmp-ConstExpr.ll
+✓ NEGATIVE: 2007-01-16-CrashOnBadCast.ll
+✗ NEGATIVE (parsed but should fail): 2007-01-16-CrashOnBadCast2.ll
+✗ NEGATIVE (parsed but should fail): 2007-03-18-InvalidNumberedVar.ll
+✓ POSITIVE: 2007-03-19-NegValue.ll
+✓ POSITIVE: 2007-04-20-AlignedLoad.ll
+✓ POSITIVE: 2007-04-20-AlignedStore.ll
+✓ POSITIVE: 2007-05-21-Escape.ll
+✓ POSITIVE: 2007-07-19-ParamAttrAmbiguity.ll
+✗ NEGATIVE (parsed but should fail): 2007-08-06-AliasInvalid.ll
+✓ POSITIVE: 2007-09-10-AliasFwdRef.ll
+✓ POSITIVE: 2007-09-29-GC.ll
+✓ NEGATIVE: 2007-11-26-AttributeOverload.ll
+✓ POSITIVE: 2007-12-11-AddressSpaces.ll
+✓ POSITIVE: 2008-01-11-VarargAttrs.ll
+✓ NEGATIVE: 2008-02-18-IntPointerCrash.ll
+✓ POSITIVE: 2008-07-10-APInt.ll
+✓ POSITIVE: 2008-09-02-FunctionNotes.ll
+✓ POSITIVE: 2008-09-29-RetAttr.ll
+✓ POSITIVE: 2008-10-14-QuoteInName.ll
+✓ POSITIVE: 2009-02-01-UnnamedForwardRef.ll
+✓ POSITIVE: 2009-02-28-CastOpc.ll
+✓ POSITIVE: 2009-02-28-StripOpaqueName.ll
+✓ POSITIVE: 2009-07-24-ZeroArgGEP.ll
+✓ POSITIVE: 2010-02-05-FunctionLocalMetadataBecomesNull.ll
+✓ POSITIVE: ConstantExprFold.ll
+✓ POSITIVE: ConstantExprFoldCast.ll
+✓ POSITIVE: ConstantExprFoldSelect.ll
+✗ POSITIVE (failed but should parse): ConstantExprNoFold.ll
+✓ POSITIVE: DICommonBlock.ll
+✓ POSITIVE: DIDefaultTemplateParam.ll
+✓ POSITIVE: DIEnumerator.ll
+✓ POSITIVE: DIEnumeratorBig.ll
+✓ POSITIVE: DIGlobalVariableExpression.ll
+✓ POSITIVE: DIMacroFile.ll
+✓ POSITIVE: MultipleReturnValueType.ll
+✓ POSITIVE: aarch64-intrinsics-attributes.ll
+✓ POSITIVE: absolute_symbol.ll
+✓ POSITIVE: addrspacecast-alias.ll
+✓ POSITIVE: aggregate-constant-values.ll
+✓ POSITIVE: aggregate-return-single-value.ll
+✗ NEGATIVE (parsed but should fail): alias-redefinition.ll
+✗ POSITIVE (failed but should parse): alias-use-list-order.ll
+✓ NEGATIVE: align-inst-alloca.ll
+✓ NEGATIVE: align-inst-load.ll
+✓ NEGATIVE: align-inst-store.ll
+✓ POSITIVE: align-inst.ll
+✗ NEGATIVE (parsed but should fail): align-param-attr-error0.ll
+✗ NEGATIVE (parsed but should fail): align-param-attr-error1.ll
+✗ NEGATIVE (parsed but should fail): align-param-attr-error2.ll
+✓ POSITIVE: align-param-attr-format.ll
+✓ POSITIVE: alignstack.ll
+✓ POSITIVE: alloca-addrspace-elems.ll
+✓ NEGATIVE: alloca-addrspace-parse-error-0.ll
+✗ NEGATIVE (parsed but should fail): alloca-addrspace-parse-error-1.ll
+✓ POSITIVE: alloca-addrspace0.ll
+✓ NEGATIVE: alloca-invalid-type-2.ll
+✓ NEGATIVE: alloca-invalid-type.ll
+✓ POSITIVE: alloca-size-one.ll
+✗ NEGATIVE (parsed but should fail): allockind-missing.ll
+✓ NEGATIVE: allockind.ll
+✓ POSITIVE: amdgcn-intrinsic-attributes.ll
+✗ POSITIVE (failed but should parse): amdgcn-unreachable.ll
+✓ POSITIVE: amdgpu-cs-chain-cc.ll
+✗ POSITIVE (failed but should parse): amdgpu-image-atomic-attributes.ll
+✓ POSITIVE: anon-functions.ll
+✓ POSITIVE: asm-path-writer.ll
+✓ POSITIVE: associated-metadata.ll
+✗ POSITIVE (failed but should parse): atomic.ll
+✓ POSITIVE: atomicrmw.ll
+✗ NEGATIVE (parsed but should fail): attribute-builtin.ll
+✓ POSITIVE: auto_upgrade_intrinsics.ll
+✓ POSITIVE: auto_upgrade_nvvm_intrinsics.ll
+✗ NEGATIVE (parsed but should fail): autoupgrade-invalid-masked-align.ll
+✓ POSITIVE: autoupgrade-invalid-mem-intrinsics.ll
+✗ NEGATIVE (parsed but should fail): autoupgrade-invalid-name-mangling.ll
+✓ POSITIVE: autoupgrade-lifetime-intrinsics.ll
+✓ POSITIVE: autoupgrade-thread-pointer.ll
+✓ POSITIVE: autoupgrade-wasm-intrinsics.ll
+✓ POSITIVE: bcwrap.ll
+✓ POSITIVE: bfloat.ll
+✓ POSITIVE: block-labels.ll
+✓ POSITIVE: br-single-destination.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-0.ll
+✓ NEGATIVE: byref-parse-error-1.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-10.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-2.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-3.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-4.ll
+✓ NEGATIVE: byref-parse-error-5.ll
+✓ NEGATIVE: byref-parse-error-6.ll
+✓ NEGATIVE: byref-parse-error-7.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-8.ll
+✗ NEGATIVE (parsed but should fail): byref-parse-error-9.ll
+✗ NEGATIVE (parsed but should fail): byval-parse-error0.ll
+✓ POSITIVE: byval-type-attr.ll
+✓ POSITIVE: c-style-comment.ll
+✓ POSITIVE: call-arg-is-callee.ll
+✓ NEGATIVE: call-invalid-1.ll
+✗ NEGATIVE (parsed but should fail): call-nonzero-program-addrspace-2.ll
+✗ NEGATIVE (parsed but should fail): call-nonzero-program-addrspace.ll
+✓ POSITIVE: callee-type-metadata.ll
+✓ NEGATIVE: captures-errors.ll
+✓ POSITIVE: captures.ll
+✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-2.ll
+✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-3.ll
+✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-4.ll
+✗ NEGATIVE (parsed but should fail): cmpxchg-ordering.ll
+✓ POSITIVE: comment.ll
+✗ NEGATIVE (parsed but should fail): constant-getelementptr-scalable_pointee.ll
+✓ NEGATIVE: constant-splat-diagnostics.ll
+✓ POSITIVE: constant-splat.ll
+✓ POSITIVE: convergence-control.ll
+✓ POSITIVE: datalayout-alloca-addrspace.ll
+✓ POSITIVE: datalayout-anypointersize.ll
+✓ POSITIVE: datalayout-program-addrspace.ll
+✓ POSITIVE: dbg-checksum.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-0.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-1.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-2.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-3.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-4.ll
+✓ NEGATIVE: dbg-record-invalid-5.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-6.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-7.ll
+✗ NEGATIVE (parsed but should fail): dbg-record-invalid-8.ll
+✓ POSITIVE: debug-info.ll
+✓ POSITIVE: debug-label-bitcode.ll
+✓ POSITIVE: debug-variant-discriminator.ll
+✗ NEGATIVE (parsed but should fail): dicompileunit-conflicting-language-fields.ll
+✗ NEGATIVE (parsed but should fail): dicompileunit-invalid-language-version.ll
+✗ NEGATIVE (parsed but should fail): dicompileunit-invalid-language.ll
+✓ POSITIVE: dicompileunit.ll
+✓ POSITIVE: dicompositetype-members.ll
+✗ POSITIVE (failed but should parse): diexpression.ll
+✓ POSITIVE: difile-empty-source.ll
+✓ POSITIVE: difile-escaped-chars.ll
+✓ POSITIVE: diglobalvariable.ll
+✓ POSITIVE: diimportedentity.ll
+✓ POSITIVE: dilexicalblock.ll
+✓ POSITIVE: dilocalvariable-arg-large.ll
+✓ POSITIVE: dilocalvariable.ll
+✓ POSITIVE: dilocation.ll
+✓ POSITIVE: dimodule.ll
+✓ POSITIVE: dinamespace.ll
+✓ POSITIVE: diobjcproperty.ll
+✓ POSITIVE: distinct-mdnode.ll
+✓ POSITIVE: disubprogram-targetfuncname.ll
+✓ POSITIVE: disubprogram.ll
+✓ POSITIVE: disubrange-empty-array.ll
+✓ POSITIVE: disubroutinetype.ll
+✓ POSITIVE: ditemplateparameter.ll
+✓ POSITIVE: ditype-large-values.ll
+✓ NEGATIVE: dll-storage-class-local-linkage.ll
+✗ NEGATIVE (parsed but should fail): dllimport-dsolocal-diag.ll
+✓ POSITIVE: drop-debug-info-nonzero-alloca.ll
+✓ POSITIVE: drop-debug-info.ll
+✓ POSITIVE: dso_local_equivalent.ll
+✓ POSITIVE: export-symbol-anonymous-class.ll
+✓ POSITIVE: externally-initialized.ll
+✗ NEGATIVE (parsed but should fail): extractvalue-invalid-idx.ll
+✗ NEGATIVE (parsed but should fail): extractvalue-no-idx.ll
+✗ POSITIVE (failed but should parse): fast-math-flags.ll
+✓ POSITIVE: flags.ll
+✓ POSITIVE: fp-intrinsics-attr.ll
+✓ POSITIVE: function-operand-uselistorder.ll
+✓ POSITIVE: generic-debug-node.ll
+✗ POSITIVE (failed but should parse): getelementptr.ll
+✓ NEGATIVE: getelementptr_invalid_ptr.ll
+✗ NEGATIVE (parsed but should fail): getelementptr_struct.ll
+✓ POSITIVE: getelementptr_vec_ce.ll
+✓ NEGATIVE: getelementptr_vec_ce2.ll
+✓ NEGATIVE: getelementptr_vec_idx1.ll
+✓ NEGATIVE: getelementptr_vec_idx2.ll
+✓ NEGATIVE: getelementptr_vec_idx3.ll
+✗ NEGATIVE (parsed but should fail): getelementptr_vec_idx4.ll
+✗ NEGATIVE (parsed but should fail): getelementptr_vec_struct.ll
+✗ NEGATIVE (parsed but should fail): getelementptr_vscale_struct.ll
+✓ POSITIVE: global-addrspace-forwardref.ll
+✓ POSITIVE: globalvariable-attributes.ll
+✓ NEGATIVE: gv-invalid-type.ll
+✓ POSITIVE: half-constprop.ll
+✓ POSITIVE: half-conv.ll
+✓ POSITIVE: half.ll
+✓ POSITIVE: huge-array.ll
+✓ POSITIVE: ifunc-asm.ll
+✓ POSITIVE: ifunc-dsolocal.ll
+✓ POSITIVE: ifunc-program-addrspace.ll
+✓ POSITIVE: ifunc-stripPointerCastsAndAliases.ll
+✓ POSITIVE: ifunc-use-list-order.ll
+✗ POSITIVE (failed but should parse): immarg-param-attribute.ll
+✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid.ll
+✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid2.ll
+✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid3.ll
+✓ POSITIVE: implicit-intrinsic-declaration.ll
+✗ NEGATIVE (parsed but should fail): inalloca-parse-error0.ll
+✓ POSITIVE: inalloca.ll
+✓ POSITIVE: incomplete-ir-declarations.ll
+✗ NEGATIVE (parsed but should fail): incomplete-ir-metadata-unsupported.ll
+✓ POSITIVE: incomplete-ir-metadata.ll
+✓ POSITIVE: incorrect-tdep-attrs-parsing.ll
+✓ POSITIVE: index-value-order.ll
+✓ NEGATIVE: initializes-attribute-invalid.ll
+✓ NEGATIVE: inline-asm-constraint-error.ll
+✓ NEGATIVE: inrange-errors.ll
+✓ POSITIVE: insertextractvalue.ll
+✗ NEGATIVE (parsed but should fail): insertvalue-invalid-idx.ll
+✗ NEGATIVE (parsed but should fail): insertvalue-invalid-type.ll
+✗ NEGATIVE (parsed but should fail): internal-hidden-alias.ll
+✓ NEGATIVE: internal-hidden-function.ll
+✓ NEGATIVE: internal-hidden-variable.ll
+✗ NEGATIVE (parsed but should fail): internal-protected-alias.ll
+✓ NEGATIVE: internal-protected-function.ll
+✓ NEGATIVE: internal-protected-variable.ll
+✓ NEGATIVE: invalid-addrspace.ll
+✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-add-must-be-integer-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-fadd-must-be-fp-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-fsub-must-be-fp-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-scalable.ll
+✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-xchg-fp-vector.ll
+✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
+✗ NEGATIVE (parsed but should fail): invalid-byval-type2.ll
+✗ NEGATIVE (parsed but should fail): invalid-byval-type3.ll
+✗ NEGATIVE (parsed but should fail): invalid-c-style-comment0.ll
+✓ NEGATIVE: invalid-c-style-comment1.ll
+✓ NEGATIVE: invalid-c-style-comment2.ll
+✗ NEGATIVE (parsed but should fail): invalid-c-style-comment3.ll
+✗ NEGATIVE (parsed but should fail): invalid-comdat.ll
+✗ NEGATIVE (parsed but should fail): invalid-comdat2.ll
+✗ NEGATIVE (parsed but should fail): invalid-datalayout-override.ll
+✓ POSITIVE: invalid-debug-info-version.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-emissionkind-bad.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-language-bad.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-language-overflow.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-missing-language.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-null-file.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-uniqued.ll
+✗ NEGATIVE (parsed but should fail): invalid-dicompositetype-missing-tag.ll
+✗ NEGATIVE (parsed but should fail): invalid-diderivedtype-missing-basetype.ll
+✗ NEGATIVE (parsed but should fail): invalid-diderivedtype-missing-tag.ll
+✗ NEGATIVE (parsed but should fail): invalid-dienumerator-missing-name.ll
+✗ NEGATIVE (parsed but should fail): invalid-dienumerator-missing-value.ll
+✗ NEGATIVE (parsed but should fail): invalid-diexpression-large.ll
+✗ NEGATIVE (parsed but should fail): invalid-diexpression-verify.ll
+✗ NEGATIVE (parsed but should fail): invalid-difile-missing-directory.ll
+✗ NEGATIVE (parsed but should fail): invalid-difile-missing-filename.ll
+✗ NEGATIVE (parsed but should fail): invalid-diflag-bad.ll
+✗ NEGATIVE (parsed but should fail): invalid-diglobalvariable-empty-name.ll
+✗ NEGATIVE (parsed but should fail): invalid-diimportedentity-missing-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-diimportedentity-missing-tag.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilexicalblock-missing-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilexicalblock-null-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilexicalblockfile-missing-discriminator.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilexicalblockfile-missing-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilexicalblockfile-null-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocalvariable-arg-large.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocalvariable-arg-negative.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocalvariable-missing-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocalvariable-null-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-field-bad.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-field-twice.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-missing-scope-2.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-missing-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-null-scope.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-overflow-column.ll
+✗ NEGATIVE (parsed but should fail): invalid-dilocation-overflow-line.ll
+✗ NEGATIVE (parsed but should fail): invalid-dinamespace-missing-namespace.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubprogram-uniqued-definition.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubrange-count-large.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubrange-count-negative.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubrange-count-node.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubrange-lowerBound-max.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubrange-lowerBound-min.ll
+✗ NEGATIVE (parsed but should fail): invalid-disubroutinetype-missing-types.ll
+✗ NEGATIVE (parsed but should fail): invalid-ditemplatetypeparameter-missing-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-ditemplatevalueparameter-missing-value.ll
+✗ NEGATIVE (parsed but should fail): invalid-fp80hex.ll
+✗ NEGATIVE (parsed but should fail): invalid-generic-debug-node-tag-bad.ll
+✗ NEGATIVE (parsed but should fail): invalid-generic-debug-node-tag-missing.ll
+✗ NEGATIVE (parsed but should fail): invalid-generic-debug-node-tag-overflow.ll
+✗ NEGATIVE (parsed but should fail): invalid-generic-debug-node-tag-wrong-type.ll
+✓ NEGATIVE: invalid-gep-missing-explicit-type.ll
+✓ NEGATIVE: invalid-hexint.ll
+✓ NEGATIVE: invalid-immarg.ll
+✗ NEGATIVE (parsed but should fail): invalid-immarg2.ll
+✗ NEGATIVE (parsed but should fail): invalid-immarg3.ll
+✓ NEGATIVE: invalid-immarg4.ll
+✗ NEGATIVE (parsed but should fail): invalid-immarg5.ll
+✓ NEGATIVE: invalid-inline-constraint.ll
+✗ NEGATIVE (parsed but should fail): invalid-inttype.ll
+✗ NEGATIVE (parsed but should fail): invalid-label-call-arg.ll
+✓ NEGATIVE: invalid-label.ll
+✗ NEGATIVE (parsed but should fail): invalid-landingpad.ll
+✗ NEGATIVE (parsed but should fail): invalid-load-missing-explicit-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-mdnode-badref.ll
+✗ NEGATIVE (parsed but should fail): invalid-mdnode-vector.ll
+✗ NEGATIVE (parsed but should fail): invalid-mdnode-vector2.ll
+✗ NEGATIVE (parsed but should fail): invalid-metadata-attachment-has-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-metadata-function-local-attachments.ll
+✗ NEGATIVE (parsed but should fail): invalid-metadata-function-local-complex-1.ll
+✗ NEGATIVE (parsed but should fail): invalid-metadata-function-local-complex-2.ll
+✗ NEGATIVE (parsed but should fail): invalid-metadata-function-local-complex-3.ll
+✗ NEGATIVE (parsed but should fail): invalid-metadata-has-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-name.ll
+✗ NEGATIVE (parsed but should fail): invalid-name2.ll
+✓ NEGATIVE: invalid-opaque-ptr-addrspace.ll
+✗ NEGATIVE (parsed but should fail): invalid-opaque-ptr-double-addrspace.ll
+✗ NEGATIVE (parsed but should fail): invalid-opaque-ptr.ll
+✗ NEGATIVE (parsed but should fail): invalid-ptrauth-const1.ll
+✗ NEGATIVE (parsed but should fail): invalid-ptrauth-const2.ll
+✗ NEGATIVE (parsed but should fail): invalid-ptrauth-const3.ll
+✗ NEGATIVE (parsed but should fail): invalid-ptrauth-const4.ll
+✗ NEGATIVE (parsed but should fail): invalid-ptrauth-const5.ll
+✗ NEGATIVE (parsed but should fail): invalid-safestack-param.ll
+✓ NEGATIVE: invalid-safestack-return.ll
+✗ NEGATIVE (parsed but should fail): invalid-specialized-mdnode.ll
+✗ NEGATIVE (parsed but should fail): invalid-target-type-mixed.ll
+✗ NEGATIVE (parsed but should fail): invalid-untyped-metadata.ll
+✓ NEGATIVE: invalid-uselistorder-function-between-blocks.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-function-missing-named.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-function-missing-numbered.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-global-missing.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-duplicated.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-empty.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-one.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-ordered.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-range.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-toofew.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-indexes-toomany.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder-type.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-missing-bb.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-missing-body.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-missing-func.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-not-bb.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-not-func.ll
+✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-numbered.ll
+✗ POSITIVE (failed but should parse): invalid-vecreduce.ll
+✗ NEGATIVE (parsed but should fail): invalid_cast.ll
+✗ NEGATIVE (parsed but should fail): invalid_cast2.ll
+✗ NEGATIVE (parsed but should fail): invalid_cast3.ll
+✗ NEGATIVE (parsed but should fail): invalid_cast4.ll
+✗ NEGATIVE (parsed but should fail): invoke-nonzero-program-addrspace.ll
+✓ POSITIVE: large-comdat.ll
+✓ POSITIVE: local-unnamed-addr.ll
+✓ POSITIVE: lround.ll
+✓ POSITIVE: masked-load-store-intrinsics-attributes.ll
+✓ POSITIVE: max-inttype.ll
+✓ NEGATIVE: memory-attribute-errors.ll
+✓ POSITIVE: memory-attribute.ll
+✓ POSITIVE: metadata-annotations.ll
+✓ POSITIVE: metadata-decl.ll
+✓ POSITIVE: metadata-function-local.ll
+✓ POSITIVE: metadata-null-operands.ll
+✓ POSITIVE: metadata-use-uselistorder.ll
+✓ POSITIVE: metadata.ll
+✗ NEGATIVE (parsed but should fail): missing-tbaa.ll
+✓ POSITIVE: multi-mod-disassemble.ll
+✓ POSITIVE: multi-summary-disassemble.ll
+✗ NEGATIVE (parsed but should fail): mustprogress-parse-error-0.ll
+✓ NEGATIVE: mustprogress-parse-error-1.ll
+✗ NEGATIVE (parsed but should fail): mustprogress-parse-error-2.ll
+✗ NEGATIVE (parsed but should fail): musttail-invalid-1.ll
+✗ NEGATIVE (parsed but should fail): musttail-invalid-2.ll
+✓ POSITIVE: musttail.ll
+✗ NEGATIVE (parsed but should fail): mutually-recursive-types.ll
+✓ POSITIVE: named-metadata.ll
+✓ POSITIVE: no-mdstring-upgrades.ll
+✓ POSITIVE: noalias-addrspace-md.ll
+✓ NEGATIVE: nofpclass-invalid.ll
+✓ POSITIVE: nofpclass.ll
+✓ POSITIVE: non-global-value-max-name-size-2.ll
+✓ POSITIVE: non-global-value-max-name-size.ll
+✓ POSITIVE: numbered-values.ll
+✗ NEGATIVE (parsed but should fail): opaque-ptr-cmpxchg.ll
+✓ POSITIVE: opaque-ptr-intrinsic-remangling.ll
+✗ NEGATIVE (parsed but should fail): opaque-ptr-invalid-forward-ref-2.ll
+✗ NEGATIVE (parsed but should fail): opaque-ptr-invalid-forward-ref.ll
+✓ POSITIVE: opaque-ptr-struct-types.ll
+✓ POSITIVE: opaque-ptr.ll
+✗ NEGATIVE (parsed but should fail): phi-first-class-type.ll
+✓ POSITIVE: pr119818.ll
+✗ NEGATIVE (parsed but should fail): private-hidden-alias.ll
+✓ NEGATIVE: private-hidden-function.ll
+✓ NEGATIVE: private-hidden-variable.ll
+✗ NEGATIVE (parsed but should fail): private-protected-alias.ll
+✓ NEGATIVE: private-protected-function.ll
+✓ NEGATIVE: private-protected-variable.ll
+✓ POSITIVE: ptrauth-const.ll
+✓ NEGATIVE: ptrtoaddr-invalid-constexpr.ll
+✓ NEGATIVE: ptrtoaddr-invalid.ll
+✓ POSITIVE: ptrtoaddr.ll
+✗ NEGATIVE (parsed but should fail): range-attribute-invalid-range.ll
+✗ NEGATIVE (parsed but should fail): range-attribute-invalid-type.ll
+✓ POSITIVE: range.ll
+✓ POSITIVE: remangle.ll
+✓ POSITIVE: riscv_vls_cc.ll
+✓ POSITIVE: scalable-vector-struct.ll
+✓ POSITIVE: select.ll
+✓ POSITIVE: short-hexpair.ll
+✓ POSITIVE: skip-value-numbers-globals.ll
+✓ NEGATIVE: skip-value-numbers-invalid.ll
+✓ POSITIVE: skip-value-numbers.ll
+✓ POSITIVE: source-filename-backslash.ll
+✓ POSITIVE: source-filename.ll
+✗ NEGATIVE (parsed but should fail): sret-parse-error0.ll
+✓ POSITIVE: sret-type-attr.ll
+✓ POSITIVE: struct-ret-without-upgrade.ll
+✓ POSITIVE: summary-flags.ll
+✓ POSITIVE: summary-flags2.ll
+✗ NEGATIVE (parsed but should fail): summary-parsing-error.ll
+✓ NEGATIVE: symbolic-addrspace.ll
+✓ POSITIVE: target-type-mangled.ll
+✗ NEGATIVE (parsed but should fail): target-type-param-errors.ll
+✓ POSITIVE: target-type-params.ll
+✓ NEGATIVE: target-type-properties.ll
+✗ POSITIVE (failed but should parse): target-types.ll
+✓ POSITIVE: thinlto-bad-summary1.ll
+✓ POSITIVE: thinlto-bad-summary2.ll
+✓ POSITIVE: thinlto-bad-summary3.ll
+✓ POSITIVE: thinlto-blockcount-summary.ll
+✓ POSITIVE: thinlto-flags-summary.ll
+✓ POSITIVE: thinlto-memprof-summary.ll
+✓ POSITIVE: thinlto-multiple-summaries-for-guid.ll
+✓ POSITIVE: thinlto-summary-visibility.ll
+✓ POSITIVE: thinlto-summary.ll
+✓ POSITIVE: thinlto-vtable-summary.ll
+✓ POSITIVE: thinlto-vtable-summary2.ll
+✓ POSITIVE: tls-models.ll
+✓ POSITIVE: token.ll
+✓ POSITIVE: unnamed-addr.ll
+✓ POSITIVE: unnamed-alias.ll
+✗ NEGATIVE (parsed but should fail): unnamed-comdat.ll
+✓ POSITIVE: unnamed.ll
+✗ NEGATIVE (parsed but should fail): unsized-recursive-type.ll
+✓ NEGATIVE: unsupported-constexprs.ll
+✗ POSITIVE (failed but should parse): uselistorder.ll
+✓ POSITIVE: uselistorder_bb.ll
+✓ POSITIVE: uselistorder_global.ll
+✗ NEGATIVE (parsed but should fail): uwtable-1.ll
+✗ NEGATIVE (parsed but should fail): uwtable-2.ll
+✓ POSITIVE: vbool-cmp.ll
+✓ POSITIVE: vector-select.ll
+✓ POSITIVE: vector-shift.ll
+✓ POSITIVE: x86_intrcc.ll
+✓ POSITIVE: zero-input-phi.ll
