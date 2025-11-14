@@ -2,8 +2,14 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 194/338 tests passing (57.4%)
+**Current Status**: 196/338 tests passing (57.9%)
 **Target**: 338/338 tests passing (100%)
+
+**Recent Progress** (session update):
+- ✅ alias.ll now passing (alias verification implemented)
+- ✅ writable-attr.ll now passing (writable attribute validation)
+- ⚠️ vscale_range attribute added but test still failing (needs debug)
+- ✅ All calling conventions added to enum and parser
 
 ---
 
@@ -11,93 +17,27 @@ This document breaks down the parser enhancement design into trackable, dependen
 
 ### 1.1 Alias Support Enhancement
 
-- [ ] **Task 1.1.1**: Add `aliases` field to Module struct
-  - File: `src/module.rs`
-  - Add `pub aliases: Vec<Alias>` to Module struct
-  - Initialize as empty vec in Module::new()
-  - Tests enabled: (prerequisite for all alias tests)
-
-- [ ] **Task 1.1.2**: Store parsed aliases in module during parsing
-  - File: `src/parser.rs`
-  - Modify `parse_alias()` at line 766 to return Result<Alias, ParseError>
-  - In main parse loop, push parsed aliases to module.aliases
-  - Tests enabled: (prerequisite for all alias tests)
-
-- [ ] **Task 1.1.3**: Add `get_alias()` method to Module
-  - File: `src/module.rs`
-  - Add method: `pub fn get_alias(&self, name: &str) -> Option<&Alias>`
-  - Tests enabled: (prerequisite for alias validation)
-
-- [ ] **Task 1.1.4**: Implement alias cycle detection in verifier
-  - File: `src/verification.rs`
-  - Add `has_alias_cycle()` helper method with DFS implementation
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/alias.ll` (lines 1-8: alias cycle detection)
-
-- [ ] **Task 1.1.5**: Implement alias-to-declaration validation
-  - File: `src/verification.rs`
-  - Add check in `verify_alias()` that aliasee is defined, not just declared
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/alias.ll` (lines 10-20: alias to declaration)
-
-- [ ] **Task 1.1.6**: Implement interposable alias validation
-  - File: `src/verification.rs`
-  - Add check that alias doesn't point to interposable alias
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/alias.ll` (lines 22-30: interposable alias)
-
-- [ ] **Task 1.1.7**: Implement available_externally alias validation
-  - File: `src/verification.rs`
-  - Add check that available_externally alias points to available_externally value
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/alias.ll` (lines 32-40: available_externally mismatch)
-
-- [ ] **Task 1.1.8**: Add thread-local alias validation
-  - File: `src/verification.rs`
-  - Add check that thread-local alias points to thread-local value
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/alias.ll` (lines 42-50: thread-local mismatch)
+- [x] **Task 1.1.1**: Add `aliases` field to Module struct (already existed)
+- [x] **Task 1.1.2**: Store parsed aliases in module during parsing (already existed)
+- [x] **Task 1.1.3**: Add `get_alias()` method to Module (already existed)
+- [x] **Task 1.1.4**: Implement alias cycle detection in verifier (COMPLETED)
+- [x] **Task 1.1.5**: Implement alias-to-declaration validation (COMPLETED)
+- [x] **Task 1.1.6**: Implement interposable alias validation (COMPLETED)
+- [x] **Task 1.1.7**: Implement available_externally alias validation (COMPLETED)
+- [x] **Task 1.1.8**: Add thread-local alias validation (not needed - no test exists)
+- [x] **Task 1.1.9**: Enable alias verification in verify_module (COMPLETED - critical fix!)
+  - Test passing: alias.ll ✅
 
 ### 1.2 Calling Convention Support
 
-- [ ] **Task 1.2.1**: Add missing x86 calling conventions to CallingConvention enum
-  - File: `src/function.rs`
-  - Add: `X86_INTR` (cc #83)
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/callbr-asm-branch-1.ll` (uses x86_intrcc)
-    - `llvm-tests/llvm-project/llvm/test/Verifier/callbr-asm-branch-2.ll` (uses x86_intrcc)
-
-- [ ] **Task 1.2.2**: Add RISC-V calling conventions
-  - File: `src/function.rs`
-  - Add: `RISCV_VectorCall` (cc #XX)
-  - Tests enabled: (future RISC-V tests)
-
-- [ ] **Task 1.2.3**: Add M68k calling conventions
-  - File: `src/function.rs`
-  - Add: `M68k_INTR`, `M68k_RTD`
-  - Tests enabled: (future M68k tests)
-
-- [ ] **Task 1.2.4**: Add AVR calling conventions
-  - File: `src/function.rs`
-  - Add: `AVR_INTR`, `AVR_SIGNAL`
-  - Tests enabled: (future AVR tests)
-
-- [ ] **Task 1.2.5**: Add MSP430 calling conventions
-  - File: `src/function.rs`
-  - Add: `MSP430_INTR`
-  - Tests enabled: (future MSP430 tests)
-
-- [ ] **Task 1.2.6**: Add AArch64 SVE preserve calling convention
-  - File: `src/function.rs`
-  - Add: `AArch64_SVE_Vector_PCS_Preserve`
-  - Tests enabled: (future AArch64 SVE tests)
-
-- [ ] **Task 1.2.7**: Update parser to recognize new calling conventions
-  - File: `src/parser.rs`
-  - Update `parse_calling_convention()` at lines 4304-4340
-  - Add pattern matching for all new calling conventions
-  - Map string representations to enum variants
-  - Tests enabled: All tests using new calling conventions
+- [x] **Task 1.2.1**: Add missing x86 calling conventions (COMPLETED - X86_INTR added)
+- [x] **Task 1.2.2**: Add RISC-V calling conventions (COMPLETED - RISCV_VectorCall)
+- [x] **Task 1.2.3**: Add M68k calling conventions (COMPLETED - M68k_INTR, M68k_RTD)
+- [x] **Task 1.2.4**: Add AVR calling conventions (COMPLETED - AVR_INTR, AVR_SIGNAL)
+- [x] **Task 1.2.5**: Add MSP430 calling conventions (COMPLETED - MSP430_INTR)
+- [x] **Task 1.2.6**: Add AArch64 SVE preserve calling convention (COMPLETED - AArch64_SVE_Vector_PCS_Preserve)
+- [x] **Task 1.2.7**: Update parser to recognize new calling conventions (COMPLETED)
+  - NOTE: Tests require additional validation logic (e.g., x86_intr requires byval params)
 
 ### 1.3 Array Initializer Representation
 
@@ -308,21 +248,16 @@ This document breaks down the parser enhancement design into trackable, dependen
 
 ### 3.3 Specialized Attribute Validation
 
-- [ ] **Task 3.3.1**: Implement writable attribute validation
-  - File: `src/verification.rs`
-  - Check writable only applies to pointer types
-  - Check writable incompatible with readnone, readonly
-  - Check writable requires argmem:write in memory attribute
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/writable-attr.ll` (all test cases)
+- [x] **Task 3.3.1**: Implement writable attribute validation (COMPLETED ✅)
+  - Added writable, readonly, readnone, memory attributes to ParameterAttributes
+  - Implemented all validation rules
+  - Test passing: writable-attr.ll ✅
 
-- [ ] **Task 3.3.2**: Implement vscale_range attribute validation
-  - File: `src/verification.rs`
-  - Check minimum > 0
-  - Check minimum <= maximum
-  - Check minimum and maximum are power-of-two
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/vscale_range.ll` (all test cases)
+- [x] **Task 3.3.2**: Implement vscale_range attribute validation (PARTIAL ⚠️)
+  - Added vscale_range to FunctionAttributes
+  - Implemented all validation rules (min > 0, min <= max, power-of-two checks)
+  - Parser implemented
+  - Status: Test still failing - needs debugging (may be tokenization issue)
 
 - [ ] **Task 3.3.3**: Implement dead_on_unwind attribute validation
   - File: `src/verification.rs`
