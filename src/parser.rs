@@ -4342,14 +4342,22 @@ impl Parser {
                     "spir_kernel" => Some(CallingConvention::SPIR_Kernel),
                     "spir_func" => Some(CallingConvention::SPIR_Func),
                     "x86_stdcallcc" => Some(CallingConvention::X86_StdCall),
-                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") => {
+                    "x86_intrcc" => Some(CallingConvention::X86_INTR),
+                    "riscv_vector_cc" => Some(CallingConvention::RISCV_VectorCall),
+                    "m68k_intr" => Some(CallingConvention::M68k_INTR),
+                    "m68k_rtd" => Some(CallingConvention::M68k_RTD),
+                    "avr_intrcc" => Some(CallingConvention::AVR_INTR),
+                    "avr_signalcc" => Some(CallingConvention::AVR_SIGNAL),
+                    "msp430_intrcc" => Some(CallingConvention::MSP430_INTR),
+                    "aarch64_sve_vector_pcs_preserve" => Some(CallingConvention::AArch64_SVE_Vector_PCS_Preserve),
+                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") || cc_name.starts_with("riscv_") || cc_name.starts_with("m68k_") || cc_name.starts_with("avr_") || cc_name.starts_with("msp430_") => {
                         // Unknown variant, skip it
                         None
                     },
                     _ => None,
                 };
 
-                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") {
+                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") || cc_name.starts_with("riscv_") || cc_name.starts_with("m68k_") || cc_name.starts_with("avr_") || cc_name.starts_with("msp430_") || cc_name.starts_with("aarch64_") {
                     if let Some(c) = cc_opt {
                         cc = c;
                     }
@@ -5125,6 +5133,58 @@ impl Parser {
                 }
             }
 
+            // Handle writable
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "writable" {
+                    self.advance();
+                    attrs.writable = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle readonly
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "readonly" {
+                    self.advance();
+                    attrs.readonly = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle readnone
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "readnone" {
+                    self.advance();
+                    attrs.readnone = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle memory(...) attribute
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "memory" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        let start_pos = self.current;
+                        self.advance(); // consume (
+                        let mut memory_str = String::new();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            if let Some(tok) = self.peek() {
+                                memory_str.push_str(&format!("{:?} ", tok));
+                            }
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                        attrs.memory = Some(memory_str.trim().to_string());
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
             // Handle other attributes that we need to skip but don't parse yet
             if self.match_token(&Token::Preallocated) {
                 if self.check(&Token::LParen) {
@@ -5370,6 +5430,32 @@ impl Parser {
                                 if !indices.is_empty() {
                                     attrs.allocsize = Some(indices);
                                 }
+                            }
+                            continue;
+                        }
+
+                        // Parse vscale_range(min, max)
+                        if attr == "vscale_range" {
+                            self.advance(); // consume 'vscale_range'
+                            if self.check(&Token::LParen) {
+                                self.advance(); // consume (
+                                let mut min_val = 0u32;
+                                let mut max_val = 0u32;
+                                // Parse min
+                                if let Some(Token::Integer(val)) = self.peek() {
+                                    min_val = *val as u32;
+                                    self.advance();
+                                }
+                                // Parse comma
+                                if self.match_token(&Token::Comma) {
+                                    // Parse max
+                                    if let Some(Token::Integer(val)) = self.peek() {
+                                        max_val = *val as u32;
+                                        self.advance();
+                                    }
+                                }
+                                self.match_token(&Token::RParen); // consume )
+                                attrs.vscale_range = Some((min_val, max_val));
                             }
                             continue;
                         }
