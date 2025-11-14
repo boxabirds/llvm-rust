@@ -464,10 +464,11 @@ impl<'a> Verifier<'a> {
 
             // Check initializer - cannot be zeroinitializer or contain null
             if let Some(initializer) = &global.initializer {
-                // Check for null members in array
+                // First check for null members in array (more specific error)
                 if let Some(elements) = initializer.array_elements() {
                     for elem in elements.iter() {
-                        if elem.is_null() {
+                        // Check for both ConstantNull and ZeroInitializer (ptr null can be either)
+                        if elem.is_null() || elem.is_zero_initializer() {
                             self.errors.push(VerificationError::InvalidInstruction {
                                 reason: format!("invalid {} member", global.name),
                                 location: "ptr null".to_string(),
@@ -475,8 +476,18 @@ impl<'a> Verifier<'a> {
                         }
                     }
                 }
-                // TODO: Also check for explicit zeroinitializer, but need to handle
-                // the case where valid array initializers aren't being confused with zero
+
+                // Then check for explicit zeroinitializer on the whole array (less specific)
+                // Disabled: Parser issue - all arrays are being parsed as ZeroInitializer
+                // TODO: Re-enable after fixing parser
+                /*
+                if initializer.is_zero_initializer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "wrong initializer for intrinsic global variable".to_string(),
+                        location: format!("{}", initializer),
+                    });
+                }
+                */
             }
         }
 
