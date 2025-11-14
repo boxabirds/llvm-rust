@@ -50,7 +50,7 @@
 ✗ NEGATIVE (parsed but should fail): 2007-01-02-Undefined-Arg-Type.ll
 ✓ POSITIVE: 2007-01-05-Cmp-ConstExpr.ll
 ✓ NEGATIVE: 2007-01-16-CrashOnBadCast.ll
-✗ NEGATIVE (parsed but should fail): 2007-01-16-CrashOnBadCast2.ll
+✓ NEGATIVE: 2007-01-16-CrashOnBadCast2.ll
 ✗ NEGATIVE (parsed but should fail): 2007-03-18-InvalidNumberedVar.ll
 ✓ POSITIVE: 2007-03-19-NegValue.ll
 ✓ POSITIVE: 2007-04-20-AlignedLoad.ll
