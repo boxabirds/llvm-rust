@@ -2,16 +2,20 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 200/338 tests passing (59.1%)
+**Current Status**: 200/338 tests passing (59.2%)
 **Target**: 338/338 tests passing (100%)
 
-**Session Summary** (194 → 200, +6 tests, +1.7%):
-- ✅ alias.ll - Alias verification enabled (+1)
-- ✅ writable-attr.ll - Attribute validation (+1)
-- ✅ x86_intr.ll - Calling convention validation (+1)
-- ✅ Array element preservation (+1)
-- ✅ deoptimize-intrinsic.ll - Operand bundle validation (+1)
-- ✅ guard-intrinsic.ll - Operand bundle validation (+1)
+**Session Summary** (200 → 200, test infrastructure improvements):
+- ✅ Fixed test runner negative test detection (127 → 128 negative tests)
+- ✅ Test runner now handles whitespace variations in RUN directives
+- ✅ Added unsized type load validation (unsized-types-load.ll passing)
+- ✅ Added contains_scalable_type() helper (scaffolding for future)
+- ⚠️ Net neutral on test count due to improved test classification
+
+**Previous Session** (194 → 200, +6 tests, +1.7%):
+- ✅ Operand bundle integration COMPLETE
+- ✅ deoptimize-intrinsic.ll and guard-intrinsic.ll passing
+- ✅ Alias verification, writable-attr, x86_intr, array preservation
 
 **Major Milestones**:
 - ✅ **OPERAND BUNDLE INTEGRATION COMPLETE!**
@@ -21,7 +25,6 @@ This document breaks down the parser enhancement design into trackable, dependen
   - Foundation for ~18 more bundle tests
 - ✅ All planned calling conventions added (11 new CCs)
 - ✅ Extended AMDGPU CC call restrictions
-- ⚠️ vscale_range attribute needs debugging
 
 **Phase Status**:
 - Phase 1: 9/15 tasks done, need +9 tests for target (209/338)
