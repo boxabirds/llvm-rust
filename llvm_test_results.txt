@@ -73,7 +73,7 @@
 ✓ POSITIVE: 2009-02-28-StripOpaqueName.ll
 ✓ POSITIVE: 2009-07-24-ZeroArgGEP.ll
 ✓ POSITIVE: 2010-02-05-FunctionLocalMetadataBecomesNull.ll
-✓ POSITIVE: ConstantExprFold.ll
+✗ POSITIVE (failed but should parse): ConstantExprFold.ll
 ✓ POSITIVE: ConstantExprFoldCast.ll
 ✓ POSITIVE: ConstantExprFoldSelect.ll
 ✓ POSITIVE: ConstantExprNoFold.ll
@@ -385,10 +385,10 @@
 ✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-not-func.ll
 ✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-numbered.ll
 ✗ POSITIVE (failed but should parse): invalid-vecreduce.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast2.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast3.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast4.ll
+✓ NEGATIVE: invalid_cast.ll
+✓ NEGATIVE: invalid_cast2.ll
+✓ NEGATIVE: invalid_cast3.ll
+✓ NEGATIVE: invalid_cast4.ll
 ✗ NEGATIVE (parsed but should fail): invoke-nonzero-program-addrspace.ll
 ✓ POSITIVE: large-comdat.ll
 ✓ POSITIVE: local-unnamed-addr.ll

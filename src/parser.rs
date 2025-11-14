@@ -1865,10 +1865,12 @@ impl Parser {
                         }
                     }
                     Opcode::BitCast => {
-                        // Bitcast between vectors requires same size
+                        // Bitcast validation is complex - different rules for pointers vs values
+                        // Only validate pointer vector bitcasts (element count must match)
                         if src_ty.is_vector() && dest_ty.is_vector() {
-                            if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
-                                if src_size != dest_size {
+                            if let (Some((src_elem, src_size)), Some((dest_elem, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                // For pointer vectors, element count must match
+                                if src_elem.is_pointer() && dest_elem.is_pointer() && src_size != dest_size {
                                     return Err(ParseError::InvalidSyntax {
                                         message: format!("invalid cast opcode for cast from '{}' to '{}'",
                                             src_ty, dest_ty),
@@ -3873,9 +3875,12 @@ impl Parser {
                             }
                         }
                         Opcode::BitCast => {
+                            // Bitcast validation is complex - different rules for pointers vs values
+                            // Only validate pointer vector bitcasts (element count must match)
                             if src_ty.is_vector() && dest_ty.is_vector() {
-                                if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
-                                    if src_size != dest_size {
+                                if let (Some((src_elem, src_size)), Some((dest_elem, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                    // For pointer vectors, element count must match
+                                    if src_elem.is_pointer() && dest_elem.is_pointer() && src_size != dest_size {
                                         return Err(ParseError::InvalidSyntax {
                                             message: format!("invalid cast opcode for cast from '{}' to '{}'",
                                                 src_ty, dest_ty),
