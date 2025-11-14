@@ -903,6 +903,41 @@ impl<'a> Verifier<'a> {
             self.verify_allocsize_attribute(indices, function);
         }
 
+        // Validate vscale_range attribute
+        if let Some((min, max)) = attrs.vscale_range {
+            // Minimum must be greater than 0
+            if min == 0 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'vscale_range' minimum must be greater than 0".to_string(),
+                    location: format!("ptr @{}", fn_name),
+                });
+            }
+
+            // Minimum cannot be greater than maximum
+            if min > max && max != 0 {  // max == 0 means unbounded
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'vscale_range' minimum cannot be greater than maximum".to_string(),
+                    location: format!("ptr @{}", fn_name),
+                });
+            }
+
+            // Minimum must be power-of-two
+            if min != 0 && (min & (min - 1)) != 0 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'vscale_range' minimum must be power-of-two value".to_string(),
+                    location: format!("ptr @{}", fn_name),
+                });
+            }
+
+            // Maximum must be power-of-two (if not 0/unbounded)
+            if max != 0 && (max & (max - 1)) != 0 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "'vscale_range' maximum must be power-of-two value".to_string(),
+                    location: format!("ptr @{}", fn_name),
+                });
+            }
+        }
+
         // Validate string attributes
         self.verify_string_attributes(&attrs.string_attributes, &fn_name);
 
@@ -3170,6 +3205,40 @@ impl<'a> Verifier<'a> {
                         reason: format!("Attribute 'dead_on_unwind' applied to incompatible type!"),
                         location: format!("@{}", fn_name),
                     });
+                }
+            }
+
+            // Check writable attribute - must be pointer type
+            if param_attrs.writable {
+                if !param_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attribute 'writable' applied to incompatible type!".to_string(),
+                        location: format!("ptr @{}", fn_name),
+                    });
+                }
+
+                // writable is incompatible with readnone and readonly
+                if param_attrs.readnone {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes writable and readnone are incompatible!".to_string(),
+                        location: format!("ptr @{}", fn_name),
+                    });
+                }
+                if param_attrs.readonly {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "Attributes writable and readonly are incompatible!".to_string(),
+                        location: format!("ptr @{}", fn_name),
+                    });
+                }
+
+                // writable requires argmem:write in memory attribute
+                if let Some(ref memory_attr) = param_attrs.memory {
+                    if !memory_attr.contains("argmem") || !memory_attr.contains("write") {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Attribute writable and memory without argmem: write are incompatible!".to_string(),
+                            location: format!("ptr @{}", fn_name),
+                        });
+                    }
                 }
             }
 

@@ -5133,6 +5133,58 @@ impl Parser {
                 }
             }
 
+            // Handle writable
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "writable" {
+                    self.advance();
+                    attrs.writable = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle readonly
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "readonly" {
+                    self.advance();
+                    attrs.readonly = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle readnone
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "readnone" {
+                    self.advance();
+                    attrs.readnone = true;
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
+            // Handle memory(...) attribute
+            if let Some(Token::Identifier(attr)) = self.peek() {
+                if attr == "memory" {
+                    self.advance();
+                    if self.check(&Token::LParen) {
+                        let start_pos = self.current;
+                        self.advance(); // consume (
+                        let mut memory_str = String::new();
+                        while !self.check(&Token::RParen) && !self.is_at_end() {
+                            if let Some(tok) = self.peek() {
+                                memory_str.push_str(&format!("{:?} ", tok));
+                            }
+                            self.advance();
+                        }
+                        self.match_token(&Token::RParen); // consume )
+                        attrs.memory = Some(memory_str.trim().to_string());
+                    }
+                    attr_count += 1;
+                    continue;
+                }
+            }
+
             // Handle other attributes that we need to skip but don't parse yet
             if self.match_token(&Token::Preallocated) {
                 if self.check(&Token::LParen) {
@@ -5378,6 +5430,32 @@ impl Parser {
                                 if !indices.is_empty() {
                                     attrs.allocsize = Some(indices);
                                 }
+                            }
+                            continue;
+                        }
+
+                        // Parse vscale_range(min, max)
+                        if attr == "vscale_range" {
+                            self.advance(); // consume 'vscale_range'
+                            if self.check(&Token::LParen) {
+                                self.advance(); // consume (
+                                let mut min_val = 0u32;
+                                let mut max_val = 0u32;
+                                // Parse min
+                                if let Some(Token::Integer(val)) = self.peek() {
+                                    min_val = *val as u32;
+                                    self.advance();
+                                }
+                                // Parse comma
+                                if self.match_token(&Token::Comma) {
+                                    // Parse max
+                                    if let Some(Token::Integer(val)) = self.peek() {
+                                        max_val = *val as u32;
+                                        self.advance();
+                                    }
+                                }
+                                self.match_token(&Token::RParen); // consume )
+                                attrs.vscale_range = Some((min_val, max_val));
                             }
                             continue;
                         }

@@ -113,6 +113,7 @@ pub struct FunctionAttributes {
     // Complex string attributes (allockind, allocsize, etc.)
     pub allockind: Option<Vec<String>>,  // e.g., ["alloc", "zeroed"]
     pub allocsize: Option<Vec<usize>>,   // e.g., [0] or [0, 1]
+    pub vscale_range: Option<(u32, u32)>,  // (min, max) for vscale_range attribute
 
     // Other attributes as strings
     pub other_attributes: Vec<String>,
@@ -157,6 +158,10 @@ pub struct ParameterAttributes {
     pub align: Option<u32>,
     pub dead_on_return: bool,
     pub dead_on_unwind: bool,
+    pub writable: bool,
+    pub readonly: bool,
+    pub readnone: bool,
+    pub memory: Option<String>,  // memory(...) attribute
 }
 
 /// A function in LLVM IR
