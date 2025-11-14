@@ -3004,10 +3004,18 @@ impl<'a> Verifier<'a> {
                     });
                 }
 
-                // byref type must be sized
-                if !byref_ty.is_sized() {
+                // byref type must be sized (but opaque types are allowed)
+                // Disallow: void, function, label, token, metadata, x86_amx
+                let is_invalid_for_byref = byref_ty.is_void()
+                    || byref_ty.is_function()
+                    || byref_ty.is_label()
+                    || byref_ty.is_token()
+                    || byref_ty.is_metadata()
+                    || byref_ty.is_x86_amx();
+
+                if is_invalid_for_byref {
                     self.errors.push(VerificationError::InvalidInstruction {
-                        reason: "Attribute 'byref' does not support unsized types!".to_string(),
+                        reason: "Attribute 'byref' does not support this type!".to_string(),
                         location: format!("@{}", fn_name),
                     });
                 }
