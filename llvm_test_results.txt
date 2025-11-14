@@ -263,9 +263,9 @@
 ✓ NEGATIVE: internal-protected-function.ll
 ✓ NEGATIVE: internal-protected-variable.ll
 ✓ NEGATIVE: invalid-addrspace.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-add-must-be-integer-type.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-fadd-must-be-fp-type.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-fsub-must-be-fp-type.ll
+✓ NEGATIVE: invalid-atomicrmw-add-must-be-integer-type.ll
+✓ NEGATIVE: invalid-atomicrmw-fadd-must-be-fp-type.ll
+✓ NEGATIVE: invalid-atomicrmw-fsub-must-be-fp-type.ll
 ✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-scalable.ll
 ✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-xchg-fp-vector.ll
 ✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
