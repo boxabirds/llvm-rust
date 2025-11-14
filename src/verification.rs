@@ -146,6 +146,12 @@ impl<'a> Verifier<'a> {
             (ty.is_vector() && ty.vector_info().map_or(false, |(elem, _)| elem.is_float()))
     }
 
+    /// Check if type is a target-specific type (represented as opaque)
+    /// Target types like target("spirv.Event") are allocatable even though opaque
+    fn is_target_type(&self, ty: &Type) -> bool {
+        format!("{:?}", ty).starts_with("Type(%target(")
+    }
+
     /// Verify a module
     pub fn verify_module(&mut self, module: &'a Module) -> VerificationResult {
         self.errors.clear();
@@ -421,8 +427,8 @@ impl<'a> Verifier<'a> {
             }
         }
 
-        // Global variable initializer must be sized
-        if global.initializer.is_some() && !global.ty.is_sized() {
+        // Global variable initializer must be sized (target types are allowed)
+        if global.initializer.is_some() && !global.ty.is_sized() && !self.is_target_type(&global.ty) {
             self.errors.push(VerificationError::InvalidInstruction {
                 reason: "Global variable initializer must be sized".to_string(),
                 location: format!("global variable @{}", global.name),
@@ -1655,7 +1661,8 @@ impl<'a> Verifier<'a> {
                     let result_type = result.get_type();
                     // Result is a pointer, check the pointee type
                     if let Some(pointee) = result_type.pointee_type() {
-                        if !pointee.is_sized() {
+                        // Target types are allowed even though they're technically unsized
+                        if !pointee.is_sized() && !self.is_target_type(&pointee) {
                             self.errors.push(VerificationError::InvalidInstruction {
                                 reason: format!("alloca of unsized type {:?}", pointee),
                                 location: "alloca instruction".to_string(),
@@ -2018,7 +2025,8 @@ impl<'a> Verifier<'a> {
                         return;
                     }
 
-                    if !result_type.is_sized() {
+                    // Target types are allowed even though they're technically unsized
+                    if !result_type.is_sized() && !self.is_target_type(&result_type) {
                         self.errors.push(VerificationError::InvalidInstruction {
                             reason: "loading unsized types is not allowed".to_string(),
                             location: "load instruction".to_string(),

@@ -1620,7 +1620,9 @@ impl Parser {
                 let alloca_ty = self.parse_type()?;
 
                 // Validate that alloca type is sized (not void, function, label, token, or metadata)
-                if !alloca_ty.is_sized() {
+                // Note: target types are represented as opaque but ARE allocatable
+                let is_target_type = format!("{:?}", alloca_ty).starts_with("Type(%target(");
+                if !alloca_ty.is_sized() && !is_target_type {
                     return Err(ParseError::InvalidSyntax {
                         message: format!("invalid type for alloca: {:?}", alloca_ty),
                         position: self.current,
