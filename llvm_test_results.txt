@@ -486,8 +486,8 @@
 ✓ POSITIVE: uselistorder.ll
 ✓ POSITIVE: uselistorder_bb.ll
 ✓ POSITIVE: uselistorder_global.ll
-✗ NEGATIVE (parsed but should fail): uwtable-1.ll
-✗ NEGATIVE (parsed but should fail): uwtable-2.ll
+✓ NEGATIVE: uwtable-1.ll
+✓ NEGATIVE: uwtable-2.ll
 ✓ POSITIVE: vbool-cmp.ll
 ✓ POSITIVE: vector-select.ll
 ✓ POSITIVE: vector-shift.ll
