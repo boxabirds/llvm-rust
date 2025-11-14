@@ -1837,6 +1837,60 @@ impl Parser {
                 operands.push(val);
                 self.consume(&Token::To)?;
                 let dest_ty = self.parse_type()?;
+
+                // Validate cast operations
+                match opcode {
+                    Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt => {
+                        // For vector casts, both must be vectors with same size
+                        // Can't cast vector to scalar or scalar to vector
+                        let src_is_vec = src_ty.is_vector();
+                        let dest_is_vec = dest_ty.is_vector();
+                        if src_is_vec != dest_is_vec {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                    src_ty, dest_ty),
+                                position: self.current,
+                            });
+                        }
+                        if src_is_vec && dest_is_vec {
+                            if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                if src_size != dest_size {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                            src_ty, dest_ty),
+                                        position: self.current,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Opcode::BitCast => {
+                        // Bitcast between vectors requires same size
+                        if src_ty.is_vector() && dest_ty.is_vector() {
+                            if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                if src_size != dest_size {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                            src_ty, dest_ty),
+                                        position: self.current,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Opcode::IntToPtr => {
+                        // Destination must be pointer type
+                        if !dest_ty.is_pointer() {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                    src_ty, dest_ty),
+                                position: self.current,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+
                 result_type = Some(dest_ty);  // Cast result type is the destination type
             }
             Opcode::ExtractElement => {
@@ -3793,6 +3847,56 @@ impl Parser {
                                Opcode::AddrSpaceCast) {
                 if self.match_token(&Token::To) {
                     let dest_ty = self.parse_type()?;
+
+                    // Validate cast operations (same checks as instructions)
+                    match opcode {
+                        Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt => {
+                            let src_is_vec = src_ty.is_vector();
+                            let dest_is_vec = dest_ty.is_vector();
+                            if src_is_vec != dest_is_vec {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        src_ty, dest_ty),
+                                    position: self.current,
+                                });
+                            }
+                            if src_is_vec && dest_is_vec {
+                                if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                    if src_size != dest_size {
+                                        return Err(ParseError::InvalidSyntax {
+                                            message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                                src_ty, dest_ty),
+                                            position: self.current,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        Opcode::BitCast => {
+                            if src_ty.is_vector() && dest_ty.is_vector() {
+                                if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                    if src_size != dest_size {
+                                        return Err(ParseError::InvalidSyntax {
+                                            message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                                src_ty, dest_ty),
+                                            position: self.current,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        Opcode::IntToPtr => {
+                            if !dest_ty.is_pointer() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        src_ty, dest_ty),
+                                    position: self.current,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+
                     result_type = Some(dest_ty);  // Cast result is destination type
                 }
             } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
