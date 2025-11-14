@@ -1,0 +1,1161 @@
+warning: variant `X86_AMX` should have an upper camel case name
+  --> src/types.rs:35:5
+   |
+35 |     X86_AMX,
+   |     ^^^^^^^ help: convert the identifier to upper camel case: `X86Amx`
+   |
+   = note: `#[warn(non_camel_case_types)]` (part of `#[warn(nonstandard_style)]`) on by default
+
+warning: variant `Webkit_JS` should have an upper camel case name
+  --> src/function.rs:19:5
+   |
+19 |     Webkit_JS,                 // webkit_jscc
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `WebkitJs`
+
+warning: variant `CXX_FastTLS` should have an upper camel case name
+  --> src/function.rs:23:5
+   |
+23 |     CXX_FastTLS,               // cxx_fast_tlscc
+   |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `CxxFastTls`
+
+warning: variant `X86_StdCall` should have an upper camel case name
+  --> src/function.rs:28:5
+   |
+28 |     X86_StdCall,               // x86_stdcallcc
+   |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `X86StdCall`
+
+warning: variant `X86_FastCall` should have an upper camel case name
+  --> src/function.rs:29:5
+   |
+29 |     X86_FastCall,              // x86_fastcallcc
+   |     ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `X86FastCall`
+
+warning: variant `X86_ThisCall` should have an upper camel case name
+  --> src/function.rs:30:5
+   |
+30 |     X86_ThisCall,              // x86_thiscallcc
+   |     ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `X86ThisCall`
+
+warning: variant `X86_VectorCall` should have an upper camel case name
+  --> src/function.rs:31:5
+   |
+31 |     X86_VectorCall,            // x86_vectorcallcc
+   |     ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `X86VectorCall`
+
+warning: variant `X86_RegCall` should have an upper camel case name
+  --> src/function.rs:32:5
+   |
+32 |     X86_RegCall,               // x86_regcallcc
+   |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `X86RegCall`
+
+warning: variant `ARM_APCS` should have an upper camel case name
+  --> src/function.rs:33:5
+   |
+33 |     ARM_APCS,                  // arm_apcscc
+   |     ^^^^^^^^ help: convert the identifier to upper camel case: `ArmApcs`
+
+warning: variant `ARM_AAPCS` should have an upper camel case name
+  --> src/function.rs:34:5
+   |
+34 |     ARM_AAPCS,                 // arm_aapcscc
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `ArmAapcs`
+
+warning: variant `ARM_AAPCS_VFP` should have an upper camel case name
+  --> src/function.rs:35:5
+   |
+35 |     ARM_AAPCS_VFP,             // arm_aapcs_vfpcc
+   |     ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `ArmAapcsVfp`
+
+warning: variant `AArch64_VectorCall` should have an upper camel case name
+  --> src/function.rs:36:5
+   |
+36 |     AArch64_VectorCall,        // aarch64_vector_pcs
+   |     ^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `Aarch64VectorCall`
+
+warning: variant `AArch64_SVE_VectorCall` should have an upper camel case name
+  --> src/function.rs:37:5
+   |
+37 |     AArch64_SVE_VectorCall,    // aarch64_sve_vector_pcs
+   |     ^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `Aarch64SveVectorCall`
+
+warning: variant `AMDGPU_Kernel` should have an upper camel case name
+  --> src/function.rs:38:5
+   |
+38 |     AMDGPU_Kernel,             // amdgpu_kernel
+   |     ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuKernel`
+
+warning: variant `AMDGPU_VS` should have an upper camel case name
+  --> src/function.rs:39:5
+   |
+39 |     AMDGPU_VS,                 // amdgpu_vs
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuVs`
+
+warning: variant `AMDGPU_GS` should have an upper camel case name
+  --> src/function.rs:40:5
+   |
+40 |     AMDGPU_GS,                 // amdgpu_gs
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuGs`
+
+warning: variant `AMDGPU_PS` should have an upper camel case name
+  --> src/function.rs:41:5
+   |
+41 |     AMDGPU_PS,                 // amdgpu_ps
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuPs`
+
+warning: variant `AMDGPU_CS` should have an upper camel case name
+  --> src/function.rs:42:5
+   |
+42 |     AMDGPU_CS,                 // amdgpu_cs
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuCs`
+
+warning: variant `AMDGPU_HS` should have an upper camel case name
+  --> src/function.rs:43:5
+   |
+43 |     AMDGPU_HS,                 // amdgpu_hs
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuHs`
+
+warning: variant `AMDGPU_LS` should have an upper camel case name
+  --> src/function.rs:44:5
+   |
+44 |     AMDGPU_LS,                 // amdgpu_ls
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuLs`
+
+warning: variant `AMDGPU_ES` should have an upper camel case name
+  --> src/function.rs:45:5
+   |
+45 |     AMDGPU_ES,                 // amdgpu_es
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuEs`
+
+warning: variant `AMDGPU_CS_Chain` should have an upper camel case name
+  --> src/function.rs:46:5
+   |
+46 |     AMDGPU_CS_Chain,           // amdgpu_cs_chain
+   |     ^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuCsChain`
+
+warning: variant `AMDGPU_CS_Chain_Preserve` should have an upper camel case name
+  --> src/function.rs:47:5
+   |
+47 |     AMDGPU_CS_Chain_Preserve,  // amdgpu_cs_chain_preserve
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuCsChainPreserve`
+
+warning: variant `AMDGPU_GFX_Whole_Wave` should have an upper camel case name
+  --> src/function.rs:48:5
+   |
+48 |     AMDGPU_GFX_Whole_Wave,     // amdgpu_gfx_whole_wave
+   |     ^^^^^^^^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `AmdgpuGfxWholeWave`
+
+warning: variant `SPIR_Kernel` should have an upper camel case name
+  --> src/function.rs:49:5
+   |
+49 |     SPIR_Kernel,               // spir_kernel
+   |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `SpirKernel`
+
+warning: variant `SPIR_Func` should have an upper camel case name
+  --> src/function.rs:50:5
+   |
+50 |     SPIR_Func,                 // spir_func
+   |     ^^^^^^^^^ help: convert the identifier to upper camel case: `SpirFunc`
+
+warning: variant `Intel_OCL_BI` should have an upper camel case name
+  --> src/function.rs:51:5
+   |
+51 |     Intel_OCL_BI,              // intel_ocl_bicc
+   |     ^^^^^^^^^^^^ help: convert the identifier to upper camel case: `IntelOclBi`
+
+warning: variant `PTX_Kernel` should have an upper camel case name
+  --> src/function.rs:52:5
+   |
+52 |     PTX_Kernel,                // ptx_kernel
+   |     ^^^^^^^^^^ help: convert the identifier to upper camel case: `PtxKernel`
+
+warning: variant `PTX_Device` should have an upper camel case name
+  --> src/function.rs:53:5
+   |
+53 |     PTX_Device,                // ptx_device
+   |     ^^^^^^^^^^ help: convert the identifier to upper camel case: `PtxDevice`
+
+warning: unused import: `std::collections::HashSet`
+ --> src/verification.rs:6:5
+  |
+6 | use std::collections::HashSet;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::metadata::Metadata`
+   --> src/verification.rs:252:13
+    |
+252 |         use crate::metadata::Metadata;
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: variant `R_X86_64_64` should have an upper camel case name
+   --> src/codegen/elf.rs:140:5
+    |
+140 |     R_X86_64_64,
+    |     ^^^^^^^^^^^ help: convert the identifier to upper camel case: `RX86_64_64`
+
+warning: variant `R_X86_64_PC32` should have an upper camel case name
+   --> src/codegen/elf.rs:142:5
+    |
+142 |     R_X86_64_PC32,
+    |     ^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `RX86_64Pc32`
+
+warning: variant `R_X86_64_GOT32` should have an upper camel case name
+   --> src/codegen/elf.rs:144:5
+    |
+144 |     R_X86_64_GOT32,
+    |     ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `RX86_64Got32`
+
+warning: variant `R_X86_64_PLT32` should have an upper camel case name
+   --> src/codegen/elf.rs:146:5
+    |
+146 |     R_X86_64_PLT32,
+    |     ^^^^^^^^^^^^^^ help: convert the identifier to upper camel case: `RX86_64Plt32`
+
+warning: unused variable: `packed`
+   --> src/types.rs:333:40
+    |
+333 |             TypeData::Struct { fields, packed, .. } => {
+    |                                        ^^^^^^-
+    |                                        |
+    |                                        help: try removing the field
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `location`
+  --> src/verification.rs:66:52
+   |
+66 |             VerificationError::InvalidSSA { value, location } =>
+   |                                                    ^^^^^^^^ help: try ignoring the field: `location: _`
+
+warning: temporary lifetime will be shortened in Rust 1.92
+    --> src/verification.rs:1309:73
+     |
+1309 | ...                   if src_is_ptr { "ptr" } else { &format!("{:?}", src_type) },
+     |                                                       ^^^^^^^^^^^^^^^^^^^^^^^^^ - ...which will be dropped at the end of this block in Rust 1.92
+     |                                                       |
+     |                                                       this expression creates a temporary value...
+     |
+     = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+     = note: for more information, see <https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#macro-extended-temporary-scopes>
+     = note: consider using a `let` binding to create a longer lived value
+     = note: some temporaries were previously incorrectly lifetime-extended since Rust 1.89 in formatting macros, and since Rust 1.88 in `pin!()`
+     = note: `#[warn(macro_extended_temporary_scopes)]` (part of `#[warn(future_incompatible)]`) on by default
+     = note: this warning originates in the macro `format` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: temporary lifetime will be shortened in Rust 1.92
+    --> src/verification.rs:1310:65
+     |
+1310 | ...                   if dst_is_vec_of_ptr { &format!("{:?}", dst_type) } else { "ptr" }),
+     |                                               ^^^^^^^^^^^^^^^^^^^^^^^^^ - ...which will be dropped at the end of this block in Rust 1.92
+     |                                               |
+     |                                               this expression creates a temporary value...
+     |
+     = warning: this was previously accepted by the compiler but is being phased out; it will become a hard error in a future release!
+     = note: for more information, see <https://doc.rust-lang.org/rustc/lints/listing/warn-by-default.html#macro-extended-temporary-scopes>
+     = note: consider using a `let` binding to create a longer lived value
+     = note: some temporaries were previously incorrectly lifetime-extended since Rust 1.89 in formatting macros, and since Rust 1.88 in `pin!()`
+     = note: this warning originates in the macro `format` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused variable: `inst`
+    --> src/verification.rs:3729:43
+     |
+3729 |     fn verify_intrinsic_immarg(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+     |                                           ^^^^ help: if this is intentional, prefix it with an underscore: `_inst`
+
+warning: unused variable: `inst`
+    --> src/verification.rs:4080:42
+     |
+4080 |     fn verify_intrinsic_bswap(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
+     |                                          ^^^^ help: if this is intentional, prefix it with an underscore: `_inst`
+
+warning: unused variable: `param_idx`
+   --> src/validation_rules.rs:184:93
+    |
+184 |     fn check_attribute_exclusivity(&mut self, attrs: &ParameterAttributes, func_name: &str, param_idx: usize) {
+    |                                                                                             ^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+184 |     fn check_attribute_exclusivity(&mut self, attrs: &ParameterAttributes, func_name: &str, _param_idx: usize) {
+    |                                                                                             +
+help: you might have meant to pattern match on the similarly named constant `MAX_SKIP`
+    |
+184 -     fn check_attribute_exclusivity(&mut self, attrs: &ParameterAttributes, func_name: &str, param_idx: usize) {
+184 +     fn check_attribute_exclusivity(&mut self, attrs: &ParameterAttributes, func_name: &str, parser::Parser::skip_until_newline_or_semicolon::MAX_SKIP: usize) {
+    |
+
+warning: unused variable: `param_idx`
+   --> src/validation_rules.rs:222:9
+    |
+222 |         param_idx: usize,
+    |         ^^^^^^^^^
+    |
+help: if this is intentional, prefix it with an underscore
+    |
+222 |         _param_idx: usize,
+    |         +
+help: you might have meant to pattern match on the similarly named constant `MAX_SKIP`
+    |
+222 -         param_idx: usize,
+222 +         parser::Parser::skip_until_newline_or_semicolon::MAX_SKIP: usize,
+    |
+
+warning: unreachable pattern
+    --> src/parser.rs:2366:13
+     |
+1589 | /             Opcode::Add | Opcode::Sub | Opcode::Mul | Opcode::UDiv | Opcode::SDiv |
+1590 | |             Opcode::URem | Opcode::SRem | Opcode::Shl | Opcode::LShr | Opcode::AShr |
+1591 | |             Opcode::And | Opcode::Or | Opcode::Xor |
+1592 | |             Opcode::FAdd | Opcode::FSub | Opcode::FMul | Opcode::FDiv | Opcode::FRem => {
+     | |____________________________________________________________________________________- matches all the relevant values
+...
+2366 | /             Opcode::Add | Opcode::FAdd | Opcode::Sub | Opcode::FSub | Opcode::Mul | Opcode::FMul |
+2367 | |             Opcode::UDiv | Opcode::SDiv | Opcode::FDiv | Opcode::URem | Opcode::SRem | Opcode::FRem |
+2368 | |             Opcode::Shl | Opcode::LShr | Opcode::AShr |
+2369 | |             Opcode::And | Opcode::Or | Opcode::Xor => {
+     | |__________________________________________________^ no value can reach this
+     |
+     = note: `#[warn(unreachable_patterns)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `operands`
+   --> src/cfg.rs:112:29
+    |
+112 |                         let operands = term.operands();
+    |                             ^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_operands`
+
+warning: unused variable: `sym`
+   --> src/codegen/x86_64/instruction_selection.rs:148:39
+    |
+148 |                 ValueLocation::Symbol(sym) => {
+    |                                       ^^^ help: if this is intentional, prefix it with an underscore: `_sym`
+
+warning: unused variable: `free_regs`
+   --> src/codegen/register_allocator.rs:171:9
+    |
+171 |         free_regs: &mut Vec<PReg>,
+    |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_free_regs`
+
+warning: method `verify_debug_info` is never used
+    --> src/verification.rs:2222:8
+     |
+ 125 | impl<'a> Verifier<'a> {
+     | --------------------- method in this implementation
+...
+2222 |     fn verify_debug_info(&mut self, _debug_info: &crate::metadata::DebugInfo, _location: &str) {
+     |        ^^^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: methods `skip_parameter_attributes`, `skip_load_store_attributes`, `skip_to_matching_paren`, and `skip_until_newline_or_semicolon` are never used
+    --> src/parser.rs:4381:8
+     |
+  53 | impl Parser {
+     | ----------- methods in this implementation
+...
+4381 |     fn skip_parameter_attributes(&mut self) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5115 |     fn skip_load_store_attributes(&mut self) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+...
+5124 |     fn skip_to_matching_paren(&mut self) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^
+...
+5154 |     fn skip_until_newline_or_semicolon(&mut self) {
+     |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: methods `sort_passes` and `topological_sort` are never used
+   --> src/passes.rs:153:8
+    |
+120 | impl PassManager {
+    | ---------------- methods in this implementation
+...
+153 |     fn sort_passes(&mut self) -> PassResult<()> {
+    |        ^^^^^^^^^^^
+...
+172 |     fn topological_sort(&self, pass_info: &[(String, Vec<String>)]) -> PassResult<Vec<usize>> {
+    |        ^^^^^^^^^^^^^^^^
+
+warning: field `reg_map` is never read
+  --> src/codegen/x86_64/mod.rs:22:5
+   |
+20 | pub struct X86_64TargetMachine {
+   |            ------------------- field in this struct
+21 |     /// Function to register mapping
+22 |     reg_map: HashMap<String, X86Register>,
+   |     ^^^^^^^
+
+warning: field `next_temp` is never read
+  --> src/codegen/x86_64/instruction_selection.rs:14:5
+   |
+11 | pub struct InstructionSelector {
+   |            ------------------- field in this struct
+...
+14 |     next_temp: usize,
+   |     ^^^^^^^^^
+
+warning: field `strings` is never read
+  --> src/codegen/elf.rs:74:5
+   |
+66 | pub struct ElfObjectFile {
+   |            ------------- field in this struct
+...
+74 |     strings: Vec<String>,
+   |     ^^^^^^^
+
+warning: creating a shared reference to mutable static
+   --> src/passes.rs:108:13
+    |
+108 |             REGISTRY.clone().unwrap()
+    |             ^^^^^^^^^^^^^^^^ shared reference to mutable static
+    |
+    = note: for more information, see <https://doc.rust-lang.org/edition-guide/rust-2024/static-mut-references.html>
+    = note: shared references to mutable statics are dangerous; it's undefined behavior if the static is mutated or if a mutable reference is created for it while the shared reference lives
+    = note: `#[warn(static_mut_refs)]` (part of `#[warn(rust_2024_compatibility)]`) on by default
+
+warning: `llvm-rust` (lib) generated 54 warnings (run `cargo fix --lib -p llvm-rust` to apply 5 suggestions)
+warning: variable does not need to be mutable
+  --> tests/pass_registry_tests.rs:98:9
+   |
+98 |     let mut func = Function::new("test".to_string(), fn_type);
+   |         ----^^^^
+   |         |
+   |         help: remove this `mut`
+   |
+   = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> tests/pass_registry_tests.rs:122:9
+    |
+122 |     let mut func = Function::new("test".to_string(), fn_type);
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> tests/pass_registry_tests.rs:151:9
+    |
+151 |     let mut func = Function::new("test".to_string(), fn_type);
+    |         ----^^^^
+    |         |
+    |         help: remove this `mut`
+
+warning: `llvm-rust` (test "pass_registry_tests") generated 3 warnings (run `cargo fix --test "pass_registry_tests"` to apply 3 suggestions)
+warning: unused variable: `void_type`
+  --> tests/end_to_end_test.rs:14:9
+   |
+14 |     let void_type = ctx.void_type();
+   |         ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_void_type`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `llvm-rust` (test "end_to_end_test") generated 1 warning
+warning: unused import: `codegen`
+ --> tests/codegen_integration_test.rs:1:65
+  |
+1 | use llvm_rust::{Context, Module, Function, BasicBlock, Builder, codegen};
+  |                                                                 ^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: `llvm-rust` (test "codegen_integration_test") generated 1 warning (run `cargo fix --test "codegen_integration_test"` to apply 1 suggestion)
+warning: unused import: `Module`
+ --> tests/hello_world_test.rs:5:26
+  |
+5 | use llvm_rust::{Context, Module, parse};
+  |                          ^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `std::path::Path`
+  --> tests/hello_world_test.rs:12:5
+   |
+12 | use std::path::Path;
+   |     ^^^^^^^^^^^^^^^
+
+warning: unused import: `crate::types::Type`
+   --> src/validation_rules.rs:323:9
+    |
+323 |     use crate::types::Type;
+    |         ^^^^^^^^^^^^^^^^^^
+
+warning: unused variable: `func`
+   --> src/validation_rules.rs:330:13
+    |
+330 |         let func = Function::new("test".to_string(), func_type);
+    |             ^^^^ help: if this is intentional, prefix it with an underscore: `_func`
+
+warning: `llvm-rust` (test "hello_world_test") generated 2 warnings (run `cargo fix --test "hello_world_test"` to apply 2 suggestions)
+warning: `llvm-rust` (lib test) generated 56 warnings (54 duplicates) (run `cargo fix --lib -p llvm-rust --tests` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.12s
+     Running unittests src/lib.rs (target/debug/deps/llvm_rust-14a58d34e133abc4)
+
+running 69 tests
+test analysis::tests::test_dominator_tree ... ok
+test analysis::tests::test_loop_info ... ok
+test attributes::tests::test_function_attribute_display ... ok
+test attributes::tests::test_parameter_attribute_display ... ok
+test attributes::tests::test_function_attribute_set ... ok
+test attributes::tests::test_parameter_attribute_set ... ok
+test basic_block::tests::test_add_instruction ... ok
+test basic_block::tests::test_basic_block_creation ... ok
+test basic_block::tests::test_terminator ... ok
+test builder::tests::test_build_add ... ok
+test builder::tests::test_builder_creation ... ok
+test builder::tests::test_position_at_end ... ok
+test cfg::tests::test_cfg_creation ... ok
+test cfg::tests::test_reachable_blocks ... ok
+test codegen::external_functions::tests::test_ffi_helper ... ok
+test codegen::external_functions::tests::test_function_lookup ... ok
+test codegen::external_functions::tests::test_stdlib_registration ... ok
+test codegen::linker::tests::test_linker_creation ... ok
+test codegen::register_allocator::tests::test_expire_intervals ... ok
+test codegen::register_allocator::tests::test_linear_scan_simple ... ok
+test codegen::register_allocator::tests::test_linear_scan_with_spilling ... ok
+test codegen::linker::tests::test_crt_files_exist ... ok
+test codegen::register_allocator::tests::test_register_allocator_creation ... ok
+test codegen::register_allocator::tests::test_virtual_register_allocation ... ok
+test codegen::runtime::tests::test_generate_crt_init ... ok
+test codegen::runtime::tests::test_generate_start_entry ... ok
+test codegen::runtime::tests::test_program_header_bytes ... ok
+test codegen::runtime::tests::test_program_headers ... ok
+test codegen::stack_frame::tests::test_allocate_local ... ok
+test codegen::stack_frame::tests::test_allocate_spill ... ok
+test codegen::stack_frame::tests::test_calling_convention ... ok
+test codegen::stack_frame::tests::test_epilogue_generation ... ok
+test codegen::stack_frame::tests::test_frame_size_alignment ... ok
+test codegen::stack_frame::tests::test_prologue_generation ... ok
+test codegen::stack_frame::tests::test_stack_frame_creation ... ok
+test function::tests::test_add_basic_block ... ok
+test function::tests::test_function_creation ... ok
+test instruction::tests::test_instruction_is_binary_op ... ok
+test instruction::tests::test_instruction_is_terminator ... ok
+test intrinsics::tests::test_intrinsic_has_side_effects ... ok
+test intrinsics::tests::test_intrinsic_is_overloaded ... ok
+test intrinsics::tests::test_intrinsic_name ... ok
+test lexer::tests::test_integer_types ... ok
+test lexer::tests::test_numbers ... ok
+test lexer::tests::test_simple_tokens ... ok
+test metadata::tests::test_int_metadata ... ok
+test metadata::tests::test_string_metadata ... ok
+test metadata::tests::test_tuple_metadata ... ok
+test module::tests::test_add_function ... ok
+test module::tests::test_module_creation ... ok
+test parser::tests::test_parse_function_with_return ... ok
+test passes::tests::test_pass_manager_creation ... ok
+test printer::tests::test_print_empty_module ... ok
+test parser::tests::test_parse_simple_function ... ok
+test printer::tests::test_print_function ... ok
+test transforms::tests::test_dce_pass ... ok
+test transforms::tests::test_mem2reg_pass ... ok
+test types::tests::test_array_type ... ok
+test types::tests::test_float_types ... ok
+test types::tests::test_function_type ... ok
+test types::tests::test_integer_types ... ok
+test types::tests::test_pointer_type ... ok
+test validation_rules::tests::test_amdgpu_kernel_no_sret ... ok
+test validation_rules::tests::test_attribute_incompatibility_byval_byref ... ok
+test value::tests::test_constant_float ... ok
+test value::tests::test_constant_int ... ok
+test value::tests::test_null_pointer ... ok
+test verification::tests::test_verify_empty_module ... ok
+test verification::tests::test_verify_function_without_terminator ... ok
+
+test result: ok. 69 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running unittests src/bin/test_llvm_used.rs (target/debug/deps/test_llvm_used-32d374ff13306abe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/test_parser.rs (target/debug/deps/test_parser-af4374011246fe5c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/bin/test_verify.rs (target/debug/deps/test_verify-1d08ad67072ab865)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/alloca_metadata_test.rs (target/debug/deps/alloca_metadata_test-ca2b34312405506d)
+
+running 2 tests
+test test_alloca_align_and_addrspace_and_metadata ... ok
+test test_alloca_with_metadata ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/atomic_bisect.rs (target/debug/deps/atomic_bisect-b4155c4b63ff4fc8)
+
+running 3 tests
+test test_cmpxchg_with_syncscope ... ok
+test test_multiple_cmpxchg ... ok
+test test_store_then_cmpxchg ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/atomic_full_test.rs (target/debug/deps/atomic_full_test-3be8ec2e0f247095)
+
+running 1 test
+test test_atomic_full_sequence ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/atomic_load_test.rs (target/debug/deps/atomic_load_test-880336361a68126b)
+
+running 1 test
+test test_atomic_load_unordered ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/cfg_landingpad_validation_tests.rs (target/debug/deps/cfg_landingpad_validation_tests-cdf03e5ac98835d8)
+
+running 24 tests
+test test_invalid_landingpad_not_first ... ignored
+test test_invalid_multiple_landingpads ... ignored
+test test_invalid_resume_wrong_operand_count ... ignored
+test test_invalid_resume_wrong_type ... ignored
+test test_invalid_unreachable_block ... ignored
+test test_valid_catchpad ... ignored
+test test_cfg_validation_summary ... ok
+test test_valid_cleanuppad ... ignored
+test test_valid_catch_pattern ... ok
+test test_comprehensive_exception_handling ... ok
+test test_valid_cleanup_pattern ... ok
+test test_valid_conditional_cfg ... ok
+test test_valid_entry_block_first ... ok
+test test_valid_invoke ... ok
+test test_valid_invoke_return_value ... ok
+test test_valid_invoke_with_args ... ok
+test test_valid_landingpad_first_instruction ... ok
+test test_valid_loop_cfg ... ok
+test test_valid_multiple_invoke ... ok
+test test_valid_personality_function ... ok
+test test_valid_phi_nodes ... ok
+test test_valid_resume ... ok
+test test_valid_simple_cfg ... ok
+test test_valid_switch_cfg ... ok
+
+test result: ok. 17 passed; 0 failed; 7 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/codegen_integration_test.rs (target/debug/deps/codegen_integration_test-75b754e9b3bf93c8)
+
+running 6 tests
+test test_comprehensive_instruction_selection ... ok
+test test_elf_object_file_creation ... ok
+test test_external_function_registry ... ok
+test test_ffi_call_generation ... ok
+test test_linker_basic ... ok
+test test_x86_64_assembly_generation ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/complex_pointer_parsing_tests.rs (target/debug/deps/complex_pointer_parsing_tests-6fac94de0bfa0e75)
+
+running 14 tests
+test test_parse_array_of_pointers ... ok
+test test_parse_double_pointer ... ok
+test test_parse_function_with_pointer_args ... ok
+test test_parse_nested_pointer_with_addrspace ... ok
+test test_parse_opaque_pointer_with_addrspace ... ok
+test test_parse_pointer_to_array ... ok
+test test_parse_pointer_to_function ... ok
+test test_parse_pointer_to_struct ... ok
+test test_parse_pointer_with_addrspace ... ok
+test test_parse_simple_pointer ... ok
+test test_parse_struct_with_pointers ... ok
+test test_parse_triple_pointer ... ok
+test test_parse_typed_pointer ... ok
+test test_parse_vector_of_pointers ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/constant_folding_tests.rs (target/debug/deps/constant_folding_tests-18d60497ea9758c1)
+
+running 11 tests
+test test_division_by_zero_not_folded ... ok
+test test_fold_add ... ok
+test test_fold_and ... ok
+test test_fold_div ... ok
+test test_fold_float_add ... ok
+test test_fold_mul ... ok
+test test_fold_or ... ok
+test test_fold_shift_left ... ok
+test test_fold_sub ... ok
+test test_fold_xor ... ok
+test test_no_fold_non_constants ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/dce_tests.rs (target/debug/deps/dce_tests-0fb11d9009e19720)
+
+running 8 tests
+test test_no_dead_code ... ok
+test test_keep_store_instruction ... ok
+test test_remove_all_dead_arithmetic ... ok
+test test_remove_dead_bitwise ... ok
+test test_remove_dead_comparison ... ok
+test test_remove_multiple_dead_instructions ... ok
+test test_remove_unused_add ... ok
+test test_terminators_not_removed ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_cmpxchg.rs (target/debug/deps/debug_cmpxchg-6d8551575adf3e21)
+
+running 2 tests
+test test_alloca_addrspace ... ok
+test test_cmpxchg_weak ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_failing_test.rs (target/debug/deps/debug_failing_test-73ed39b0645e08dd)
+
+running 2 tests
+test test_escape_file ... ok
+test test_2007_05_21_escape ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/debug_test.rs (target/debug/deps/debug_test-eef1152f4d5128be)
+
+running 2 tests
+test test_atomic_load ... ok
+test test_alloca_addrspace ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/end_to_end_test.rs (target/debug/deps/end_to_end_test-e277d1fcd410add5)
+
+running 7 tests
+test test_calling_convention ... ok
+test test_complete_executable_structure ... ok
+test test_end_to_end_hello_world ... ok
+test test_external_function_call_generation ... ok
+test test_linker_symbol_resolution ... ok
+test test_program_headers ... ok
+test test_stack_frame_with_locals ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/global_variable_tests.rs (target/debug/deps/global_variable_tests-0ba940faa9dbd179)
+
+running 14 tests
+test test_global_constant ... ok
+test test_complex_global ... ok
+test test_global_external ... ok
+test test_global_weak ... ok
+test test_global_with_addrspace ... ok
+test test_global_with_alignment ... ok
+test test_global_with_linkage ... ok
+test test_global_with_multiple_attributes ... ok
+test test_global_with_section ... ok
+test test_global_with_thread_local ... ok
+test test_global_with_thread_local_mode ... ok
+test test_global_with_unnamed_addr ... ok
+test test_global_with_visibility ... ok
+test test_global_with_zeroinitializer ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/hello_world_test.rs (target/debug/deps/hello_world_test-4c1896deb6f887b1)
+
+running 3 tests
+test test_simple_return_executable ... ignored
+test test_hello_world_complete ... ok
+test test_elf_file_writing ... ok
+
+test result: ok. 2 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.59s
+
+     Running tests/instruction_combining_tests.rs (target/debug/deps/instruction_combining_tests-cac273aafb668a48)
+
+running 17 tests
+test test_and_zero_annihilation ... ok
+test test_and_all_ones_identity ... ok
+test test_add_zero_identity ... ok
+test test_div_one_identity ... ok
+test test_fadd_zero_identity ... ok
+test test_fmul_one_identity ... ok
+test test_lshr_zero_identity ... ok
+test test_mul_one_identity ... ok
+test test_mul_zero_annihilation ... ok
+test test_no_simplification ... ok
+test test_or_all_ones_annihilation ... ok
+test test_or_zero_identity ... ok
+test test_rem_one_simplification ... ok
+test test_shl_zero_identity ... ok
+test test_sub_zero_identity ... ok
+test test_xor_zero_identity ... ok
+test test_zero_shl_annihilation ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/instruction_tests.rs (target/debug/deps/instruction_tests-77e5697386779d67)
+
+running 99 tests
+test test_add_instruction_is_binary_op ... ok
+test test_addrspacecast_is_cast ... ok
+test test_and_instruction ... ok
+test test_alloca_is_memory_op ... ok
+test test_ashr_instruction ... ok
+test test_atomic_ordering_acqrel ... ok
+test test_atomic_ordering_acquire ... ok
+test test_atomic_ordering_monotonic ... ok
+test test_atomic_ordering_notatomic ... ok
+test test_atomic_ordering_release ... ok
+test test_atomic_ordering_seqcst ... ok
+test test_atomic_ordering_unordered ... ok
+test test_atomicrmw_is_memory_op ... ok
+test test_atomiccmpxchg_is_memory_op ... ok
+test test_bitcast_is_cast ... ok
+test test_br_is_terminator ... ok
+test test_call_instruction ... ok
+test test_callbr_is_terminator ... ok
+test test_catchpad_instruction ... ok
+test test_catchret_is_terminator ... ok
+test test_cleanuppad_instruction ... ok
+test test_catchswitch_is_terminator ... ok
+test test_cleanupret_is_terminator ... ok
+test test_condbr_is_terminator ... ok
+test test_extractelement_is_vector_op ... ok
+test test_extractvalue_is_aggregate_op ... ok
+test test_fadd_instruction_is_binary_op ... ok
+test test_fastmath_default ... ok
+test test_fastmath_fast ... ok
+test test_fcmp_is_comparison ... ok
+test test_fdiv_instruction_is_binary_op ... ok
+test test_fence_is_memory_op ... ok
+test test_float_predicate_oeq ... ok
+test test_float_predicate_oge ... ok
+test test_float_predicate_ogt ... ok
+test test_float_predicate_ole ... ok
+test test_float_predicate_olt ... ok
+test test_float_predicate_one ... ok
+test test_float_predicate_ord ... ok
+test test_float_predicate_ueq ... ok
+test test_float_predicate_uge ... ok
+test test_float_predicate_ugt ... ok
+test test_float_predicate_ule ... ok
+test test_float_predicate_ult ... ok
+test test_float_predicate_une ... ok
+test test_float_predicate_uno ... ok
+test test_fmul_instruction_is_binary_op ... ok
+test test_fneg_is_unary_op ... ok
+test test_fpext_is_cast ... ok
+test test_fptosi_is_cast ... ok
+test test_fptoui_is_cast ... ok
+test test_fptrunc_is_cast ... ok
+test test_freeze_instruction ... ok
+test test_frem_instruction_is_binary_op ... ok
+test test_fsub_instruction_is_binary_op ... ok
+test test_getelementptr_is_memory_op ... ok
+test test_icmp_is_comparison ... ok
+test test_indirectbr_is_terminator ... ok
+test test_insertelement_is_vector_op ... ok
+test test_insertvalue_is_aggregate_op ... ok
+test test_int_predicate_eq ... ok
+test test_int_predicate_ne ... ok
+test test_int_predicate_sge ... ok
+test test_int_predicate_sgt ... ok
+test test_int_predicate_sle ... ok
+test test_int_predicate_slt ... ok
+test test_int_predicate_uge ... ok
+test test_int_predicate_ugt ... ok
+test test_int_predicate_ule ... ok
+test test_int_predicate_ult ... ok
+test test_inttoptr_is_cast ... ok
+test test_invoke_is_terminator ... ok
+test test_landingpad_instruction ... ok
+test test_load_is_memory_op ... ok
+test test_lshr_instruction ... ok
+test test_mul_instruction_is_binary_op ... ok
+test test_or_instruction ... ok
+test test_phi_instruction ... ok
+test test_ptrtoint_is_cast ... ok
+test test_resume_is_terminator ... ok
+test test_ret_is_terminator ... ok
+test test_sdiv_instruction_is_binary_op ... ok
+test test_select_instruction ... ok
+test test_sext_is_cast ... ok
+test test_shl_instruction ... ok
+test test_shufflevector_is_vector_op ... ok
+test test_sitofp_is_cast ... ok
+test test_srem_instruction_is_binary_op ... ok
+test test_store_is_memory_op ... ok
+test test_sub_instruction_is_binary_op ... ok
+test test_switch_is_terminator ... ok
+test test_trunc_is_cast ... ok
+test test_udiv_instruction_is_binary_op ... ok
+test test_uitofp_is_cast ... ok
+test test_unreachable_is_terminator ... ok
+test test_urem_instruction_is_binary_op ... ok
+test test_vaarg_instruction ... ok
+test test_xor_instruction ... ok
+test test_zext_is_cast ... ok
+
+test result: ok. 99 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/integration_tests.rs (target/debug/deps/integration_tests-6c912e4d119281a8)
+
+running 65 tests
+test test_basic_block_add_instruction ... ok
+test test_alias_analysis ... ok
+test test_basic_block_creation ... ok
+test test_basic_block_terminator ... ok
+test test_builder_build_add ... ok
+test test_builder_build_alloca ... ok
+test test_builder_build_fadd ... ok
+test test_builder_build_load ... ok
+test test_builder_build_mul ... ok
+test test_builder_build_ret_void ... ok
+test test_builder_build_store ... ok
+test test_builder_build_sub ... ok
+test test_builder_creation ... ok
+test test_builder_position_at_end ... ok
+test test_cfg_from_function ... ok
+test test_cfg_reachable_blocks ... ok
+test test_complete_function ... ok
+test test_create_empty_module ... ok
+test test_dominator_tree ... ok
+test test_function_add_basic_block ... ok
+test test_function_attribute_display ... ok
+test test_function_creation ... ok
+test test_function_entry_block ... ok
+test test_function_pass_manager_creation ... ok
+test test_intrinsic_lifetime_start ... ok
+test test_intrinsic_memcpy_has_side_effects ... ok
+test test_intrinsic_memcpy_name ... ok
+test test_intrinsic_memset_name ... ok
+test test_intrinsic_sqrt_overloaded ... ok
+test test_loop_info ... ok
+test test_metadata_int ... ok
+test test_metadata_string ... ok
+test test_module_10_functions ... ok
+test test_module_100_functions ... ok
+test test_module_1_function ... ok
+test test_module_2_functions ... ok
+test test_module_20_functions ... ok
+test test_module_3_functions ... ok
+test test_module_50_functions ... ok
+test test_module_5_functions ... ok
+test test_module_add_function ... ok
+test test_module_get_function ... ok
+test test_parameter_attribute_display ... ok
+test test_parse_empty_module ... ok
+test test_parse_simple_function ... ok
+test test_pass_manager_creation ... ok
+test test_print_empty_module ... ok
+test test_print_function ... ok
+test test_program_10_bbs ... ok
+test test_program_1_bb ... ok
+test test_program_20_bbs ... ok
+test test_program_2_bbs ... ok
+test test_program_5_bbs ... ok
+test test_value_const_array ... ok
+test test_value_const_float ... ok
+test test_value_const_int ... ok
+test test_value_const_null ... ok
+test test_value_const_struct ... ok
+test test_value_const_vector ... ok
+test test_value_poison ... ok
+test test_value_undef ... ok
+test test_value_zero_initializer ... ok
+test test_verify_empty_module ... ok
+test test_verify_function_missing_terminator ... ok
+test test_verify_function_with_terminator ... ok
+
+test result: ok. 65 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/level1_assembler_basic_tests.rs (target/debug/deps/level1_assembler_basic_tests-53e5c6e21d18de5b)
+
+running 1 test
+test test_parse_assembler_basic_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/level2_type_system_tests.rs (target/debug/deps/level2_type_system_tests-156b6b0f02cb1c01)
+
+running 1 test
+test test_parse_assembler_all_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/level3_instcombine_tests.rs (target/debug/deps/level3_instcombine_tests-2d150fce3cc749c1)
+
+running 1 test
+test test_parse_instcombine_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests/level4_verifier.rs (target/debug/deps/level4_verifier-99938aed66aad292)
+
+running 1 test
+test test_level4_verifier ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/level4_verifier_tests.rs (target/debug/deps/level4_verifier_tests-4fb0b813620bd37e)
+
+running 1 test
+test test_parse_verifier_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+     Running tests/level5_assembler_tests.rs (target/debug/deps/level5_assembler_tests-8e7f68d5d94407d0)
+
+running 1 test
+test test_parse_assembler_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+     Running tests/level6_bitcode_tests.rs (target/debug/deps/level6_bitcode_tests-8148e6ace7380df1)
+
+running 1 test
+test test_parse_bitcode_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/level7_verifier_tests.rs (target/debug/deps/level7_verifier_tests-0dadb6a9d92b159b)
+
+running 1 test
+test test_parse_verifier_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/llvm_test_harness.rs (target/debug/deps/llvm_test_harness-5597dfe31a288c61)
+
+running 3 tests
+test test_codegen_levels_7_8_9 ... ok
+test test_llvm_simple_functions ... ok
+test test_llvm_assembler_simple ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/metadata_validation_tests.rs (target/debug/deps/metadata_validation_tests-fbb795be8e7c8b96)
+
+running 31 tests
+test test_debug_basic_type ... ok
+test test_debug_compile_unit ... ok
+test test_debug_file ... ok
+test test_comprehensive_debug_info ... ok
+test test_debug_lexical_block ... ok
+test test_debug_local_variable ... ok
+test test_debug_location ... ok
+test test_debug_subprogram ... ok
+test test_instruction_with_debug_metadata ... ok
+test test_instruction_with_nonnull_metadata ... ok
+test test_invalid_debug_basic_type_invalid_size ... ignored
+test test_invalid_debug_compile_unit_missing_file ... ignored
+test test_invalid_debug_file_empty_filename ... ignored
+test test_invalid_debug_local_variable_missing_type ... ignored
+test test_instruction_with_range_metadata ... ok
+test test_invalid_debug_location_missing_scope ... ignored
+test test_invalid_metadata_circular_reference ... ignored
+test test_invalid_metadata_reference_undefined ... ignored
+test test_invalid_metadata_type_for_range ... ignored
+test test_invalid_metadata_type_for_tbaa ... ignored
+test test_instruction_with_tbaa_metadata ... ok
+test test_llvm_dbg_cu_metadata ... ok
+test test_llvm_ident_metadata ... ok
+test test_metadata_reference ... ok
+test test_metadata_tuple ... ok
+test test_metadata_validation_summary ... ok
+test test_metadata_with_global_variables ... ok
+test test_module_flags_metadata ... ok
+test test_named_metadata ... ok
+test test_simple_metadata_integer ... ok
+test test_simple_metadata_string ... ok
+
+test result: ok. 22 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/parse_llvm_tests.rs (target/debug/deps/parse_llvm_tests-8cb1d3c9f7df19d1)
+
+running 1 test
+test test_parse_llvm_assembler_tests ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/pass_registry_tests.rs (target/debug/deps/pass_registry_tests-1d593d7bbca186cf)
+
+running 7 tests
+test test_pass_manager_add_by_name ... ok
+test test_pass_prerequisites_met ... ok
+test test_pass_prerequisites_validation ... ok
+test test_pass_registry_creation ... ok
+test test_pass_registry_nonexistent ... ok
+test test_pass_registry_registration ... ok
+test test_topological_sort_ordering ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/quick_parse_test.rs (target/debug/deps/quick_parse_test-2bac23a43d5f9bf0)
+
+running 5 tests
+test test_parse_global_variable ... ok
+test test_parse_function_declaration ... ok
+test test_parse_function_with_return ... ok
+test test_parse_simple_void_function ... ok
+test test_parse_struct_type ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/simple_metadata.rs (target/debug/deps/simple_metadata-58bc03a645827780)
+
+running 2 tests
+test test_metadata_at_end ... ok
+test test_alloca_no_metadata ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/test_alloca_function_type.rs (target/debug/deps/test_alloca_function_type-dc8e87bd27161b73)
+
+running 1 test
+test test_alloca_function_type ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/test_amdgpu_cc.rs (target/debug/deps/test_amdgpu_cc-8a062f33cb80a127)
+
+running 1 test
+test test_amdgpu_sret ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/test_array_param.rs (target/debug/deps/test_array_param-33e4872478cc0403)
+
+running 1 test
+test test_array_param ... FAILED
+
+failures:
+
+---- test_array_param stdout ----
+
+thread 'test_array_param' (8957) panicked at tests/test_array_param.rs:15:19:
+Failed: InvalidSyntax { message: "Verification failed: Invalid instruction at @llvm.test.immarg.intrinsic.2ai32: immarg attribute only applies to integers and vectors", position: 0 }
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/ed61e7d7e242494fb7057f2657300d9e77bb4fcb/library/std/src/panicking.rs:698:5
+   1: core::panicking::panic_fmt
+             at /rustc/ed61e7d7e242494fb7057f2657300d9e77bb4fcb/library/core/src/panicking.rs:75:14
+   2: test_array_param::test_array_param
+             at ./tests/test_array_param.rs:15:19
+   3: test_array_param::test_array_param::{{closure}}
+             at ./tests/test_array_param.rs:4:22
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/ed61e7d7e242494fb7057f2657300d9e77bb4fcb/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/ed61e7d7e242494fb7057f2657300d9e77bb4fcb/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    test_array_param
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.42s
+
+error: test failed, to rerun pass `--test test_array_param`

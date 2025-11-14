@@ -297,11 +297,22 @@ impl ValidationRules {
 
         // immarg must only be used with constant arguments (checked during call validation)
         // Note: The actual check for immarg requires checking call sites, which is more complex
-        // For now, we just validate that immarg is only on integer types
+        // For now, we just validate that immarg is only on integer types, vectors, or arrays of integers
         if attrs.immarg {
-            if !param_type.is_integer() && !param_type.is_vector() {
+            let is_valid_immarg = param_type.is_integer()
+                || param_type.is_vector()
+                || (param_type.is_array() && {
+                    // Check if array element type is integer
+                    if let Some((element_type, _)) = param_type.array_info() {
+                        element_type.is_integer()
+                    } else {
+                        false
+                    }
+                });
+
+            if !is_valid_immarg {
                 self.errors.push(VerificationError::InvalidInstruction {
-                    reason: "immarg attribute only applies to integers and vectors".to_string(),
+                    reason: "immarg attribute only applies to integers, vectors, and arrays of integers".to_string(),
                     location: format!("@{}", func_name),
                 });
             }
