@@ -3775,6 +3775,105 @@ impl<'a> Verifier<'a> {
                 }
             }
         }
+
+        // llvm.masked.load - mask parameter type must match vector scalability
+        if intrinsic_name.starts_with("llvm.masked.load.") {
+            if operands.len() >= 3 {
+                // operands[0] = function, operands[1] = ptr, operands[2] = mask, operands[3] = passthru
+                let mask_type = operands[2].get_type();
+
+                // Get return type from result
+                if let Some(result) = inst.result() {
+                    let ret_type = result.get_type();
+
+                    // If return is scalable vector, mask must be scalable vector
+                    // If return is fixed vector, mask must be fixed vector
+                    if let Some((ret_elem, ret_size)) = ret_type.vector_info() {
+                        if let Some((mask_elem, mask_size)) = mask_type.vector_info() {
+                            // Check scalability matches
+                            let ret_is_scalable = ret_type.to_string().contains("vscale");
+                            let mask_is_scalable = mask_type.to_string().contains("vscale");
+
+                            if ret_is_scalable != mask_is_scalable {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "Intrinsic has incorrect argument type!".to_string(),
+                                    location: format!("ptr @{}", intrinsic_name),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // llvm.vector.extract - validation
+        if intrinsic_name.starts_with("llvm.vector.extract.") {
+            if operands.len() >= 3 {
+                // operands[0] = function, operands[1] = source vector, operands[2] = index
+                let src_type = operands[1].get_type();
+
+                if let Some(result) = inst.result() {
+                    let result_type = result.get_type();
+
+                    // Check element types match
+                    if let Some((src_elem, _)) = src_type.vector_info() {
+                        if let Some((res_elem, _)) = result_type.vector_info() {
+                            if *src_elem != *res_elem {
+                                self.errors.push(VerificationError::InvalidInstruction {
+                                    reason: "vector_extract result must have the same element type as the input vector.".to_string(),
+                                    location: format!("call to {}", intrinsic_name),
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // llvm.vector.insert - validation
+        if intrinsic_name.starts_with("llvm.vector.insert.") {
+            if operands.len() >= 4 {
+                // operands[0] = function, operands[1] = dest vector, operands[2] = subvector, operands[3] = index
+                let dest_type = operands[1].get_type();
+                let sub_type = operands[2].get_type();
+
+                // Check element types match
+                if let Some((dest_elem, _)) = dest_type.vector_info() {
+                    if let Some((sub_elem, _)) = sub_type.vector_info() {
+                        if *dest_elem != *sub_elem {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "vector_insert parameters must have the same element type.".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        // llvm.vector.splice - index range validation
+        if intrinsic_name.starts_with("llvm.vector.splice.") {
+            if operands.len() >= 4 {
+                // operands[0] = function, operands[1] = vec1, operands[2] = vec2, operands[3] = index
+                let vec_type = operands[1].get_type();
+                let index_val = &operands[3];
+
+                // Get vector length if fixed-size vector
+                if let Some((_, vec_len)) = vec_type.vector_info() {
+                    // Index must be an immediate constant
+                    if let Some(idx) = index_val.const_int_value() {
+                        let vl = vec_len as i64;
+                        // Index must be in range [-VL, VL-1]
+                        if idx < -vl || idx >= vl {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "The splice index exceeds the range [-VL, VL-1] where VL is the known minimum number of elements in the vector".to_string(),
+                                location: format!("call to {}", intrinsic_name),
+                            });
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Verify immarg (immediate argument) parameters for intrinsics

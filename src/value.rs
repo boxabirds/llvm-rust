@@ -265,6 +265,14 @@ impl Value {
         }
     }
 
+    /// Get the integer value if this is a constant integer
+    pub fn const_int_value(&self) -> Option<i64> {
+        match &self.data.kind {
+            ValueKind::ConstantInt { value } => Some(*value),
+            _ => None,
+        }
+    }
+
     /// Get array elements if this is a constant array
     pub fn array_elements(&self) -> Option<&Vec<Value>> {
         match &self.data.kind {
