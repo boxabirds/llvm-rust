@@ -2254,13 +2254,29 @@ impl Parser {
                         let idx = *idx as usize;
                         indices.push(idx);
 
-                        // Navigate to the indexed element type
+                        // Navigate to the indexed element type and validate
                         if let Some(fields) = current_ty.struct_fields() {
-                            if idx < fields.len() {
-                                current_ty = fields[idx].clone();
+                            if idx >= fields.len() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for extractvalue".to_string(),
+                                    position: self.current,
+                                });
                             }
-                        } else if let Some((elem_ty, _size)) = current_ty.array_info() {
+                            current_ty = fields[idx].clone();
+                        } else if let Some((elem_ty, size)) = current_ty.array_info() {
+                            // Check for indexing into zero-sized array
+                            if size == 0 {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for extractvalue".to_string(),
+                                    position: self.current,
+                                });
+                            }
                             current_ty = elem_ty.clone();
+                        } else {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "invalid indices for extractvalue".to_string(),
+                                position: self.current,
+                            });
                         }
 
                         let idx_val = Value::new(
@@ -2273,6 +2289,14 @@ impl Parser {
                     } else {
                         break;
                     }
+                }
+
+                // Validate that at least one index was provided
+                if indices.is_empty() {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected index".to_string(),
+                        position: self.current,
+                    });
                 }
 
                 // Result type is the final type after following all indices
@@ -2289,12 +2313,43 @@ impl Parser {
                 let elem = self.parse_value_with_type(Some(&elem_ty))?;
                 operands.push(elem);
 
-                // Parse indices
+                // Navigate through indices to find the target type
+                let mut current_ty = agg_ty.clone();
+                let mut indices = Vec::new();
+
                 while self.match_token(&Token::Comma) {
                     if let Some(Token::Integer(idx)) = self.peek() {
+                        let idx = *idx as usize;
+                        indices.push(idx);
+
+                        // Navigate to the indexed element type and validate
+                        if let Some(fields) = current_ty.struct_fields() {
+                            if idx >= fields.len() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for insertvalue".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            current_ty = fields[idx].clone();
+                        } else if let Some((elem_type, size)) = current_ty.array_info() {
+                            // Check for indexing into zero-sized array
+                            if size == 0 {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "invalid indices for insertvalue".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            current_ty = elem_type.clone();
+                        } else {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "invalid indices for insertvalue".to_string(),
+                                position: self.current,
+                            });
+                        }
+
                         let idx_val = Value::new(
                             self.context.int_type(32),
-                            crate::value::ValueKind::ConstantInt { value: *idx as i64 },
+                            crate::value::ValueKind::ConstantInt { value: idx as i64 },
                             Some(idx.to_string())
                         );
                         operands.push(idx_val);
@@ -2302,6 +2357,17 @@ impl Parser {
                     } else {
                         break;
                     }
+                }
+
+                // Validate that the inserted element type matches the target field type
+                if !indices.is_empty() && elem_ty != current_ty {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!(
+                            "insertvalue operand and field disagree in type: '{}' instead of '{}'",
+                            elem_ty, current_ty
+                        ),
+                        position: self.current,
+                    });
                 }
 
                 // Result type is same as aggregate type
