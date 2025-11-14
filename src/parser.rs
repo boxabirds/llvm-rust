@@ -1402,6 +1402,13 @@ impl Parser {
 
         // Create result value if there's a result name OR if instruction produces a non-void result
         let result = if let Some(name) = result_name {
+            // Check for duplicate local variable name
+            if self.symbol_table.contains_key(&name) {
+                return Err(ParseError::InvalidSyntax {
+                    message: format!("redefinition of local value named '{}'", name),
+                    position: self.current,
+                });
+            }
             // Named result
             let ty = result_type.unwrap_or_else(|| self.context.void_type());
             let value = Value::instruction(ty, opcode, Some(name.clone()));
