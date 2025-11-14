@@ -18,6 +18,10 @@ This document breaks down the parser enhancement design into trackable, dependen
   - 2009-05-29-InvokeResult1/2/3.ll
   - PHI nodes cannot use invoke results from unwind paths
 - ✅ Test infrastructure improved (+9 negative tests classified)
+- ⚙️ Infrastructure added (needs parser work):
+  - Const x86_amx argument validation
+  - gc.relocate basic validation
+  - Memory intrinsic alignment validation (needs param attributes)
 
 **Previous Sessions**:
 - Session 3 (200 → 200): Test infrastructure
