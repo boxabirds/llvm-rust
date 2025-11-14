@@ -333,7 +333,7 @@
 ✓ NEGATIVE: invalid-hexint.ll
 ✓ NEGATIVE: invalid-immarg.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg2.ll
-✗ NEGATIVE (parsed but should fail): invalid-immarg3.ll
+✓ NEGATIVE: invalid-immarg3.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg4.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg5.ll
 ✓ NEGATIVE: invalid-inline-constraint.ll

@@ -121,6 +121,7 @@ pub struct ReturnAttributes {
     pub swifterror: bool,
     pub dereferenceable: Option<u64>,
     pub align: Option<u32>,
+    pub has_immarg: bool, // For validation - immarg is invalid on return values
 }
 
 /// Parameter attributes

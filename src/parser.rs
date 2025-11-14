@@ -4208,13 +4208,18 @@ impl Parser {
                 continue;
             }
 
-            // Skip other attributes we don't parse yet
+            // Skip other attributes we don't parse yet (but immarg is tracked for validation)
             if self.match_token(&Token::Nocapture) ||
                self.match_token(&Token::Nest) ||
                self.match_token(&Token::Readonly) ||
                self.match_token(&Token::Writeonly) ||
-               self.match_token(&Token::Swiftself) ||
-               self.match_token(&Token::Immarg) {
+               self.match_token(&Token::Swiftself) {
+                continue;
+            }
+
+            // Track immarg in return position (will be validated as error)
+            if self.match_token(&Token::Immarg) {
+                attrs.has_immarg = true; // Track this for validation
                 continue;
             }
 
