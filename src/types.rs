@@ -223,6 +223,10 @@ impl Type {
         matches!(&*self.data, TypeData::X86_AMX)
     }
 
+    pub fn is_opaque(&self) -> bool {
+        matches!(&*self.data, TypeData::Opaque { .. })
+    }
+
     /// Check if this type is sized (can be allocated)
     /// Void, function, label, token, metadata, opaque, and x86_amx types are not sized
     pub fn is_sized(&self) -> bool {

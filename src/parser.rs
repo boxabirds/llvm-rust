@@ -755,9 +755,20 @@ impl Parser {
         // Expect comma
         self.consume(&Token::Comma)?;
 
-        // Parse aliasee type and value
-        let aliasee_type = self.parse_type()?;
-        let aliasee = self.parse_value_with_type(Some(&aliasee_type))?;
+        // Parse aliasee - could be: type value OR constant_expression
+        // Check if next token is a constant expression (no type prefix)
+        let aliasee = match self.peek() {
+            Some(Token::GetElementPtr) | Some(Token::BitCast) | Some(Token::AddrSpaceCast) |
+            Some(Token::PtrToInt) | Some(Token::IntToPtr) => {
+                // Constant expression without type prefix
+                self.parse_value()?
+            }
+            _ => {
+                // Normal case: type value
+                let aliasee_type = self.parse_type()?;
+                self.parse_value_with_type(Some(&aliasee_type))?
+            }
+        };
 
         Ok(Alias {
             name,
@@ -1609,7 +1620,9 @@ impl Parser {
                 let alloca_ty = self.parse_type()?;
 
                 // Validate that alloca type is sized (not void, function, label, token, or metadata)
-                if !alloca_ty.is_sized() {
+                // Note: target types are represented as opaque but ARE allocatable
+                let is_target_type = format!("{:?}", alloca_ty).starts_with("Type(%target(");
+                if !alloca_ty.is_sized() && !is_target_type {
                     return Err(ParseError::InvalidSyntax {
                         message: format!("invalid type for alloca: {:?}", alloca_ty),
                         position: self.current,
@@ -1702,8 +1715,8 @@ impl Parser {
                 is_atomic = self.match_token(&Token::Atomic);
                 self.match_token(&Token::Volatile);
 
-                let _val_ty = self.parse_type()?;
-                let val = self.parse_value()?;
+                let val_ty = self.parse_type()?;
+                let val = self.parse_value_with_type(Some(&val_ty))?;
                 operands.push(val);
                 self.consume(&Token::Comma)?;
 
