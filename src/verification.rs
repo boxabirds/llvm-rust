@@ -4035,6 +4035,34 @@ impl<'a> Verifier<'a> {
             }
         }
 
+        // llvm.experimental.gc.relocate - garbage collection relocation
+        if intrinsic_name.starts_with("llvm.experimental.gc.relocate.") {
+            // gc.relocate takes a token and two i32 indices
+            // The relocated value must be a pointer type
+            // The result address space must match the relocated value address space
+
+            if let Some(result) = inst.result() {
+                let result_type = result.get_type();
+
+                // Result must be a pointer
+                if !result_type.is_pointer() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "gc.relocate: result must be a pointer".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+
+                // Check that relocated value is a pointer
+                // operands[0] is the function, operands[1] is token, operands[2] and [3] are indices
+                // We need to look up what value the indices point to in the statepoint
+                // For now, we'll just check the result type consistency
+
+                // The relocated value must be a gc pointer (pointer type)
+                // This is checked by looking at the result - if result is not a pointer, error
+                // Additional check: The intrinsic name encoding should match result type address space
+            }
+        }
+
         // llvm.vector.reduce.* - vector reduction intrinsics
         if intrinsic_name.starts_with("llvm.vector.reduce.") {
             self.verify_intrinsic_vector_reduce(inst, intrinsic_name, operands);
