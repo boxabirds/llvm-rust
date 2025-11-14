@@ -1817,6 +1817,16 @@ impl<'a> Verifier<'a> {
                     // This is invalid: getelementptr {i32, ptr}, ptr %X, i32 0, i32 1, i32 0
                     // After indexing to field 1 (the ptr), we get a pointer, and cannot index further
                     self.verify_gep_no_pointer_indexing(inst, &operands);
+
+                    // GEP cannot target structures containing scalable vectors
+                    if let Some(source_type) = inst.gep_source_type() {
+                        if self.contains_scalable_type(source_type) {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "getelementptr cannot target structure that contains scalable vector type".to_string(),
+                                location: "getelementptr instruction".to_string(),
+                            });
+                        }
+                    }
                 }
             }
 
@@ -2045,6 +2055,14 @@ impl<'a> Verifier<'a> {
                                     location: "alloca instruction".to_string(),
                                 });
                             }
+                        }
+
+                        // Cannot allocate types containing scalable vectors
+                        if self.contains_scalable_type(&pointee) {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "Cannot allocate unsized type".to_string(),
+                                location: "alloca instruction".to_string(),
+                            });
                         }
                     }
                 }
@@ -2316,6 +2334,14 @@ impl<'a> Verifier<'a> {
                         });
                     }
 
+                    // Cannot store types containing scalable vectors
+                    if self.contains_scalable_type(&value_type) {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Cannot store unsized types".to_string(),
+                            location: "store instruction".to_string(),
+                        });
+                    }
+
                     // Atomic stores have additional constraints
                     // Note: We would need to detect atomic stores from instruction attributes
                     // For now, we check if it's a struct type which is never valid for atomics
@@ -2362,6 +2388,14 @@ impl<'a> Verifier<'a> {
                         self.errors.push(VerificationError::InvalidInstruction {
                             reason: "loading unsized types is not allowed".to_string(),
                             location: format!("  %t = load {:?}, ptr %ptr", result_type),
+                        });
+                    }
+
+                    // Cannot load types containing scalable vectors
+                    if self.contains_scalable_type(&result_type) {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Cannot load unsized types".to_string(),
+                            location: "load instruction".to_string(),
                         });
                     }
                 }

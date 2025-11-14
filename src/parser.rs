@@ -3481,7 +3481,7 @@ impl Parser {
                 } else {
                     // Vector type
                     // Check for vscale (scalable vector)
-                    let _is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
+                    let is_scalable = if let Some(Token::Identifier(id)) = self.peek() {
                         if id == "vscale" {
                             self.advance();
                             self.consume(&Token::X)?; // consume 'x' after vscale
@@ -3506,8 +3506,11 @@ impl Parser {
                     self.consume(&Token::X)?; // 'x'
                     let elem_ty = self.parse_type()?;
                     self.consume(&Token::RAngle)?;
-                    // For now, treat scalable vectors like regular vectors
-                    Ok(self.context.vector_type(elem_ty, size as usize))
+
+                    // For scalable vectors, use size 0 as a marker
+                    // This allows validation code to distinguish them from fixed vectors
+                    let vector_size = if is_scalable { 0 } else { size as usize };
+                    Ok(self.context.vector_type(elem_ty, vector_size))
                 }
             }
             Token::LocalIdent(name) => {
