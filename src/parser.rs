@@ -1841,6 +1841,14 @@ impl Parser {
                 // Validate cast operations
                 match opcode {
                     Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt => {
+                        // Trunc/ZExt/SExt cannot be used with pointer types (use inttoptr/ptrtoint)
+                        if src_ty.is_pointer() || dest_ty.is_pointer() {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                    src_ty, dest_ty),
+                                position: self.current,
+                            });
+                        }
                         // For vector casts, both must be vectors with same size
                         // Can't cast vector to scalar or scalar to vector
                         let src_is_vec = src_ty.is_vector();
@@ -3873,6 +3881,14 @@ impl Parser {
                     // Validate cast operations (same checks as instructions)
                     match opcode {
                         Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt => {
+                            // Trunc/ZExt/SExt cannot be used with pointer types
+                            if src_ty.is_pointer() || dest_ty.is_pointer() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        src_ty, dest_ty),
+                                    position: self.current,
+                                });
+                            }
                             let src_is_vec = src_ty.is_vector();
                             let dest_is_vec = dest_ty.is_vector();
                             if src_is_vec != dest_is_vec {

@@ -152,9 +152,9 @@
 ✓ POSITIVE: callee-type-metadata.ll
 ✓ NEGATIVE: captures-errors.ll
 ✓ POSITIVE: captures.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-2.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-3.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-4.ll
+✓ NEGATIVE: cmpxchg-ordering-2.ll
+✓ NEGATIVE: cmpxchg-ordering-3.ll
+✓ NEGATIVE: cmpxchg-ordering-4.ll
 ✗ NEGATIVE (parsed but should fail): cmpxchg-ordering.ll
 ✓ POSITIVE: comment.ll
 ✗ NEGATIVE (parsed but should fail): constant-getelementptr-scalable_pointee.ll
