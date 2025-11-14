@@ -542,6 +542,143 @@ impl<'a> Verifier<'a> {
         }
     }
 
+    /// Verify alias constraints
+    fn verify_alias(&mut self, alias: &crate::module::Alias, module: &Module) {
+        use std::collections::HashSet;
+        use crate::module::Linkage;
+
+        // 1. Alias must point to a definition, not a declaration
+        let aliasee_name = alias.aliasee.name();
+
+        if let Some(name) = aliasee_name {
+            // Check if it's a function - must have body or non-external linkage
+            for func in module.functions() {
+                if func.name() == name {
+                    if matches!(func.linkage(), Linkage::External) && func.basic_blocks().is_empty() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Alias must point to a definition".to_string(),
+                            location: format!("@{}", alias.name),
+                        });
+                        return;
+                    }
+                    if matches!(func.linkage(), Linkage::AvailableExternally) {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Alias must point to a definition".to_string(),
+                            location: format!("@{}", alias.name),
+                        });
+                        return;
+                    }
+                    break;
+                }
+            }
+
+            // Check if it's a global variable
+            for global in module.globals() {
+                if global.name() == name {
+                    if matches!(global.linkage, Linkage::External) && global.initializer.is_none() {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Alias must point to a definition".to_string(),
+                            location: format!("@{}", alias.name),
+                        });
+                        return;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 2. Check for alias cycles
+        let mut visited = HashSet::new();
+        let mut in_stack = HashSet::new();
+        if self.has_alias_cycle(&alias.name, module, &mut visited, &mut in_stack) {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Aliases cannot form a cycle".to_string(),
+                location: format!("ptr @{}", alias.name),
+            });
+        }
+
+        // 3. Alias cannot point to an interposable alias
+        if let Some(aliasee_name) = alias.aliasee.name() {
+            for other_alias in module.aliases() {
+                if other_alias.name == aliasee_name {
+                    let is_interposable = matches!(other_alias.linkage,
+                        Linkage::Weak | Linkage::WeakOdr | Linkage::Linkonce |
+                        Linkage::LinkonceOdr | Linkage::Common | Linkage::ExternWeak
+                    );
+                    if is_interposable {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Alias cannot point to an interposable alias".to_string(),
+                            location: format!("ptr @{}", alias.name),
+                        });
+                    }
+                    break;
+                }
+            }
+        }
+
+        // 4. available_externally alias must point to available_externally global value
+        if matches!(alias.linkage, Linkage::AvailableExternally) {
+            if let Some(aliasee_name) = alias.aliasee.name() {
+                let mut points_to_ae = false;
+                for func in module.functions() {
+                    if func.name() == aliasee_name && matches!(func.linkage(), Linkage::AvailableExternally) {
+                        points_to_ae = true;
+                        break;
+                    }
+                }
+                for global in module.globals() {
+                    if global.name() == aliasee_name && matches!(global.linkage, Linkage::AvailableExternally) {
+                        points_to_ae = true;
+                        break;
+                    }
+                }
+                for other_alias in module.aliases() {
+                    if other_alias.name == aliasee_name && matches!(other_alias.linkage, Linkage::AvailableExternally) {
+                        points_to_ae = true;
+                        break;
+                    }
+                }
+                if !points_to_ae {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "available_externally alias must point to available_externally global value".to_string(),
+                        location: format!("ptr @{}", alias.name),
+                    });
+                }
+            }
+        }
+    }
+
+    /// Check if an alias forms a cycle
+    fn has_alias_cycle(
+        &self,
+        alias_name: &str,
+        module: &Module,
+        visited: &mut std::collections::HashSet<String>,
+        in_stack: &mut std::collections::HashSet<String>
+    ) -> bool {
+        if visited.contains(alias_name) {
+            return in_stack.contains(alias_name);
+        }
+        visited.insert(alias_name.to_string());
+        in_stack.insert(alias_name.to_string());
+        for alias in module.aliases() {
+            if alias.name == alias_name {
+                if let Some(aliasee_name) = alias.aliasee.name() {
+                    for other_alias in module.aliases() {
+                        if other_alias.name == aliasee_name {
+                            if self.has_alias_cycle(&aliasee_name, module, visited, in_stack) {
+                                return true;
+                            }
+                        }
+                    }
+                }
+                break;
+            }
+        }
+        in_stack.remove(alias_name);
+        false
+    }
+
     /// Verify a function
     pub fn verify_function(&mut self, function: &Function) {
         let fn_name = function.name();
