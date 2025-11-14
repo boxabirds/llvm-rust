@@ -1986,6 +1986,15 @@ impl Parser {
                 let success_ordering = self.parse_memory_ordering_for_cmpxchg()?;
                 let failure_ordering = self.parse_memory_ordering_for_cmpxchg()?;
 
+                // Validate success ordering for cmpxchg
+                // Success ordering cannot be unordered
+                if success_ordering == "unordered" {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "invalid cmpxchg success ordering".to_string(),
+                        position: self.current,
+                    });
+                }
+
                 // Validate failure ordering for cmpxchg
                 // Failure ordering cannot be:
                 // 1. unordered
