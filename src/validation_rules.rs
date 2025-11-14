@@ -43,6 +43,9 @@ impl ValidationRules {
         // Check calling convention constraints
         self.validate_calling_convention_constraints(function);
 
+        // Check function-level attributes
+        self.validate_function_level_attributes(function);
+
         // Check return attributes
         self.validate_return_attributes(function);
 
@@ -162,6 +165,19 @@ impl ValidationRules {
 
             // TODO: Add SPIR_Kernel, X86 calling conventions, etc.
             _ => {}
+        }
+    }
+
+    /// Validate function-level attributes
+    fn validate_function_level_attributes(&mut self, function: &Function) {
+        let func_attrs = function.attributes();
+
+        // immarg is not valid on functions - only on parameters
+        if func_attrs.has_immarg {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "this attribute does not apply to functions".to_string(),
+                location: format!("@{}", function.name()),
+            });
         }
     }
 

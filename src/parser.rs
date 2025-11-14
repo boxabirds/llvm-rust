@@ -2753,6 +2753,14 @@ impl Parser {
 
             let ty = self.parse_type()?;
 
+            // Label types are not allowed as function arguments
+            if ty.is_label() {
+                return Err(ParseError::InvalidSyntax {
+                    message: "invalid type for function argument".to_string(),
+                    position: self.current,
+                });
+            }
+
             // Parse and validate parameter attributes (byval, sret, noundef, allocalign, etc.)
             let mut has_signext = false;
             let mut has_zeroext = false;
@@ -4755,6 +4763,7 @@ impl Parser {
                 Some(Token::Hot) => { self.advance(); attrs.hot = true; },
                 Some(Token::Naked) => { self.advance(); attrs.naked = true; },
                 Some(Token::Builtin) => { self.advance(); attrs.builtin = true; },
+                Some(Token::Immarg) => { self.advance(); attrs.has_immarg = true; },
                 _ => {
                     // Handle other attributes and unrecognized ones
                     if self.match_token(&Token::Inaccessiblememonly) ||
