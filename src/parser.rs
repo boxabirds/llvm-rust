@@ -755,9 +755,20 @@ impl Parser {
         // Expect comma
         self.consume(&Token::Comma)?;
 
-        // Parse aliasee type and value
-        let aliasee_type = self.parse_type()?;
-        let aliasee = self.parse_value_with_type(Some(&aliasee_type))?;
+        // Parse aliasee - could be: type value OR constant_expression
+        // Check if next token is a constant expression (no type prefix)
+        let aliasee = match self.peek() {
+            Some(Token::GetElementPtr) | Some(Token::BitCast) | Some(Token::AddrSpaceCast) |
+            Some(Token::PtrToInt) | Some(Token::IntToPtr) => {
+                // Constant expression without type prefix
+                self.parse_value()?
+            }
+            _ => {
+                // Normal case: type value
+                let aliasee_type = self.parse_type()?;
+                self.parse_value_with_type(Some(&aliasee_type))?
+            }
+        };
 
         Ok(Alias {
             name,
