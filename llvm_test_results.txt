@@ -57,7 +57,7 @@
 ✓ POSITIVE: 2007-04-20-AlignedStore.ll
 ✓ POSITIVE: 2007-05-21-Escape.ll
 ✓ POSITIVE: 2007-07-19-ParamAttrAmbiguity.ll
-✗ NEGATIVE (parsed but should fail): 2007-08-06-AliasInvalid.ll
+✓ NEGATIVE: 2007-08-06-AliasInvalid.ll
 ✓ POSITIVE: 2007-09-10-AliasFwdRef.ll
 ✓ POSITIVE: 2007-09-29-GC.ll
 ✓ NEGATIVE: 2007-11-26-AttributeOverload.ll
@@ -89,7 +89,7 @@
 ✓ POSITIVE: addrspacecast-alias.ll
 ✓ POSITIVE: aggregate-constant-values.ll
 ✓ POSITIVE: aggregate-return-single-value.ll
-✗ NEGATIVE (parsed but should fail): alias-redefinition.ll
+✓ NEGATIVE: alias-redefinition.ll
 ✓ POSITIVE: alias-use-list-order.ll
 ✓ NEGATIVE: align-inst-alloca.ll
 ✓ NEGATIVE: align-inst-load.ll
@@ -133,15 +133,15 @@
 ✓ POSITIVE: br-single-destination.ll
 ✓ NEGATIVE: byref-parse-error-0.ll
 ✓ NEGATIVE: byref-parse-error-1.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-10.ll
+✓ NEGATIVE: byref-parse-error-10.ll
 ✓ NEGATIVE: byref-parse-error-2.ll
 ✓ NEGATIVE: byref-parse-error-3.ll
 ✓ NEGATIVE: byref-parse-error-4.ll
 ✓ NEGATIVE: byref-parse-error-5.ll
 ✓ NEGATIVE: byref-parse-error-6.ll
 ✓ NEGATIVE: byref-parse-error-7.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-8.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-9.ll
+✓ NEGATIVE: byref-parse-error-8.ll
+✓ NEGATIVE: byref-parse-error-9.ll
 ✓ NEGATIVE: byval-parse-error0.ll
 ✓ POSITIVE: byval-type-attr.ll
 ✓ POSITIVE: c-style-comment.ll
@@ -268,15 +268,15 @@
 ✓ NEGATIVE: invalid-atomicrmw-fsub-must-be-fp-type.ll
 ✓ NEGATIVE: invalid-atomicrmw-scalable.ll
 ✓ NEGATIVE: invalid-atomicrmw-xchg-fp-vector.ll
-✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
-✗ NEGATIVE (parsed but should fail): invalid-byval-type2.ll
-✗ NEGATIVE (parsed but should fail): invalid-byval-type3.ll
+✓ NEGATIVE: invalid-attrgrp.ll
+✓ NEGATIVE: invalid-byval-type2.ll
+✓ NEGATIVE: invalid-byval-type3.ll
 ✗ NEGATIVE (parsed but should fail): invalid-c-style-comment0.ll
 ✓ NEGATIVE: invalid-c-style-comment1.ll
 ✓ NEGATIVE: invalid-c-style-comment2.ll
 ✗ NEGATIVE (parsed but should fail): invalid-c-style-comment3.ll
-✗ NEGATIVE (parsed but should fail): invalid-comdat.ll
-✗ NEGATIVE (parsed but should fail): invalid-comdat2.ll
+✓ NEGATIVE: invalid-comdat.ll
+✓ NEGATIVE: invalid-comdat2.ll
 ✗ NEGATIVE (parsed but should fail): invalid-datalayout-override.ll
 ✓ POSITIVE: invalid-debug-info-version.ll
 ✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-emissionkind-bad.ll

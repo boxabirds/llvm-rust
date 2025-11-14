@@ -48,6 +48,8 @@ pub struct Parser {
     metadata_registry: std::collections::HashMap<String, crate::metadata::Metadata>,
     /// Attribute groups registry for #0, #1, etc.
     attribute_groups: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    /// Comdat definitions registry for $name
+    comdat_definitions: std::collections::HashMap<String, String>,
 }
 
 impl Parser {
@@ -61,6 +63,7 @@ impl Parser {
             type_table: std::collections::HashMap::new(),
             metadata_registry: std::collections::HashMap::new(),
             attribute_groups: std::collections::HashMap::new(),
+            comdat_definitions: std::collections::HashMap::new(),
         }
     }
 
@@ -81,7 +84,7 @@ impl Parser {
         let mut iterations = 0;
         const MAX_MODULE_ITERATIONS: usize = 100000;
 
-        while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
+        'main_loop: while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
             iterations += 1;
             // Note: Attribute group parsing moved to a dedicated section below
             // (not skipping attributes anymore)
@@ -106,15 +109,29 @@ impl Parser {
                 continue;
             }
 
-            // Skip comdat definitions: $name = comdat any/exactmatch/largest/...
+            // Parse comdat definitions: $name = comdat any/exactmatch/largest/...
             if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
                 && self.peek_ahead(2) == Some(&Token::Comdat) {
-                self.advance(); // skip $name
-                self.advance(); // skip =
-                self.advance(); // skip comdat
-                if let Some(Token::Identifier(_)) = self.peek() {
-                    self.advance(); // skip comdat type (any, exactmatch, etc.)
+                let comdat_name = self.expect_global_ident()?;
+                self.advance(); // consume =
+                self.advance(); // consume comdat
+                let comdat_type = if let Some(Token::Identifier(ty)) = self.peek() {
+                    let t = ty.clone();
+                    self.advance(); // consume comdat type
+                    t
+                } else {
+                    "any".to_string() // default type
+                };
+
+                // Check for duplicate comdat definition
+                if self.comdat_definitions.contains_key(&comdat_name) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("redefinition of comdat '{}'", comdat_name),
+                        position: self.current,
+                    });
                 }
+
+                self.comdat_definitions.insert(comdat_name, comdat_type);
                 continue;
             }
 
@@ -139,7 +156,10 @@ impl Parser {
 
                 if is_global_var {
                     let global = self.parse_global_variable()?;
-                    module.add_global(global);
+                    module.add_global(global).map_err(|e| ParseError::InvalidSyntax {
+                        message: e,
+                        position: self.current,
+                    })?;
                     continue;
                 }
             }
@@ -182,8 +202,11 @@ impl Parser {
                     if matches!(tok, Token::Alias) {
                         // Parse the alias
                         let alias = self.parse_alias()?;
-                        module.add_alias(alias);
-                        break;
+                        module.add_alias(alias).map_err(|e| ParseError::InvalidSyntax {
+                            message: e,
+                            position: self.current,
+                        })?;
+                        continue 'main_loop;
                     }
                     if matches!(tok, Token::Ifunc) {
                         // Skip ifunc declarations for now
@@ -193,7 +216,7 @@ impl Parser {
                               !self.peek_global_ident().is_some() {
                             self.advance();
                         }
-                        break;
+                        continue 'main_loop;
                     }
                     break;
                 }
@@ -220,11 +243,16 @@ impl Parser {
             // Parse attribute group definitions: attributes #0 = { ... }
             if self.match_token(&Token::Attributes) {
                 // Get attribute group ID (#0, #1, etc.)
-                let mut group_id = String::new();
-                if let Some(Token::AttrGroupId(num)) = self.peek() {
-                    group_id = format!("#{}", num);
+                let group_id = if let Some(Token::AttrGroupId(num)) = self.peek() {
+                    let id = format!("#{}", num);
                     self.advance();
-                }
+                    id
+                } else {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "expected attribute group id".to_string(),
+                        position: self.current,
+                    });
+                };
                 // Consume '='
                 self.match_token(&Token::Equal);
                 // Parse attribute list in braces
@@ -253,9 +281,7 @@ impl Parser {
                     }
                     self.match_token(&Token::RBrace);
                 }
-                if !group_id.is_empty() {
-                    self.attribute_groups.insert(group_id, attrs);
-                }
+                self.attribute_groups.insert(group_id, attrs);
                 continue;
             }
 
@@ -306,6 +332,21 @@ impl Parser {
                         self.skip_metadata();
                     }
                     continue;
+                }
+            }
+
+            // Check for invalid top-level tokens that require specific syntax
+            // Only reject if it looks like an alias/ifunc declaration (followed by a type, not by a colon)
+            if let Some(tok) = self.peek() {
+                if matches!(tok, Token::Alias | Token::Ifunc) {
+                    // Check if next token suggests this is a declaration attempt (type or @name)
+                    // vs just an identifier in metadata (followed by colon)
+                    if !matches!(self.peek_ahead(1), Some(Token::Colon)) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "expected top-level entity".to_string(),
+                            position: self.current,
+                        });
+                    }
                 }
             }
 
@@ -669,21 +710,36 @@ impl Parser {
                 Some(Token::Comdat) => {
                     self.advance();
                     // Comdat can have an optional name: comdat($name) or comdat(identifier)
-                    if self.match_token(&Token::LParen) {
+                    let comdat_name = if self.match_token(&Token::LParen) {
                         // Handle $name format (GlobalIdent)
-                        if let Some(Token::GlobalIdent(name)) = self.peek() {
-                            comdat = Some(name.clone());
+                        let cname = if let Some(Token::GlobalIdent(name)) = self.peek() {
+                            let n = name.clone();
                             self.advance();
+                            n
                         } else if let Some(Token::Identifier(name)) = self.peek() {
                             // Handle plain identifier format
-                            comdat = Some(name.clone());
+                            let n = name.clone();
                             self.advance();
-                        }
+                            n
+                        } else {
+                            String::new()
+                        };
                         self.match_token(&Token::RParen);
+                        cname
                     } else {
                         // comdat without explicit name means use the global's own name
-                        comdat = Some(name.clone());
+                        name.clone()
+                    };
+
+                    // Validate that the comdat is defined
+                    if !comdat_name.is_empty() && !self.comdat_definitions.contains_key(&comdat_name) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: format!("use of undefined comdat '{}'", comdat_name),
+                            position: self.current,
+                        });
                     }
+
+                    comdat = Some(comdat_name);
                 },
                 _ => break,
             }
@@ -1346,6 +1402,13 @@ impl Parser {
 
         // Create result value if there's a result name OR if instruction produces a non-void result
         let result = if let Some(name) = result_name {
+            // Check for duplicate local variable name
+            if self.symbol_table.contains_key(&name) {
+                return Err(ParseError::InvalidSyntax {
+                    message: format!("redefinition of local value named '{}'", name),
+                    position: self.current,
+                });
+            }
             // Named result
             let ty = result_type.unwrap_or_else(|| self.context.void_type());
             let value = Value::instruction(ty, opcode, Some(name.clone()));
@@ -5228,7 +5291,38 @@ impl Parser {
                     }
 
                     // Handle identifier-based attributes
-                    if let Some(Token::Identifier(attr)) = self.peek() {
+                    if let Some(Token::Identifier(attr)) = self.peek().cloned() {
+                        // Check for parameter-only attributes that cannot be used on functions
+                        if matches!(attr.as_str(), "byref" | "byval" | "inalloca" | "sret" | "nest" | "nocapture" | "returned" | "swiftself" | "swifterror" | "swiftasync") {
+                            // byref specifically requires (type) syntax
+                            if attr == "byref" {
+                                self.advance(); // consume 'byref'
+                                if !self.check(&Token::LParen) {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "expected '('".to_string(),
+                                        position: self.current,
+                                    });
+                                }
+                                self.advance(); // consume (
+                                // Check if we have a type or invalid syntax
+                                if let Some(Token::Integer(_)) = self.peek() {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "expected type".to_string(),
+                                        position: self.current,
+                                    });
+                                }
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("'{}' attribute only allowed on function parameters", attr),
+                                    position: self.current,
+                                });
+                            }
+                            // For other parameter-only attributes
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("'{}' attribute only allowed on function parameters", attr),
+                                position: self.current,
+                            });
+                        }
+
                         // Parse allockind("alloc,zeroed") or allockind("free")
                         if attr == "allockind" {
                             self.advance(); // consume 'allockind'
