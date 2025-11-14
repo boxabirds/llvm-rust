@@ -89,7 +89,7 @@
 ✓ POSITIVE: addrspacecast-alias.ll
 ✓ POSITIVE: aggregate-constant-values.ll
 ✓ POSITIVE: aggregate-return-single-value.ll
-✗ NEGATIVE (parsed but should fail): alias-redefinition.ll
+✓ NEGATIVE: alias-redefinition.ll
 ✓ POSITIVE: alias-use-list-order.ll
 ✓ NEGATIVE: align-inst-alloca.ll
 ✓ NEGATIVE: align-inst-load.ll
@@ -133,15 +133,15 @@
 ✓ POSITIVE: br-single-destination.ll
 ✓ NEGATIVE: byref-parse-error-0.ll
 ✓ NEGATIVE: byref-parse-error-1.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-10.ll
+✓ NEGATIVE: byref-parse-error-10.ll
 ✓ NEGATIVE: byref-parse-error-2.ll
 ✓ NEGATIVE: byref-parse-error-3.ll
 ✓ NEGATIVE: byref-parse-error-4.ll
 ✓ NEGATIVE: byref-parse-error-5.ll
 ✓ NEGATIVE: byref-parse-error-6.ll
 ✓ NEGATIVE: byref-parse-error-7.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-8.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-9.ll
+✓ NEGATIVE: byref-parse-error-8.ll
+✓ NEGATIVE: byref-parse-error-9.ll
 ✓ NEGATIVE: byval-parse-error0.ll
 ✓ POSITIVE: byval-type-attr.ll
 ✓ POSITIVE: c-style-comment.ll

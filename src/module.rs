@@ -194,9 +194,18 @@ impl Module {
     }
 
     /// Add a global variable to this module
-    pub fn add_global(&self, global: GlobalVariable) {
+    pub fn add_global(&self, global: GlobalVariable) -> Result<(), String> {
         let mut data = self.data.write().unwrap();
+        // Check for duplicate global names
+        if data.globals.iter().any(|g| g.name == global.name) {
+            return Err(format!("redefinition of global '@{}'", global.name));
+        }
+        // Also check if an alias with this name already exists
+        if data.aliases.iter().any(|a| a.name == global.name) {
+            return Err(format!("redefinition of global '@{}'", global.name));
+        }
         data.globals.push(global);
+        Ok(())
     }
 
     /// Get a global variable by name
@@ -214,9 +223,18 @@ impl Module {
     }
 
     /// Add an alias to this module
-    pub fn add_alias(&self, alias: Alias) {
+    pub fn add_alias(&self, alias: Alias) -> Result<(), String> {
         let mut data = self.data.write().unwrap();
+        // Check for duplicate alias names
+        if data.aliases.iter().any(|a| a.name == alias.name) {
+            return Err(format!("redefinition of global '@{}'", alias.name));
+        }
+        // Also check if a global with this name already exists
+        if data.globals.iter().any(|g| g.name == alias.name) {
+            return Err(format!("redefinition of global '@{}'", alias.name));
+        }
         data.aliases.push(alias);
+        Ok(())
     }
 
     /// Get an alias by name

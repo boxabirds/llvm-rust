@@ -81,7 +81,7 @@ impl Parser {
         let mut iterations = 0;
         const MAX_MODULE_ITERATIONS: usize = 100000;
 
-        while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
+        'main_loop: while !self.is_at_end() && iterations < MAX_MODULE_ITERATIONS {
             iterations += 1;
             // Note: Attribute group parsing moved to a dedicated section below
             // (not skipping attributes anymore)
@@ -139,7 +139,10 @@ impl Parser {
 
                 if is_global_var {
                     let global = self.parse_global_variable()?;
-                    module.add_global(global);
+                    module.add_global(global).map_err(|e| ParseError::InvalidSyntax {
+                        message: e,
+                        position: self.current,
+                    })?;
                     continue;
                 }
             }
@@ -182,8 +185,11 @@ impl Parser {
                     if matches!(tok, Token::Alias) {
                         // Parse the alias
                         let alias = self.parse_alias()?;
-                        module.add_alias(alias);
-                        break;
+                        module.add_alias(alias).map_err(|e| ParseError::InvalidSyntax {
+                            message: e,
+                            position: self.current,
+                        })?;
+                        continue 'main_loop;
                     }
                     if matches!(tok, Token::Ifunc) {
                         // Skip ifunc declarations for now
@@ -193,7 +199,7 @@ impl Parser {
                               !self.peek_global_ident().is_some() {
                             self.advance();
                         }
-                        break;
+                        continue 'main_loop;
                     }
                     break;
                 }
@@ -5228,7 +5234,38 @@ impl Parser {
                     }
 
                     // Handle identifier-based attributes
-                    if let Some(Token::Identifier(attr)) = self.peek() {
+                    if let Some(Token::Identifier(attr)) = self.peek().cloned() {
+                        // Check for parameter-only attributes that cannot be used on functions
+                        if matches!(attr.as_str(), "byref" | "byval" | "inalloca" | "sret" | "nest" | "nocapture" | "returned" | "swiftself" | "swifterror" | "swiftasync") {
+                            // byref specifically requires (type) syntax
+                            if attr == "byref" {
+                                self.advance(); // consume 'byref'
+                                if !self.check(&Token::LParen) {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "expected '('".to_string(),
+                                        position: self.current,
+                                    });
+                                }
+                                self.advance(); // consume (
+                                // Check if we have a type or invalid syntax
+                                if let Some(Token::Integer(_)) = self.peek() {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "expected type".to_string(),
+                                        position: self.current,
+                                    });
+                                }
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("'{}' attribute only allowed on function parameters", attr),
+                                    position: self.current,
+                                });
+                            }
+                            // For other parameter-only attributes
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("'{}' attribute only allowed on function parameters", attr),
+                                position: self.current,
+                            });
+                        }
+
                         // Parse allockind("alloc,zeroed") or allockind("free")
                         if attr == "allockind" {
                             self.advance(); // consume 'allockind'
