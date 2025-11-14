@@ -944,7 +944,7 @@ impl Parser {
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
-        let mut attrs = self.parse_function_attributes();
+        let mut attrs = self.parse_function_attributes()?;
         attrs.return_attributes = ret_attrs;
         attrs.parameter_attributes = param_attrs;
 
@@ -978,7 +978,7 @@ impl Parser {
         self.consume(&Token::RParen)?;
 
         // Parse function attributes
-        let mut attrs = self.parse_function_attributes();
+        let mut attrs = self.parse_function_attributes()?;
         attrs.return_attributes = ret_attrs;
         attrs.parameter_attributes = param_attrs;
 
@@ -5120,7 +5120,7 @@ impl Parser {
         Ok(attrs)
     }
 
-    fn parse_function_attributes(&mut self) -> crate::function::FunctionAttributes {
+    fn parse_function_attributes(&mut self) -> ParseResult<crate::function::FunctionAttributes> {
         use crate::function::FunctionAttributes;
         let mut attrs = FunctionAttributes::default();
 
@@ -5155,7 +5155,30 @@ impl Parser {
                 Some(Token::Ssp) => { self.advance(); attrs.ssp = true; },
                 Some(Token::Sspreq) => { self.advance(); attrs.sspreq = true; },
                 Some(Token::Sspstrong) => { self.advance(); attrs.sspstrong = true; },
-                Some(Token::Uwtable) => { self.advance(); attrs.uwtable = true; },
+                Some(Token::Uwtable) => {
+                    self.advance();
+                    attrs.uwtable = true;
+                    // Handle optional (kind) parameter: uwtable(sync) or uwtable(async)
+                    if self.check(&Token::LParen) {
+                        self.advance(); // consume (
+                        if let Some(Token::Identifier(kind)) = self.peek() {
+                            let kind_str = kind.as_str();
+                            if kind_str != "sync" && kind_str != "async" {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: "expected unwind table kind".to_string(),
+                                    position: self.current,
+                                });
+                            }
+                            self.advance(); // consume kind
+                        }
+                        if !self.match_token(&Token::RParen) {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "expected ')'".to_string(),
+                                position: self.current,
+                            });
+                        }
+                    }
+                },
                 Some(Token::Cold) => { self.advance(); attrs.cold = true; },
                 Some(Token::Hot) => { self.advance(); attrs.hot = true; },
                 Some(Token::Naked) => { self.advance(); attrs.naked = true; },
@@ -5219,6 +5242,12 @@ impl Parser {
                                         .collect();
                                     attrs.allockind = Some(kinds);
                                     self.advance(); // consume string
+                                } else {
+                                    // Empty parentheses or missing value
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "expected allockind value".to_string(),
+                                        position: self.current,
+                                    });
                                 }
                                 self.match_token(&Token::RParen); // consume )
                             }
@@ -5296,7 +5325,7 @@ impl Parser {
         // Note: String attributes from attribute groups are applied in a second pass
         // after all attribute groups have been parsed (see apply_attribute_groups method)
 
-        attrs
+        Ok(attrs)
     }
 
     fn skip_function_attributes(&mut self) {
