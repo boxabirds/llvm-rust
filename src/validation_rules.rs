@@ -362,6 +362,14 @@ impl ValidationRules {
                 });
             }
         }
+
+        // mustprogress does not apply to parameters - it's a function-level attribute only
+        if attrs.mustprogress {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "this attribute does not apply to parameters".to_string(),
+                location: format!("@{}", func_name),
+            });
+        }
     }
 
     /// Validate global variable or alias linkage-visibility combinations

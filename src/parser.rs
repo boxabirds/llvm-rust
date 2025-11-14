@@ -4868,6 +4868,12 @@ impl Parser {
                     attr_count += 1;
                     continue;
                 },
+                Some(Token::Mustprogress) => {
+                    self.advance();
+                    attrs.mustprogress = true;
+                    attr_count += 1;
+                    continue;
+                },
                 Some(Token::Align) => {
                     self.advance();
                     if let Some(Token::Integer(n)) = self.peek() {
@@ -5080,7 +5086,6 @@ impl Parser {
                        self.match_token(&Token::Safestack) ||
                        self.match_token(&Token::Nocf_check) ||
                        self.match_token(&Token::Shadowcallstack) ||
-                       self.match_token(&Token::Mustprogress) ||
                        self.match_token(&Token::Strictfp) ||
                        self.match_token(&Token::Nobuiltin) ||
                        self.match_token(&Token::Noduplicate) ||

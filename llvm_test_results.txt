@@ -406,7 +406,7 @@
 ✗ NEGATIVE (parsed but should fail): missing-tbaa.ll
 ✓ POSITIVE: multi-mod-disassemble.ll
 ✓ POSITIVE: multi-summary-disassemble.ll
-✗ NEGATIVE (parsed but should fail): mustprogress-parse-error-0.ll
+✓ NEGATIVE: mustprogress-parse-error-0.ll
 ✓ NEGATIVE: mustprogress-parse-error-1.ll
 ✗ NEGATIVE (parsed but should fail): mustprogress-parse-error-2.ll
 ✗ NEGATIVE (parsed but should fail): musttail-invalid-1.ll

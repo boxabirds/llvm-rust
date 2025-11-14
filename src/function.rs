@@ -145,6 +145,7 @@ pub struct ParameterAttributes {
     pub swifterror: bool,
     pub swiftasync: bool,
     pub immarg: bool,
+    pub mustprogress: bool,
     pub align: Option<u32>,
     pub dead_on_return: bool,
     pub dead_on_unwind: bool,
