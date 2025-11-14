@@ -30,11 +30,13 @@ pub enum CallingConvention {
     X86_ThisCall,              // x86_thiscallcc
     X86_VectorCall,            // x86_vectorcallcc
     X86_RegCall,               // x86_regcallcc
+    X86_INTR,                  // x86_intrcc
     ARM_APCS,                  // arm_apcscc
     ARM_AAPCS,                 // arm_aapcscc
     ARM_AAPCS_VFP,             // arm_aapcs_vfpcc
     AArch64_VectorCall,        // aarch64_vector_pcs
     AArch64_SVE_VectorCall,    // aarch64_sve_vector_pcs
+    AArch64_SVE_Vector_PCS_Preserve, // aarch64_sve_vector_pcs_preserve
     AMDGPU_Kernel,             // amdgpu_kernel
     AMDGPU_VS,                 // amdgpu_vs
     AMDGPU_GS,                 // amdgpu_gs
@@ -51,6 +53,12 @@ pub enum CallingConvention {
     Intel_OCL_BI,              // intel_ocl_bicc
     PTX_Kernel,                // ptx_kernel
     PTX_Device,                // ptx_device
+    RISCV_VectorCall,          // riscv_vector_cc
+    M68k_INTR,                 // m68k_intr
+    M68k_RTD,                  // m68k_rtd
+    AVR_INTR,                  // avr_intrcc
+    AVR_SIGNAL,                // avr_signalcc
+    MSP430_INTR,               // msp430_intrcc
 }
 
 impl Default for CallingConvention {

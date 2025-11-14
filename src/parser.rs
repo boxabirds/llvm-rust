@@ -4342,14 +4342,22 @@ impl Parser {
                     "spir_kernel" => Some(CallingConvention::SPIR_Kernel),
                     "spir_func" => Some(CallingConvention::SPIR_Func),
                     "x86_stdcallcc" => Some(CallingConvention::X86_StdCall),
-                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") => {
+                    "x86_intrcc" => Some(CallingConvention::X86_INTR),
+                    "riscv_vector_cc" => Some(CallingConvention::RISCV_VectorCall),
+                    "m68k_intr" => Some(CallingConvention::M68k_INTR),
+                    "m68k_rtd" => Some(CallingConvention::M68k_RTD),
+                    "avr_intrcc" => Some(CallingConvention::AVR_INTR),
+                    "avr_signalcc" => Some(CallingConvention::AVR_SIGNAL),
+                    "msp430_intrcc" => Some(CallingConvention::MSP430_INTR),
+                    "aarch64_sve_vector_pcs_preserve" => Some(CallingConvention::AArch64_SVE_Vector_PCS_Preserve),
+                    _ if cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") || cc_name.starts_with("riscv_") || cc_name.starts_with("m68k_") || cc_name.starts_with("avr_") || cc_name.starts_with("msp430_") => {
                         // Unknown variant, skip it
                         None
                     },
                     _ => None,
                 };
 
-                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") {
+                if cc_opt.is_some() || cc_name.starts_with("amdgpu_") || cc_name.starts_with("spir_") || cc_name.starts_with("x86_") || cc_name.starts_with("riscv_") || cc_name.starts_with("m68k_") || cc_name.starts_with("avr_") || cc_name.starts_with("msp430_") || cc_name.starts_with("aarch64_") {
                     if let Some(c) = cc_opt {
                         cc = c;
                     }
