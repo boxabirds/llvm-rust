@@ -208,8 +208,8 @@
 ✓ POSITIVE: dso_local_equivalent.ll
 ✓ POSITIVE: export-symbol-anonymous-class.ll
 ✓ POSITIVE: externally-initialized.ll
-✗ NEGATIVE (parsed but should fail): extractvalue-invalid-idx.ll
-✗ NEGATIVE (parsed but should fail): extractvalue-no-idx.ll
+✓ NEGATIVE: extractvalue-invalid-idx.ll
+✓ NEGATIVE: extractvalue-no-idx.ll
 ✓ POSITIVE: fast-math-flags.ll
 ✓ POSITIVE: flags.ll
 ✓ POSITIVE: fp-intrinsics-attr.ll
@@ -254,8 +254,8 @@
 ✓ NEGATIVE: inline-asm-constraint-error.ll
 ✓ NEGATIVE: inrange-errors.ll
 ✓ POSITIVE: insertextractvalue.ll
-✗ NEGATIVE (parsed but should fail): insertvalue-invalid-idx.ll
-✗ NEGATIVE (parsed but should fail): insertvalue-invalid-type.ll
+✓ NEGATIVE: insertvalue-invalid-idx.ll
+✓ NEGATIVE: insertvalue-invalid-type.ll
 ✗ NEGATIVE (parsed but should fail): internal-hidden-alias.ll
 ✓ NEGATIVE: internal-hidden-function.ll
 ✓ NEGATIVE: internal-hidden-variable.ll
