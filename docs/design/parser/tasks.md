@@ -2,20 +2,26 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 200/338 tests passing (59.2%)
+**Current Status**: 204/338 tests passing (60.4%)
 **Target**: 338/338 tests passing (100%)
 
-**Session Summary** (200 → 200, test infrastructure improvements):
-- ✅ Fixed test runner negative test detection (127 → 128 negative tests)
-- ✅ Test runner now handles whitespace variations in RUN directives
-- ✅ Added unsized type load validation (unsized-types-load.ll passing)
-- ✅ Added contains_scalable_type() helper (scaffolding for future)
-- ⚠️ Net neutral on test count due to improved test classification
+**Current Session** (200 → 204, +4 tests, +1.2%):
+- ✅ Invoke result validation - 3 tests fixed
+  - 2009-05-29-InvokeResult1.ll ✅
+  - 2009-05-29-InvokeResult2.ll ✅
+  - 2009-05-29-InvokeResult3.ll ✅ (PHI node validation)
+- ✅ Invoke results cannot be used in unwind blocks
+- ✅ PHI nodes cannot use invoke results from unwind paths
+- ✅ Test infrastructure: negative test detection improved (+4 negative tests found)
 
-**Previous Session** (194 → 200, +6 tests, +1.7%):
+**Previous Session** (200 → 200, test infrastructure):
+- ✅ Test runner whitespace handling
+- ✅ Unsized type load validation
+- ✅ Contains scalable type helper added
+
+**Earlier Session** (194 → 200, +6 tests):
 - ✅ Operand bundle integration COMPLETE
-- ✅ deoptimize-intrinsic.ll and guard-intrinsic.ll passing
-- ✅ Alias verification, writable-attr, x86_intr, array preservation
+- ✅ Alias/attribute/calling convention validation
 
 **Major Milestones**:
 - ✅ **OPERAND BUNDLE INTEGRATION COMPLETE!**
