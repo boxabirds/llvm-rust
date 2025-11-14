@@ -3771,6 +3771,53 @@ impl<'a> Verifier<'a> {
         // Check immarg parameters - some intrinsic parameters must be immediate (constant) values
         self.verify_intrinsic_immarg(inst, intrinsic_name, operands);
 
+        // llvm.experimental.deoptimize - must have exactly one "deopt" operand bundle
+        if intrinsic_name.starts_with("llvm.experimental.deoptimize.") {
+            let bundles = inst.operand_bundles();
+
+            // Must have exactly one "deopt" bundle
+            let deopt_bundles: Vec<_> = bundles.iter().filter(|b| b.tag == "deopt").collect();
+            if deopt_bundles.len() != 1 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "experimental_deoptimize must have exactly one \"deopt\" operand bundle".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+
+            // Cannot be invoked (we check opcode is Call, not Invoke)
+            if inst.opcode() == Opcode::Invoke {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "experimental_deoptimize cannot be invoked".to_string(),
+                    location: format!("invoke to {}", intrinsic_name),
+                });
+            }
+
+            // TODO: Check that it's followed by a return
+            // This requires CFG analysis which we'll add later
+        }
+
+        // llvm.experimental.guard - must have exactly one "deopt" operand bundle
+        if intrinsic_name == "llvm.experimental.guard" {
+            let bundles = inst.operand_bundles();
+
+            // Must have exactly one "deopt" bundle
+            let deopt_bundles: Vec<_> = bundles.iter().filter(|b| b.tag == "deopt").collect();
+            if deopt_bundles.len() != 1 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "guard must have exactly one \"deopt\" operand bundle".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+
+            // Cannot be invoked
+            if inst.opcode() == Opcode::Invoke {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "guard cannot be invoked".to_string(),
+                    location: format!("invoke to {}", intrinsic_name),
+                });
+            }
+        }
+
         // llvm.va_start - must be called in a varargs function
         // Note: Temporarily disabled - need to ensure parser correctly sets is_varargs
         // if intrinsic_name == "llvm.va_start" {

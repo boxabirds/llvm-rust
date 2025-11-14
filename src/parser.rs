@@ -1362,7 +1362,7 @@ impl Parser {
         };
 
         // Parse operands and get result type if instruction produces one
-        let (operands, result_type, gep_source_type, alignment, is_atomic) = self.parse_instruction_operands(opcode)?;
+        let (operands, result_type, gep_source_type, alignment, is_atomic, operand_bundles) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -1441,6 +1441,11 @@ impl Parser {
         // Set atomic flag if specified
         if is_atomic {
             inst.set_atomic(true);
+        }
+
+        // Attach operand bundles if present (for Call/Invoke instructions)
+        for bundle in operand_bundles {
+            inst.add_operand_bundle(bundle);
         }
 
         // Attach metadata to the instruction
@@ -1525,12 +1530,13 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool)> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool, Vec<crate::instruction::OperandBundle>)> {
         let mut operands = Vec::new();
         let mut result_type: Option<Type> = None;
         let mut gep_source_type_field: Option<Type> = None;
         let mut alignment: Option<u64> = None;
         let mut is_atomic = false;
+        let mut operand_bundles = Vec::new();
 
         // Parse based on instruction type
         match opcode {
@@ -1546,7 +1552,7 @@ impl Parser {
                         // Check if current token is followed by colon (label definition)
                         if self.peek_ahead(1) == Some(&Token::Colon) {
                             // This is a label, not a return value
-                            return Ok((operands, result_type, None, None, false));
+                            return Ok((operands, result_type, None, None, false, Vec::new()));
                         }
                         // Try to parse a value - if the type is void, there might not be one
                         if !ty.is_void() {
@@ -1651,12 +1657,11 @@ impl Parser {
                 self.consume(&Token::RParen)?;
 
                 // Handle operand bundles: ["bundle"(args...)]
-                let _operand_bundles = if self.check(&Token::LBracket) {
+                operand_bundles = if self.check(&Token::LBracket) {
                     self.parse_operand_bundles()?
                 } else {
                     Vec::new()
                 };
-                // TODO: Attach operand_bundles to instruction after it's created
 
                 // Skip function attributes that may appear after arguments (nounwind, readonly, etc.)
                 self.skip_function_attributes();
@@ -2280,30 +2285,11 @@ impl Parser {
                 ));
 
                 // Handle optional operand bundles
-                if self.check(&Token::LBracket) {
-                    self.advance();
-                    while !self.check(&Token::RBracket) && !self.is_at_end() {
-                        if let Some(Token::StringLit(_)) = self.peek() {
-                            self.advance();
-                        }
-                        if self.check(&Token::LParen) {
-                            self.advance();
-                            let mut depth = 1;
-                            while depth > 0 && !self.is_at_end() {
-                                if self.check(&Token::LParen) {
-                                    depth += 1;
-                                } else if self.check(&Token::RParen) {
-                                    depth -= 1;
-                                }
-                                self.advance();
-                            }
-                        }
-                        if !self.match_token(&Token::Comma) {
-                            break;
-                        }
-                    }
-                    self.match_token(&Token::RBracket);
-                }
+                operand_bundles = if self.check(&Token::LBracket) {
+                    self.parse_operand_bundles()?
+                } else {
+                    Vec::new()
+                };
 
                 self.skip_function_attributes();
             }
@@ -2729,7 +2715,7 @@ impl Parser {
             }
         }
 
-        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic))
+        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic, operand_bundles))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
