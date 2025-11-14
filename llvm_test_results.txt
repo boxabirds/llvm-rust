@@ -421,7 +421,7 @@
 ✓ POSITIVE: non-global-value-max-name-size-2.ll
 ✓ POSITIVE: non-global-value-max-name-size.ll
 ✓ POSITIVE: numbered-values.ll
-✗ NEGATIVE (parsed but should fail): opaque-ptr-cmpxchg.ll
+✓ NEGATIVE: opaque-ptr-cmpxchg.ll
 ✓ POSITIVE: opaque-ptr-intrinsic-remangling.ll
 ✗ NEGATIVE (parsed but should fail): opaque-ptr-invalid-forward-ref-2.ll
 ✗ NEGATIVE (parsed but should fail): opaque-ptr-invalid-forward-ref.ll

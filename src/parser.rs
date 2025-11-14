@@ -1993,8 +1993,16 @@ impl Parser {
                 self.consume(&Token::Comma)?;
 
                 // Parse new type and value
-                let _new_ty = self.parse_type()?;
+                let new_ty = self.parse_type()?;
                 let _new = self.parse_value()?;
+
+                // Validate that compare value and new value types match
+                if cmp_ty != new_ty {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "compare value and new value type do not match".to_string(),
+                        position: self.current,
+                    });
+                }
 
                 // cmpxchg returns { type, i1 } - old value and success flag
                 let struct_ty = crate::types::Type::struct_type(
