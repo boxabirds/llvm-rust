@@ -19,8 +19,19 @@ for file in "$TEST_DIR"/*.ll; do
     output=$("$PARSER" "$file" 2>&1)
     exit_code=$?
 
-    # Check if this is a negative test (should fail)
-    if grep -q "expected to fail\|invalid\|verify-\|bad-" <<< "$filename"; then
+    # Check if this is a negative test by looking at RUN line
+    # Negative tests have "RUN: not" in them
+    is_negative_test=false
+    if head -5 "$file" | grep -q "; RUN:.*not "; then
+        is_negative_test=true
+    fi
+
+    # Also check filename patterns as backup
+    if grep -q "invalid\|bad-" <<< "$filename"; then
+        is_negative_test=true
+    fi
+
+    if [ "$is_negative_test" = true ]; then
         # Negative test - should reject
         if [ $exit_code -ne 0 ]; then
             passed=$((passed + 1))
