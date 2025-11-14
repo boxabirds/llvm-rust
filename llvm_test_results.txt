@@ -269,8 +269,8 @@
 ✓ NEGATIVE: invalid-atomicrmw-scalable.ll
 ✓ NEGATIVE: invalid-atomicrmw-xchg-fp-vector.ll
 ✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
-✗ NEGATIVE (parsed but should fail): invalid-byval-type2.ll
-✗ NEGATIVE (parsed but should fail): invalid-byval-type3.ll
+✓ NEGATIVE: invalid-byval-type2.ll
+✓ NEGATIVE: invalid-byval-type3.ll
 ✗ NEGATIVE (parsed but should fail): invalid-c-style-comment0.ll
 ✓ NEGATIVE: invalid-c-style-comment1.ll
 ✓ NEGATIVE: invalid-c-style-comment2.ll

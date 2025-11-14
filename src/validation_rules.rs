@@ -283,6 +283,20 @@ impl ValidationRules {
                     location: format!("@{}", func_name),
                 });
             }
+            // byval type cannot be void
+            if byval_type.is_void() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "void type only allowed for function results".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+            // byval does not support function types (unsized)
+            if byval_type.is_function() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Attribute 'byval' does not support unsized types!".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
         }
 
         // inalloca can only be applied to pointer types
@@ -290,6 +304,20 @@ impl ValidationRules {
             if !param_type.is_pointer() {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: format!("Attribute 'inalloca({})' applied to incompatible type!", inalloca_type),
+                    location: format!("@{}", func_name),
+                });
+            }
+            // inalloca type cannot be void
+            if inalloca_type.is_void() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "void type only allowed for function results".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+            // inalloca does not support function types (unsized)
+            if inalloca_type.is_function() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Attribute 'inalloca' does not support unsized types!".to_string(),
                     location: format!("@{}", func_name),
                 });
             }
@@ -303,10 +331,20 @@ impl ValidationRules {
                     location: format!("@{}", func_name),
                 });
             }
-
-            // byref does not support unsized types (opaque types)
-            // TODO: When we have opaque type detection, add this check:
-            // if byref_type.is_opaque() { ... }
+            // byref type cannot be void
+            if byref_type.is_void() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "void type only allowed for function results".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+            // byref does not support function types (unsized)
+            if byref_type.is_function() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Attribute 'byref' does not support unsized types!".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
         }
 
         // sret can only be applied to pointer types
@@ -314,6 +352,20 @@ impl ValidationRules {
             if !param_type.is_pointer() {
                 self.errors.push(VerificationError::InvalidInstruction {
                     reason: format!("Attribute 'sret({})' applied to incompatible type!", sret_type),
+                    location: format!("@{}", func_name),
+                });
+            }
+            // sret type cannot be void
+            if sret_type.is_void() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "void type only allowed for function results".to_string(),
+                    location: format!("@{}", func_name),
+                });
+            }
+            // sret does not support function types (unsized)
+            if sret_type.is_function() {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "Attribute 'sret' does not support unsized types!".to_string(),
                     location: format!("@{}", func_name),
                 });
             }
