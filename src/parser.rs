@@ -315,6 +315,21 @@ impl Parser {
                 }
             }
 
+            // Check for invalid top-level tokens that require specific syntax
+            // Only reject if it looks like an alias/ifunc declaration (followed by a type, not by a colon)
+            if let Some(tok) = self.peek() {
+                if matches!(tok, Token::Alias | Token::Ifunc) {
+                    // Check if next token suggests this is a declaration attempt (type or @name)
+                    // vs just an identifier in metadata (followed by colon)
+                    if !matches!(self.peek_ahead(1), Some(Token::Colon)) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: "expected top-level entity".to_string(),
+                            position: self.current,
+                        });
+                    }
+                }
+            }
+
             // Skip unknown tokens
             if !self.is_at_end() {
                 self.advance();

@@ -57,7 +57,7 @@
 ✓ POSITIVE: 2007-04-20-AlignedStore.ll
 ✓ POSITIVE: 2007-05-21-Escape.ll
 ✓ POSITIVE: 2007-07-19-ParamAttrAmbiguity.ll
-✗ NEGATIVE (parsed but should fail): 2007-08-06-AliasInvalid.ll
+✓ NEGATIVE: 2007-08-06-AliasInvalid.ll
 ✓ POSITIVE: 2007-09-10-AliasFwdRef.ll
 ✓ POSITIVE: 2007-09-29-GC.ll
 ✓ NEGATIVE: 2007-11-26-AttributeOverload.ll
