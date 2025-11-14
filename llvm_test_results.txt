@@ -131,18 +131,18 @@
 ✓ POSITIVE: bfloat.ll
 ✓ POSITIVE: block-labels.ll
 ✓ POSITIVE: br-single-destination.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-0.ll
+✓ NEGATIVE: byref-parse-error-0.ll
 ✓ NEGATIVE: byref-parse-error-1.ll
 ✗ NEGATIVE (parsed but should fail): byref-parse-error-10.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-2.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-3.ll
-✗ NEGATIVE (parsed but should fail): byref-parse-error-4.ll
+✓ NEGATIVE: byref-parse-error-2.ll
+✓ NEGATIVE: byref-parse-error-3.ll
+✓ NEGATIVE: byref-parse-error-4.ll
 ✓ NEGATIVE: byref-parse-error-5.ll
 ✓ NEGATIVE: byref-parse-error-6.ll
 ✓ NEGATIVE: byref-parse-error-7.ll
 ✗ NEGATIVE (parsed but should fail): byref-parse-error-8.ll
 ✗ NEGATIVE (parsed but should fail): byref-parse-error-9.ll
-✗ NEGATIVE (parsed but should fail): byval-parse-error0.ll
+✓ NEGATIVE: byval-parse-error0.ll
 ✓ POSITIVE: byval-type-attr.ll
 ✓ POSITIVE: c-style-comment.ll
 ✓ POSITIVE: call-arg-is-callee.ll
@@ -243,7 +243,7 @@
 ✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid2.ll
 ✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid3.ll
 ✓ POSITIVE: implicit-intrinsic-declaration.ll
-✗ NEGATIVE (parsed but should fail): inalloca-parse-error0.ll
+✓ NEGATIVE: inalloca-parse-error0.ll
 ✓ POSITIVE: inalloca.ll
 ✓ POSITIVE: incomplete-ir-declarations.ll
 ✗ NEGATIVE (parsed but should fail): incomplete-ir-metadata-unsupported.ll
@@ -452,7 +452,7 @@
 ✓ POSITIVE: skip-value-numbers.ll
 ✓ POSITIVE: source-filename-backslash.ll
 ✓ POSITIVE: source-filename.ll
-✗ NEGATIVE (parsed but should fail): sret-parse-error0.ll
+✓ NEGATIVE: sret-parse-error0.ll
 ✓ POSITIVE: sret-type-attr.ll
 ✓ POSITIVE: struct-ret-without-upgrade.ll
 ✓ POSITIVE: summary-flags.ll
