@@ -222,6 +222,11 @@ impl<'a> Verifier<'a> {
             self.verify_global_variable(&global);
         }
 
+        // Verify aliases
+        for alias in module.aliases() {
+            self.verify_alias(&alias, module);
+        }
+
         // Verify all functions in the module
         for function in module.functions() {
             let fn_name = function.name();
