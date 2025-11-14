@@ -2093,7 +2093,21 @@ impl Parser {
                             });
                         }
                     }
-                    _ => {} // xchg and other operations accept any type
+                    "xchg" => {
+                        // xchg requires integer, floating point scalar, or pointer
+                        // Floating-point vectors are NOT allowed
+                        if val_ty.is_vector() {
+                            if let Some((elem, _)) = val_ty.vector_info() {
+                                if elem.is_float() {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: "atomicrmw xchg operand must be an integer, floating point, or pointer type".to_string(),
+                                        position: self.current,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    _ => {} // Other operations accept any type
                 }
 
                 // atomicrmw returns the old value, same type as the value parameter
