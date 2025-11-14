@@ -1651,36 +1651,12 @@ impl Parser {
                 self.consume(&Token::RParen)?;
 
                 // Handle operand bundles: ["bundle"(args...)]
-                if self.check(&Token::LBracket) {
-                    self.advance(); // consume [
-                    while !self.check(&Token::RBracket) && !self.is_at_end() {
-                        // Skip bundle name (string literal)
-                        if let Some(Token::StringLit(_)) = self.peek() {
-                            self.advance();
-                        }
-                        // Skip bundle arguments: (args...)
-                        // Need to handle nested parentheses for function pointer types
-                        if self.check(&Token::LParen) {
-                            self.advance(); // consume opening (
-                            let mut depth = 1;
-                            while depth > 0 && !self.is_at_end() {
-                                if self.check(&Token::LParen) {
-                                    depth += 1;
-                                    self.advance();
-                                } else if self.check(&Token::RParen) {
-                                    depth -= 1;
-                                    self.advance();
-                                } else {
-                                    self.advance();
-                                }
-                            }
-                        }
-                        if !self.match_token(&Token::Comma) {
-                            break;
-                        }
-                    }
-                    self.match_token(&Token::RBracket);
-                }
+                let _operand_bundles = if self.check(&Token::LBracket) {
+                    self.parse_operand_bundles()?
+                } else {
+                    Vec::new()
+                };
+                // TODO: Attach operand_bundles to instruction after it's created
 
                 // Skip function attributes that may appear after arguments (nounwind, readonly, etc.)
                 self.skip_function_attributes();
@@ -3279,6 +3255,50 @@ impl Parser {
         }
 
         Ok(args)
+    }
+
+    fn parse_operand_bundles(&mut self) -> ParseResult<Vec<crate::instruction::OperandBundle>> {
+        use crate::instruction::OperandBundle;
+        let mut bundles = Vec::new();
+
+        self.consume(&Token::LBracket)?; // consume [
+
+        while !self.check(&Token::RBracket) && !self.is_at_end() {
+            // Parse bundle tag (string literal)
+            let tag = if let Some(Token::StringLit(s)) = self.peek() {
+                let tag_str = s.clone();
+                self.advance();
+                tag_str
+            } else {
+                // If not a string literal, skip this malformed bundle
+                break;
+            };
+
+            // Parse bundle inputs: (type val, type val, ...)
+            let mut inputs = Vec::new();
+            if self.match_token(&Token::LParen) {
+                while !self.check(&Token::RParen) && !self.is_at_end() {
+                    // Parse type and value
+                    let ty = self.parse_type()?;
+                    let val = self.parse_value_with_type(Some(&ty))?;
+                    inputs.push(val);
+
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RParen)?;
+            }
+
+            bundles.push(OperandBundle { tag, inputs });
+
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+        }
+
+        self.consume(&Token::RBracket)?; // consume ]
+        Ok(bundles)
     }
 
     fn parse_type(&mut self) -> ParseResult<Type> {
