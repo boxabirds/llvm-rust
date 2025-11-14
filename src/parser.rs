@@ -48,6 +48,8 @@ pub struct Parser {
     metadata_registry: std::collections::HashMap<String, crate::metadata::Metadata>,
     /// Attribute groups registry for #0, #1, etc.
     attribute_groups: std::collections::HashMap<String, std::collections::HashMap<String, String>>,
+    /// Comdat definitions registry for $name
+    comdat_definitions: std::collections::HashMap<String, String>,
 }
 
 impl Parser {
@@ -61,6 +63,7 @@ impl Parser {
             type_table: std::collections::HashMap::new(),
             metadata_registry: std::collections::HashMap::new(),
             attribute_groups: std::collections::HashMap::new(),
+            comdat_definitions: std::collections::HashMap::new(),
         }
     }
 
@@ -106,15 +109,29 @@ impl Parser {
                 continue;
             }
 
-            // Skip comdat definitions: $name = comdat any/exactmatch/largest/...
+            // Parse comdat definitions: $name = comdat any/exactmatch/largest/...
             if self.peek_global_ident().is_some() && self.peek_ahead(1) == Some(&Token::Equal)
                 && self.peek_ahead(2) == Some(&Token::Comdat) {
-                self.advance(); // skip $name
-                self.advance(); // skip =
-                self.advance(); // skip comdat
-                if let Some(Token::Identifier(_)) = self.peek() {
-                    self.advance(); // skip comdat type (any, exactmatch, etc.)
+                let comdat_name = self.expect_global_ident()?;
+                self.advance(); // consume =
+                self.advance(); // consume comdat
+                let comdat_type = if let Some(Token::Identifier(ty)) = self.peek() {
+                    let t = ty.clone();
+                    self.advance(); // consume comdat type
+                    t
+                } else {
+                    "any".to_string() // default type
+                };
+
+                // Check for duplicate comdat definition
+                if self.comdat_definitions.contains_key(&comdat_name) {
+                    return Err(ParseError::InvalidSyntax {
+                        message: format!("redefinition of comdat '{}'", comdat_name),
+                        position: self.current,
+                    });
                 }
+
+                self.comdat_definitions.insert(comdat_name, comdat_type);
                 continue;
             }
 

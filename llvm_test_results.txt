@@ -276,7 +276,7 @@
 ✓ NEGATIVE: invalid-c-style-comment2.ll
 ✗ NEGATIVE (parsed but should fail): invalid-c-style-comment3.ll
 ✗ NEGATIVE (parsed but should fail): invalid-comdat.ll
-✗ NEGATIVE (parsed but should fail): invalid-comdat2.ll
+✓ NEGATIVE: invalid-comdat2.ll
 ✗ NEGATIVE (parsed but should fail): invalid-datalayout-override.ll
 ✓ POSITIVE: invalid-debug-info-version.ll
 ✗ NEGATIVE (parsed but should fail): invalid-dicompileunit-emissionkind-bad.ll
