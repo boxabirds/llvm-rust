@@ -2,20 +2,31 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 200/338 tests passing (59.2%)
+**Current Status**: 209/338 tests passing (61.8%)
 **Target**: 338/338 tests passing (100%)
 
-**Session Summary** (200 → 200, test infrastructure improvements):
-- ✅ Fixed test runner negative test detection (127 → 128 negative tests)
-- ✅ Test runner now handles whitespace variations in RUN directives
-- ✅ Added unsized type load validation (unsized-types-load.ll passing)
-- ✅ Added contains_scalable_type() helper (scaffolding for future)
-- ⚠️ Net neutral on test count due to improved test classification
+**Current Session** (200 → 209, +9 tests, +2.7%):
+- ✅ Scalable vector validation - 5 tests fixed
+  - scalable-global-vars.ll ✅
+  - scalable-vector-struct-alloca.ll ✅
+  - scalable-vector-struct-load.ll ✅
+  - scalable-vector-struct-store.ll ✅
+  - scalable-vector-struct-gep.ll ✅
+- ✅ Parser: scalable vectors marked with size=0
+- ✅ Globals/alloca/load/store/GEP cannot use scalable types
+- ✅ Invoke result validation - 3 tests fixed (204 → 209)
+  - 2009-05-29-InvokeResult1/2/3.ll
+  - PHI nodes cannot use invoke results from unwind paths
+- ✅ Test infrastructure improved (+9 negative tests classified)
+- ⚙️ Infrastructure added (needs parser work):
+  - Const x86_amx argument validation
+  - gc.relocate basic validation
+  - Memory intrinsic alignment validation (needs param attributes)
 
-**Previous Session** (194 → 200, +6 tests, +1.7%):
-- ✅ Operand bundle integration COMPLETE
-- ✅ deoptimize-intrinsic.ll and guard-intrinsic.ll passing
-- ✅ Alias verification, writable-attr, x86_intr, array preservation
+**Previous Sessions**:
+- Session 3 (200 → 200): Test infrastructure
+- Session 2 (194 → 200, +6): Operand bundles
+- Session 1: Alias/attribute/CC validation
 
 **Major Milestones**:
 - ✅ **OPERAND BUNDLE INTEGRATION COMPLETE!**

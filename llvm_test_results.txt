@@ -35,7 +35,7 @@
 ✓ POSITIVE: 2004-01-11-getelementptrfolding.ll
 ✓ POSITIVE: 2004-01-20-MaxLongLong.ll
 ✓ POSITIVE: 2004-02-01-NegativeZero.ll
-✓ POSITIVE: 2004-02-27-SelfUseAssertError.ll
+✗ POSITIVE (failed but should parse): 2004-02-27-SelfUseAssertError.ll
 ✓ NEGATIVE: 2004-03-30-UnclosedFunctionCrash.ll
 ✓ POSITIVE: 2004-04-04-GetElementPtrIndexTypes.ll
 ✓ POSITIVE: 2004-06-07-VerifierBug.ll
@@ -110,9 +110,9 @@
 ✓ NEGATIVE: allockind-missing.ll
 ✓ NEGATIVE: allockind.ll
 ✓ POSITIVE: amdgcn-intrinsic-attributes.ll
-✓ POSITIVE: amdgcn-unreachable.ll
+✗ POSITIVE (failed but should parse): amdgcn-unreachable.ll
 ✓ POSITIVE: amdgpu-cs-chain-cc.ll
-✓ POSITIVE: amdgpu-image-atomic-attributes.ll
+✗ POSITIVE (failed but should parse): amdgpu-image-atomic-attributes.ll
 ✓ POSITIVE: anon-functions.ll
 ✓ POSITIVE: asm-path-writer.ll
 ✓ POSITIVE: associated-metadata.ll
@@ -210,7 +210,7 @@
 ✓ POSITIVE: externally-initialized.ll
 ✓ NEGATIVE: extractvalue-invalid-idx.ll
 ✓ NEGATIVE: extractvalue-no-idx.ll
-✓ POSITIVE: fast-math-flags.ll
+✗ POSITIVE (failed but should parse): fast-math-flags.ll
 ✓ POSITIVE: flags.ll
 ✓ POSITIVE: fp-intrinsics-attr.ll
 ✓ POSITIVE: function-operand-uselistorder.ll
@@ -444,7 +444,7 @@
 ✓ POSITIVE: range.ll
 ✓ POSITIVE: remangle.ll
 ✓ POSITIVE: riscv_vls_cc.ll
-✓ POSITIVE: scalable-vector-struct.ll
+✗ POSITIVE (failed but should parse): scalable-vector-struct.ll
 ✓ POSITIVE: select.ll
 ✓ POSITIVE: short-hexpair.ll
 ✓ POSITIVE: skip-value-numbers-globals.ll
@@ -463,7 +463,7 @@
 ✗ NEGATIVE (parsed but should fail): target-type-param-errors.ll
 ✓ POSITIVE: target-type-params.ll
 ✓ NEGATIVE: target-type-properties.ll
-✓ POSITIVE: target-types.ll
+✗ POSITIVE (failed but should parse): target-types.ll
 ✓ POSITIVE: thinlto-bad-summary1.ll
 ✓ POSITIVE: thinlto-bad-summary2.ll
 ✓ POSITIVE: thinlto-bad-summary3.ll
