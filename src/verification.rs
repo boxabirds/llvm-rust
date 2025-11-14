@@ -152,6 +152,35 @@ impl<'a> Verifier<'a> {
         format!("{:?}", ty).starts_with("Type(%target(")
     }
 
+    /// Check if a type contains scalable vectors (recursively)
+    fn contains_scalable_type(&self, ty: &Type) -> bool {
+        // Check if this type is a scalable vector
+        if let Some((_, size)) = ty.vector_info() {
+            if size == 0 {  // vscale vectors have size 0
+                return true;
+            }
+        }
+
+        // Recursively check array element types
+        if let Some((elem_type, _)) = ty.array_info() {
+            return self.contains_scalable_type(&elem_type);
+        }
+
+        // Recursively check struct field types
+        if let Some(fields) = ty.struct_fields() {
+            for field in fields {
+                if self.contains_scalable_type(&field) {
+                    return true;
+                }
+            }
+        }
+
+        // Recursively check pointer element type (for opaque pointers, this is less relevant)
+        // Note: Modern LLVM uses opaque pointers, so this check is mostly for completeness
+
+        false
+    }
+
     /// Verify a module
     pub fn verify_module(&mut self, module: &'a Module) -> VerificationResult {
         self.errors.clear();
@@ -409,6 +438,14 @@ impl<'a> Verifier<'a> {
             self.errors.push(VerificationError::InvalidInstruction {
                 reason: "invalid type for global variable".to_string(),
                 location: format!("global variable @{}", global.name),
+            });
+        }
+
+        // Global variables cannot contain scalable types
+        if self.contains_scalable_type(&global.ty) {
+            self.errors.push(VerificationError::InvalidInstruction {
+                reason: "Globals cannot contain scalable types".to_string(),
+                location: format!("ptr @{}", global.name),
             });
         }
 
@@ -866,6 +903,22 @@ impl<'a> Verifier<'a> {
                     }
                 }
                 _ => {}
+            }
+
+            // Check X86_INTR calling convention requires byval on all parameters
+            if matches!(cc, CallingConvention::X86_INTR) {
+                for (idx, _param_type) in param_types.iter().enumerate() {
+                    let has_byval = attrs.parameter_attributes.get(idx)
+                        .map(|attr| attr.byval.is_some())
+                        .unwrap_or(false);
+                    if !has_byval {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention parameter requires byval".to_string(),
+                            location: format!("ptr @{}", fn_name),
+                        });
+                        break; // Only report once per function
+                    }
+                }
             }
 
             for (idx, param_type) in param_types.iter().enumerate() {
@@ -1719,8 +1772,16 @@ impl<'a> Verifier<'a> {
                 use crate::function::CallingConvention;
                 let cc = self.current_function_calling_convention;
                 match cc {
-                    // Note: AMDGPU_CS_Chain and _Preserve removed - they DO allow calls
                     CallingConvention::AMDGPU_Kernel |
+                    CallingConvention::AMDGPU_VS |
+                    CallingConvention::AMDGPU_GS |
+                    CallingConvention::AMDGPU_PS |
+                    CallingConvention::AMDGPU_CS |
+                    CallingConvention::AMDGPU_CS_Chain |
+                    CallingConvention::AMDGPU_CS_Chain_Preserve |
+                    CallingConvention::AMDGPU_HS |
+                    CallingConvention::AMDGPU_LS |
+                    CallingConvention::AMDGPU_ES |
                     CallingConvention::SPIR_Kernel => {
                         self.errors.push(VerificationError::InvalidInstruction {
                             reason: "calling convention does not permit calls".to_string(),
@@ -2226,11 +2287,11 @@ impl<'a> Verifier<'a> {
                         return;
                     }
 
-                    // Target types are allowed even though they're technically unsized
-                    if !result_type.is_sized() && !self.is_target_type(&result_type) {
+                    // Check if loading an unsized type (including unsized target types)
+                    if !result_type.is_sized() {
                         self.errors.push(VerificationError::InvalidInstruction {
                             reason: "loading unsized types is not allowed".to_string(),
-                            location: "load instruction".to_string(),
+                            location: format!("  %t = load {:?}, ptr %ptr", result_type),
                         });
                     }
                 }
@@ -3746,6 +3807,53 @@ impl<'a> Verifier<'a> {
 
         // Check immarg parameters - some intrinsic parameters must be immediate (constant) values
         self.verify_intrinsic_immarg(inst, intrinsic_name, operands);
+
+        // llvm.experimental.deoptimize - must have exactly one "deopt" operand bundle
+        if intrinsic_name.starts_with("llvm.experimental.deoptimize.") {
+            let bundles = inst.operand_bundles();
+
+            // Must have exactly one "deopt" bundle
+            let deopt_bundles: Vec<_> = bundles.iter().filter(|b| b.tag == "deopt").collect();
+            if deopt_bundles.len() != 1 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "experimental_deoptimize must have exactly one \"deopt\" operand bundle".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+
+            // Cannot be invoked (we check opcode is Call, not Invoke)
+            if inst.opcode() == Opcode::Invoke {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "experimental_deoptimize cannot be invoked".to_string(),
+                    location: format!("invoke to {}", intrinsic_name),
+                });
+            }
+
+            // TODO: Check that it's followed by a return
+            // This requires CFG analysis which we'll add later
+        }
+
+        // llvm.experimental.guard - must have exactly one "deopt" operand bundle
+        if intrinsic_name == "llvm.experimental.guard" {
+            let bundles = inst.operand_bundles();
+
+            // Must have exactly one "deopt" bundle
+            let deopt_bundles: Vec<_> = bundles.iter().filter(|b| b.tag == "deopt").collect();
+            if deopt_bundles.len() != 1 {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "guard must have exactly one \"deopt\" operand bundle".to_string(),
+                    location: format!("call to {}", intrinsic_name),
+                });
+            }
+
+            // Cannot be invoked
+            if inst.opcode() == Opcode::Invoke {
+                self.errors.push(VerificationError::InvalidInstruction {
+                    reason: "guard cannot be invoked".to_string(),
+                    location: format!("invoke to {}", intrinsic_name),
+                });
+            }
+        }
 
         // llvm.va_start - must be called in a varargs function
         // Note: Temporarily disabled - need to ensure parser correctly sets is_varargs

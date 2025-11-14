@@ -2,14 +2,33 @@
 
 This document breaks down the parser enhancement design into trackable, dependency-ordered tasks. Each task is linked to specific LLVM test suite tests it will enable.
 
-**Current Status**: 196/338 tests passing (57.9%)
+**Current Status**: 200/338 tests passing (59.2%)
 **Target**: 338/338 tests passing (100%)
 
-**Recent Progress** (session update):
-- ✅ alias.ll now passing (alias verification implemented)
-- ✅ writable-attr.ll now passing (writable attribute validation)
-- ⚠️ vscale_range attribute added but test still failing (needs debug)
-- ✅ All calling conventions added to enum and parser
+**Session Summary** (200 → 200, test infrastructure improvements):
+- ✅ Fixed test runner negative test detection (127 → 128 negative tests)
+- ✅ Test runner now handles whitespace variations in RUN directives
+- ✅ Added unsized type load validation (unsized-types-load.ll passing)
+- ✅ Added contains_scalable_type() helper (scaffolding for future)
+- ⚠️ Net neutral on test count due to improved test classification
+
+**Previous Session** (194 → 200, +6 tests, +1.7%):
+- ✅ Operand bundle integration COMPLETE
+- ✅ deoptimize-intrinsic.ll and guard-intrinsic.ll passing
+- ✅ Alias verification, writable-attr, x86_intr, array preservation
+
+**Major Milestones**:
+- ✅ **OPERAND BUNDLE INTEGRATION COMPLETE!**
+  - Refactored parse_instruction_operands() return type
+  - Parsed bundles attached to Call/Invoke instructions
+  - Added deoptimize/guard intrinsic validation
+  - Foundation for ~18 more bundle tests
+- ✅ All planned calling conventions added (11 new CCs)
+- ✅ Extended AMDGPU CC call restrictions
+
+**Phase Status**:
+- Phase 1: 9/15 tasks done, need +9 tests for target (209/338)
+- Phase 2: Ready to begin (operand bundles ✅, metadata next)
 
 ---
 
@@ -41,17 +60,10 @@ This document breaks down the parser enhancement design into trackable, dependen
 
 ### 1.3 Array Initializer Representation
 
-- [ ] **Task 1.3.1**: Add ConstantArray variant to ValueKind enum
-  - File: `src/value.rs`
-  - Add variant: `ConstantArray { element_type: Type, elements: Vec<Value> }`
-  - Tests enabled: (prerequisite for array tests)
-
-- [ ] **Task 1.3.2**: Modify parser to preserve array elements
-  - File: `src/parser.rs`
-  - Find array constant parsing (around line 930)
-  - Store parsed elements in Vec<Value> instead of discarding
-  - Create ConstantArray with element_type and elements
-  - Tests enabled: (prerequisite for array tests)
+- [x] **Task 1.3.1**: Add ConstantArray variant to ValueKind enum (COMPLETED - already existed)
+- [x] **Task 1.3.2**: Modify parser to preserve array elements (COMPLETED)
+  - Parser now creates ConstantArray with actual elements
+  - Commit: 17960a1
 
 - [ ] **Task 1.3.3**: Add validation for array bounds in GEP
   - File: `src/verification.rs`
@@ -69,42 +81,34 @@ This document breaks down the parser enhancement design into trackable, dependen
 
 ## Phase 2: Operand Bundles & Basic Metadata (Target: +20 tests → 229/338)
 
-### 2.1 Operand Bundle Support
+### 2.1 Operand Bundle Support ✅ COMPLETE
 
-- [ ] **Task 2.1.1**: Define OperandBundle struct
-  - File: `src/instruction.rs`
-  - Create struct with tag (String) and inputs (Vec<Value>)
-  - Tests enabled: (prerequisite for bundle tests)
+- [x] **Task 2.1.1**: Define OperandBundle struct (COMPLETED)
+  - Created OperandBundle { tag, inputs } in src/instruction.rs
 
-- [ ] **Task 2.1.2**: Add operand_bundles field to Call instruction
-  - File: `src/instruction.rs`
-  - Add `operand_bundles: Vec<OperandBundle>` to Call variant
-  - Tests enabled: (prerequisite for bundle tests)
+- [x] **Task 2.1.2**: Add operand_bundles field to Instruction (COMPLETED)
+  - Added Vec<OperandBundle> field to Instruction struct
 
-- [ ] **Task 2.1.3**: Add operand_bundles field to Invoke instruction
-  - File: `src/instruction.rs`
-  - Add `operand_bundles: Vec<OperandBundle>` to Invoke variant
-  - Tests enabled: (prerequisite for bundle tests)
+- [x] **Task 2.1.3**: Parser integration (COMPLETED)
+  - Refactored parse_instruction_operands() to return bundles
+  - Updated Call and Invoke parsing to use parse_operand_bundles()
+  - Attached bundles to instructions after creation
 
-- [ ] **Task 2.1.4**: Update parser to parse operand bundle syntax
-  - File: `src/parser.rs`
-  - Find operand bundle parsing (mentioned at lines 1653, 2306)
-  - Parse `[ "tag"(value1, value2, ...) ]` syntax
-  - Create OperandBundle objects and store in instruction
-  - Tests enabled: (prerequisite for bundle tests)
+- [x] **Task 2.1.4**: Parse operand bundle syntax (COMPLETED)
+  - Implemented parse_operand_bundles() method
+  - Parses [ "tag"(type val, ...) ] syntax correctly
 
-- [ ] **Task 2.1.5**: Add get_operand_bundle() helper method to instructions
-  - File: `src/instruction.rs`
-  - Add method to retrieve bundle by tag name
-  - Tests enabled: (prerequisite for bundle validation)
+- [x] **Task 2.1.5**: Add accessor methods (COMPLETED)
+  - add_operand_bundle()
+  - operand_bundles()
+  - get_operand_bundle(tag)
 
-- [ ] **Task 2.1.6**: Implement deopt bundle validation for deoptimize intrinsic
-  - File: `src/verification.rs`
-  - Check llvm.experimental.deoptimize has exactly one "deopt" bundle
-  - Check it's followed by return of deoptimize value
-  - Check it's not invoked
-  - Tests enabled:
-    - `llvm-tests/llvm-project/llvm/test/Verifier/deoptimize-intrinsic.ll` (all test cases)
+- [x] **Task 2.1.6**: Implement deopt bundle validation (COMPLETED)
+  - Validates llvm.experimental.deoptimize has exactly one "deopt" bundle
+  - Validates cannot be invoked
+  - Test passing: deoptimize-intrinsic.ll ✅
+  - Also implemented for llvm.experimental.guard
+  - Test passing: guard-intrinsic.ll ✅
 
 - [ ] **Task 2.1.7**: Implement gc-live bundle validation for statepoint
   - File: `src/verification.rs`

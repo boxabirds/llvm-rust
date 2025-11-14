@@ -1362,7 +1362,7 @@ impl Parser {
         };
 
         // Parse operands and get result type if instruction produces one
-        let (operands, result_type, gep_source_type, alignment, is_atomic) = self.parse_instruction_operands(opcode)?;
+        let (operands, result_type, gep_source_type, alignment, is_atomic, operand_bundles) = self.parse_instruction_operands(opcode)?;
 
         // Skip instruction-level attributes that come after operands (nounwind, readonly, etc.)
         self.skip_instruction_level_attributes();
@@ -1441,6 +1441,11 @@ impl Parser {
         // Set atomic flag if specified
         if is_atomic {
             inst.set_atomic(true);
+        }
+
+        // Attach operand bundles if present (for Call/Invoke instructions)
+        for bundle in operand_bundles {
+            inst.add_operand_bundle(bundle);
         }
 
         // Attach metadata to the instruction
@@ -1525,12 +1530,13 @@ impl Parser {
         Ok(Some(opcode))
     }
 
-    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool)> {
+    fn parse_instruction_operands(&mut self, opcode: Opcode) -> ParseResult<(Vec<Value>, Option<Type>, Option<Type>, Option<u64>, bool, Vec<crate::instruction::OperandBundle>)> {
         let mut operands = Vec::new();
         let mut result_type: Option<Type> = None;
         let mut gep_source_type_field: Option<Type> = None;
         let mut alignment: Option<u64> = None;
         let mut is_atomic = false;
+        let mut operand_bundles = Vec::new();
 
         // Parse based on instruction type
         match opcode {
@@ -1546,7 +1552,7 @@ impl Parser {
                         // Check if current token is followed by colon (label definition)
                         if self.peek_ahead(1) == Some(&Token::Colon) {
                             // This is a label, not a return value
-                            return Ok((operands, result_type, None, None, false));
+                            return Ok((operands, result_type, None, None, false, Vec::new()));
                         }
                         // Try to parse a value - if the type is void, there might not be one
                         if !ty.is_void() {
@@ -1651,36 +1657,11 @@ impl Parser {
                 self.consume(&Token::RParen)?;
 
                 // Handle operand bundles: ["bundle"(args...)]
-                if self.check(&Token::LBracket) {
-                    self.advance(); // consume [
-                    while !self.check(&Token::RBracket) && !self.is_at_end() {
-                        // Skip bundle name (string literal)
-                        if let Some(Token::StringLit(_)) = self.peek() {
-                            self.advance();
-                        }
-                        // Skip bundle arguments: (args...)
-                        // Need to handle nested parentheses for function pointer types
-                        if self.check(&Token::LParen) {
-                            self.advance(); // consume opening (
-                            let mut depth = 1;
-                            while depth > 0 && !self.is_at_end() {
-                                if self.check(&Token::LParen) {
-                                    depth += 1;
-                                    self.advance();
-                                } else if self.check(&Token::RParen) {
-                                    depth -= 1;
-                                    self.advance();
-                                } else {
-                                    self.advance();
-                                }
-                            }
-                        }
-                        if !self.match_token(&Token::Comma) {
-                            break;
-                        }
-                    }
-                    self.match_token(&Token::RBracket);
-                }
+                operand_bundles = if self.check(&Token::LBracket) {
+                    self.parse_operand_bundles()?
+                } else {
+                    Vec::new()
+                };
 
                 // Skip function attributes that may appear after arguments (nounwind, readonly, etc.)
                 self.skip_function_attributes();
@@ -2304,30 +2285,11 @@ impl Parser {
                 ));
 
                 // Handle optional operand bundles
-                if self.check(&Token::LBracket) {
-                    self.advance();
-                    while !self.check(&Token::RBracket) && !self.is_at_end() {
-                        if let Some(Token::StringLit(_)) = self.peek() {
-                            self.advance();
-                        }
-                        if self.check(&Token::LParen) {
-                            self.advance();
-                            let mut depth = 1;
-                            while depth > 0 && !self.is_at_end() {
-                                if self.check(&Token::LParen) {
-                                    depth += 1;
-                                } else if self.check(&Token::RParen) {
-                                    depth -= 1;
-                                }
-                                self.advance();
-                            }
-                        }
-                        if !self.match_token(&Token::Comma) {
-                            break;
-                        }
-                    }
-                    self.match_token(&Token::RBracket);
-                }
+                operand_bundles = if self.check(&Token::LBracket) {
+                    self.parse_operand_bundles()?
+                } else {
+                    Vec::new()
+                };
 
                 self.skip_function_attributes();
             }
@@ -2753,7 +2715,7 @@ impl Parser {
             }
         }
 
-        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic))
+        Ok((operands, result_type, gep_source_type_field, alignment, is_atomic, operand_bundles))
     }
 
     fn parse_comparison_predicate(&mut self) -> ParseResult<()> {
@@ -3279,6 +3241,50 @@ impl Parser {
         }
 
         Ok(args)
+    }
+
+    fn parse_operand_bundles(&mut self) -> ParseResult<Vec<crate::instruction::OperandBundle>> {
+        use crate::instruction::OperandBundle;
+        let mut bundles = Vec::new();
+
+        self.consume(&Token::LBracket)?; // consume [
+
+        while !self.check(&Token::RBracket) && !self.is_at_end() {
+            // Parse bundle tag (string literal)
+            let tag = if let Some(Token::StringLit(s)) = self.peek() {
+                let tag_str = s.clone();
+                self.advance();
+                tag_str
+            } else {
+                // If not a string literal, skip this malformed bundle
+                break;
+            };
+
+            // Parse bundle inputs: (type val, type val, ...)
+            let mut inputs = Vec::new();
+            if self.match_token(&Token::LParen) {
+                while !self.check(&Token::RParen) && !self.is_at_end() {
+                    // Parse type and value
+                    let ty = self.parse_type()?;
+                    let val = self.parse_value_with_type(Some(&ty))?;
+                    inputs.push(val);
+
+                    if !self.match_token(&Token::Comma) {
+                        break;
+                    }
+                }
+                self.consume(&Token::RParen)?;
+            }
+
+            bundles.push(OperandBundle { tag, inputs });
+
+            if !self.match_token(&Token::Comma) {
+                break;
+            }
+        }
+
+        self.consume(&Token::RBracket)?; // consume ]
+        Ok(bundles)
     }
 
     fn parse_type(&mut self) -> ParseResult<Type> {
@@ -3861,17 +3867,28 @@ impl Parser {
             Token::LBracket => {
                 // Array constant: [type val1, type val2, ...]
                 self.advance(); // consume '['
+
+                let mut elements = Vec::new();
                 while !self.check(&Token::RBracket) && !self.is_at_end() {
-                    let _ty = self.parse_type()?;
-                    let _val = self.parse_value()?;
+                    let elem_ty = self.parse_type()?;
+                    let elem_val = self.parse_value_with_type(Some(&elem_ty))?;
+                    elements.push(elem_val);
                     if !self.match_token(&Token::Comma) {
                         break;
                     }
                 }
                 self.consume(&Token::RBracket)?;
-                // Return placeholder array constant with expected type
-                let ty = expected_type.cloned().unwrap_or_else(|| self.context.void_type());
-                Ok(Value::zero_initializer(ty))
+
+                // Create ConstantArray with actual elements
+                let ty = expected_type.cloned().unwrap_or_else(|| {
+                    // If no expected type, infer from elements
+                    if let Some(first_elem) = elements.first() {
+                        self.context.array_type(first_elem.get_type().clone(), elements.len())
+                    } else {
+                        self.context.void_type()
+                    }
+                });
+                Ok(Value::const_array(ty, elements))
             }
             Token::LBrace => {
                 // Struct constant: { type val1, type val2, ... }

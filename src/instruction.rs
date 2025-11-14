@@ -7,6 +7,13 @@ use std::fmt;
 use crate::value::Value;
 use crate::types::Type;
 
+/// Operand bundle for call/invoke instructions
+#[derive(Clone, Debug)]
+pub struct OperandBundle {
+    pub tag: String,
+    pub inputs: Vec<Value>,
+}
+
 /// Represents an LLVM instruction
 #[derive(Clone)]
 pub struct Instruction {
@@ -25,6 +32,9 @@ pub struct Instruction {
 
     // Alignment for load, store, alloca instructions
     alignment: Option<u64>,
+
+    // Operand bundles for call/invoke instructions
+    operand_bundles: Vec<OperandBundle>,
 }
 
 /// Instruction opcodes
@@ -132,6 +142,7 @@ impl Instruction {
             is_volatile: false,
             atomic_ordering: None,
             alignment: None,
+            operand_bundles: Vec::new(),
         }
     }
 
@@ -285,6 +296,23 @@ impl Instruction {
     /// Set the atomic ordering
     pub fn set_atomic_ordering(&mut self, ordering: AtomicOrdering) {
         self.atomic_ordering = Some(ordering);
+    }
+
+    // Operand bundle accessors
+
+    /// Add an operand bundle to this instruction
+    pub fn add_operand_bundle(&mut self, bundle: OperandBundle) {
+        self.operand_bundles.push(bundle);
+    }
+
+    /// Get operand bundles for this instruction
+    pub fn operand_bundles(&self) -> &[OperandBundle] {
+        &self.operand_bundles
+    }
+
+    /// Get an operand bundle by tag name
+    pub fn get_operand_bundle(&self, tag: &str) -> Option<&OperandBundle> {
+        self.operand_bundles.iter().find(|b| b.tag == tag)
     }
 
     /// Get the atomic ordering
