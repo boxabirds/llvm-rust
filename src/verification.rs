@@ -4035,6 +4035,25 @@ impl<'a> Verifier<'a> {
             }
         }
 
+        // llvm.memcpy, llvm.memset, llvm.memset.pattern - memory intrinsics
+        // These intrinsics require power-of-two alignment
+        if intrinsic_name.starts_with("llvm.memcpy.") ||
+           intrinsic_name.starts_with("llvm.memset.") ||
+           intrinsic_name.starts_with("llvm.experimental.memset.pattern.") {
+            // Check if the first pointer argument has an alignment attribute
+            // The alignment must be a power of two
+            // Note: Alignment is attached to the instruction, not the argument
+            if let Some(alignment) = inst.alignment() {
+                // Check if alignment is a power of two
+                if alignment > 0 && (alignment & (alignment - 1)) != 0 {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "alignment is not a power of two".to_string(),
+                        location: format!("call to {}", intrinsic_name),
+                    });
+                }
+            }
+        }
+
         // llvm.experimental.gc.relocate - garbage collection relocation
         if intrinsic_name.starts_with("llvm.experimental.gc.relocate.") {
             // gc.relocate takes a token and two i32 indices
