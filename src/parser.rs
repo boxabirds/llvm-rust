@@ -464,8 +464,8 @@ impl Parser {
 
         // Check if it's an opaque type
         let ty = if self.match_token(&Token::Opaque) {
-            // Opaque type - use i8 as placeholder
-            self.context.int8_type()
+            // Opaque type - create proper opaque type
+            Type::opaque(&self.context, type_name.clone())
         } else {
             self.parse_type()?
         };
@@ -3060,9 +3060,13 @@ impl Parser {
                 // target("typename", params...) - target-specific types with optional type/integer params
                 self.advance(); // consume 'target'
                 self.consume(&Token::LParen)?;
-                if let Some(Token::StringLit(_)) = self.peek() {
+                let type_name = if let Some(Token::StringLit(name)) = self.peek() {
+                    let name = name.clone();
                     self.advance(); // consume type name string
-                }
+                    name
+                } else {
+                    "unknown".to_string()
+                };
                 // Handle optional comma-separated parameters (types or integers)
                 while self.match_token(&Token::Comma) {
                     // Parameter can be a type or an integer
@@ -3074,8 +3078,8 @@ impl Parser {
                     }
                 }
                 self.consume(&Token::RParen)?;
-                // Return opaque type placeholder
-                Ok(self.context.int8_type())
+                // Return opaque type for target-specific types
+                Ok(Type::opaque(&self.context, format!("target({})", type_name)))
             }
             Token::LBracket => {
                 // Array type: [ size x type ]

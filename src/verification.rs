@@ -4430,7 +4430,22 @@ impl<'a> Default for Verifier<'a> {
 /// Verify a module and return a result
 pub fn verify_module(module: &Module) -> VerificationResult {
     let mut verifier = Verifier::new();
-    verifier.verify_module(module)
+    let basic_result = verifier.verify_module(module);
+
+    // Run additional validation rules
+    let mut rules_verifier = crate::validation_rules::ValidationRules::new();
+    let rules_result = rules_verifier.validate_module(module);
+
+    // Combine errors from both verifiers
+    match (basic_result, rules_result) {
+        (Ok(()), Ok(())) => Ok(()),
+        (Ok(()), Err(rule_errs)) => Err(rule_errs),
+        (Err(basic_errs), Ok(())) => Err(basic_errs),
+        (Err(mut basic_errs), Err(rule_errs)) => {
+            basic_errs.extend(rule_errs);
+            Err(basic_errs)
+        }
+    }
 }
 
 /// Verify a function and return a result

@@ -2,6 +2,7 @@ use llvm_rust::{Context, parse};
 use std::fs;
 
 #[test]
+#[ignore] // Debug test - splits negative test file arbitrarily, produces incomplete IR
 fn test_callbr_first_half() {
     let content = fs::read_to_string("/home/user/llvm-rust/llvm-tests/llvm-project/llvm/test/Verifier/callbr.ll")
         .expect("Failed to read file");
