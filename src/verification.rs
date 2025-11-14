@@ -1020,6 +1020,76 @@ impl<'a> Verifier<'a> {
             self.verify_basic_block(&bb);
         }
 
+        // Check invoke result usage - result cannot be used in unwind destination or reachable from it
+        // Build a mapping of invoke results to their unwind destinations
+        let mut invoke_results: Vec<(String, String)> = Vec::new(); // (result_name, unwind_label)
+
+        for bb in function.basic_blocks() {
+            for inst in bb.instructions() {
+                if inst.opcode() == Opcode::Invoke {
+                    if let Some(result) = inst.result() {
+                        if let Some(result_name) = result.name() {
+                            let operands = inst.operands();
+                            if operands.len() >= 2 {
+                                let unwind_dest = &operands[operands.len() - 1];
+                                if let Some(unwind_label) = unwind_dest.name() {
+                                    invoke_results.push((result_name.to_string(), unwind_label.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Check each invoke result for invalid uses
+        for (result_name, unwind_label) in invoke_results {
+            // Check direct uses in unwind block
+            if let Some(unwind_bb) = function.basic_blocks().iter()
+                .find(|b| b.name() == Some(unwind_label.clone())) {
+                for unwind_inst in unwind_bb.instructions() {
+                    // Check direct operands
+                    for operand in unwind_inst.operands() {
+                        if operand.name() == Some(&result_name) {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: format!("Invoke result value cannot be used in the unwind destination!"),
+                                location: format!("invoke result %{} used in unwind block {}", result_name, unwind_label),
+                            });
+                        }
+                    }
+                }
+            }
+
+            // Check PHI nodes in other blocks for incoming values from unwind path
+            for bb in function.basic_blocks() {
+                for inst in bb.instructions() {
+                    if inst.opcode() == Opcode::PHI {
+                        let operands = inst.operands();
+                        // PHI operands come in pairs: (value, label)
+                        for i in (0..operands.len()).step_by(2) {
+                            if i + 1 < operands.len() {
+                                let value = &operands[i];
+                                let incoming_label = &operands[i + 1];
+
+                                // Check if this is the invoke result coming from unwind path
+                                if value.name() == Some(&result_name) {
+                                    if let Some(inc_label_name) = incoming_label.name() {
+                                        // The incoming label is the unwind destination or a successor
+                                        if inc_label_name == &unwind_label {
+                                            self.errors.push(VerificationError::InvalidInstruction {
+                                                reason: format!("Invoke result value cannot be used on unwind path!"),
+                                                location: format!("PHI node uses %{} from unwind block %{}", result_name, unwind_label),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Check for duplicate local variable definitions and type consistency
         use std::collections::HashMap;
         let mut local_names: HashMap<String, Type> = HashMap::new();
