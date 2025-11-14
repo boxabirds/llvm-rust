@@ -2389,6 +2389,66 @@ impl<'a> Verifier<'a> {
                 location: "DISubrange".to_string(),
             });
         }
+
+        // Validate count field if present
+        if let Some(count_metadata) = metadata.get_field("count") {
+            // Count must be one of:
+            // 1. Signed constant (integer metadata)
+            // 2. DIVariable (named metadata with name "DIVariable" or "DILocalVariable")
+            // 3. DIExpression (named metadata with name "DIExpression")
+            let is_valid_count = count_metadata.is_int() ||
+                count_metadata.get_name().map_or(false, |name| {
+                    name == "DIVariable" || name == "DILocalVariable" || name == "DIExpression"
+                });
+
+            if !is_valid_count {
+                self.errors.push(VerificationError::InvalidDebugInfo {
+                    reason: "Count must be signed constant or DIVariable or DIExpression".to_string(),
+                    location: "DISubrange".to_string(),
+                });
+            }
+        }
+
+        // Validate lowerBound field if present
+        if let Some(lower_bound_metadata) = metadata.get_field("lowerBound") {
+            // lowerBound must be a signed constant (integer metadata)
+            if !lower_bound_metadata.is_int() {
+                self.errors.push(VerificationError::InvalidDebugInfo {
+                    reason: "LowerBound must be signed constant".to_string(),
+                    location: "DISubrange".to_string(),
+                });
+            }
+        }
+
+        // Validate upperBound field if present
+        if let Some(upper_bound_metadata) = metadata.get_field("upperBound") {
+            // upperBound must be one of:
+            // 1. Signed constant (integer metadata)
+            // 2. DIVariable (named metadata with name "DIVariable" or "DILocalVariable")
+            // 3. DIExpression (named metadata with name "DIExpression")
+            let is_valid_upper_bound = upper_bound_metadata.is_int() ||
+                upper_bound_metadata.get_name().map_or(false, |name| {
+                    name == "DIVariable" || name == "DILocalVariable" || name == "DIExpression"
+                });
+
+            if !is_valid_upper_bound {
+                self.errors.push(VerificationError::InvalidDebugInfo {
+                    reason: "UpperBound must be signed constant or DIVariable or DIExpression".to_string(),
+                    location: "DISubrange".to_string(),
+                });
+            }
+        }
+
+        // Validate stride field if present
+        if let Some(stride_metadata) = metadata.get_field("stride") {
+            // stride must be a signed constant (integer metadata)
+            if !stride_metadata.is_int() {
+                self.errors.push(VerificationError::InvalidDebugInfo {
+                    reason: "Stride must be signed constant".to_string(),
+                    location: "DISubrange".to_string(),
+                });
+            }
+        }
     }
 
     fn verify_digenericsubrange(&mut self, metadata: &crate::metadata::Metadata) {
@@ -3031,6 +3091,27 @@ impl<'a> Verifier<'a> {
                     self.errors.push(VerificationError::InvalidInstruction {
                         reason: "Attributes 'byval', 'inalloca', 'preallocated', 'inreg', 'nest', 'byref', and 'sret' are incompatible!".to_string(),
                         location: format!("@{}", fn_name),
+                    });
+                }
+            }
+
+            // Check immarg attribute - only allowed on intrinsic declarations
+            if param_attrs.immarg {
+                let is_intrinsic = fn_name.starts_with("llvm.");
+
+                // immarg only applies to intrinsics
+                if !is_intrinsic {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg attribute only applies to intrinsics".to_string(),
+                        location: format!("ptr @{}", fn_name),
+                    });
+                }
+
+                // immarg cannot be on function definitions (only declarations of intrinsics)
+                if is_intrinsic && function.has_body() {
+                    self.errors.push(VerificationError::InvalidInstruction {
+                        reason: "immarg attribute only applies to intrinsics".to_string(),
+                        location: format!("ptr @{}", fn_name),
                     });
                 }
             }
@@ -3686,15 +3767,16 @@ impl<'a> Verifier<'a> {
     }
 
     /// Verify immarg (immediate argument) parameters for intrinsics
-    /// Certain intrinsic parameters must be constant values, not variables
+    /// Certain intrinsic parameters must be immediate (literal) constant values
+    /// immarg rejects: variables, undef, poison, zeroinitializer, constant aggregates, constant expressions
     fn verify_intrinsic_immarg(&mut self, inst: &Instruction, intrinsic_name: &str, operands: &[Value]) {
-        // Helper to check if operand at index is not a constant
+        // Helper to check if operand at index is not an immediate constant
         let check_immarg = |idx: usize| -> bool {
             if operands.len() > idx {
                 let operand = &operands[idx];
-                // Operands with names are variables (non-constant)
-                // Constants typically don't have names, or are represented differently
-                !operand.is_constant()
+                // immarg requires literal constants (ConstantInt or ConstantFloat only)
+                // Rejects: variables, undef, poison, zeroinitializer, aggregates, constant expressions
+                !operand.is_immediate()
             } else {
                 false
             }

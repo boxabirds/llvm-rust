@@ -88,6 +88,16 @@ impl Value {
         )
     }
 
+    /// Check if this value is an immediate (literal) constant
+    /// For immarg validation: only literal integer/float constants are considered immediate
+    /// Excludes: undef, poison, zeroinitializer, constant aggregates, constant expressions
+    pub fn is_immediate(&self) -> bool {
+        matches!(&self.data.kind,
+            ValueKind::ConstantInt { .. } |
+            ValueKind::ConstantFloat { .. }
+        )
+    }
+
     /// Check if this value is an instruction
     pub fn is_instruction(&self) -> bool {
         matches!(&self.data.kind, ValueKind::Instruction { .. })
