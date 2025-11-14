@@ -1974,9 +1974,29 @@ impl Parser {
                 // Skip syncscope if present
                 self.skip_syncscope();
 
-                // Parse two memory orderings (as keyword tokens, not identifiers)
-                self.skip_memory_ordering();
-                self.skip_memory_ordering();
+                // Parse two memory orderings and validate them
+                let success_ordering = self.parse_memory_ordering_for_cmpxchg()?;
+                let failure_ordering = self.parse_memory_ordering_for_cmpxchg()?;
+
+                // Validate failure ordering for cmpxchg
+                // Failure ordering cannot be:
+                // 1. unordered
+                // 2. release (can only acquire, not release)
+                // 3. acq_rel (can only acquire, not release)
+                if matches!(failure_ordering, "unordered" | "release" | "acq_rel") {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "invalid cmpxchg failure ordering".to_string(),
+                        position: self.current,
+                    });
+                }
+
+                // Failure ordering cannot be stronger than success ordering
+                if success_ordering == "acq_rel" && failure_ordering == "acq_rel" {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "invalid cmpxchg failure ordering".to_string(),
+                        position: self.current,
+                    });
+                }
 
                 // Handle optional align parameter using same logic as load/store
                 if self.match_token(&Token::Comma) {
@@ -5210,6 +5230,28 @@ impl Parser {
             || self.match_token(&Token::Release)
             || self.match_token(&Token::Acq_rel)
             || self.match_token(&Token::Seq_cst)
+    }
+
+    fn parse_memory_ordering_for_cmpxchg(&mut self) -> ParseResult<&'static str> {
+        // Parse and return the memory ordering as a string
+        if self.match_token(&Token::Unordered) {
+            Ok("unordered")
+        } else if self.match_token(&Token::Monotonic) {
+            Ok("monotonic")
+        } else if self.match_token(&Token::Acquire) {
+            Ok("acquire")
+        } else if self.match_token(&Token::Release) {
+            Ok("release")
+        } else if self.match_token(&Token::Acq_rel) {
+            Ok("acq_rel")
+        } else if self.match_token(&Token::Seq_cst) {
+            Ok("seq_cst")
+        } else {
+            Err(ParseError::InvalidSyntax {
+                message: "expected memory ordering".to_string(),
+                position: self.current,
+            })
+        }
     }
 
     fn parse_load_store_attributes(&mut self) -> Option<u64> {

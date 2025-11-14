@@ -73,7 +73,7 @@
 ✓ POSITIVE: 2009-02-28-StripOpaqueName.ll
 ✓ POSITIVE: 2009-07-24-ZeroArgGEP.ll
 ✓ POSITIVE: 2010-02-05-FunctionLocalMetadataBecomesNull.ll
-✗ POSITIVE (failed but should parse): ConstantExprFold.ll
+✓ POSITIVE: ConstantExprFold.ll
 ✓ POSITIVE: ConstantExprFoldCast.ll
 ✓ POSITIVE: ConstantExprFoldSelect.ll
 ✓ POSITIVE: ConstantExprNoFold.ll
