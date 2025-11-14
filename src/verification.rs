@@ -1937,6 +1937,14 @@ impl<'a> Verifier<'a> {
                             });
                         }
 
+                        // Constant x86_amx values are not allowed in arguments
+                        if arg_type.is_x86_amx() && arg.is_constant() {
+                            self.errors.push(VerificationError::InvalidInstruction {
+                                reason: "const x86_amx is not allowed in argument!".to_string(),
+                                location: format!("call argument {}", i),
+                            });
+                        }
+
                         // Allow pointer type equivalence and metadata type equivalence
                         let types_match = if arg_type.is_pointer() && param_type.is_pointer() {
                             true
