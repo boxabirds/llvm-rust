@@ -35,7 +35,7 @@
 ✓ POSITIVE: 2004-01-11-getelementptrfolding.ll
 ✓ POSITIVE: 2004-01-20-MaxLongLong.ll
 ✓ POSITIVE: 2004-02-01-NegativeZero.ll
-✗ POSITIVE (failed but should parse): 2004-02-27-SelfUseAssertError.ll
+✓ POSITIVE: 2004-02-27-SelfUseAssertError.ll
 ✓ NEGATIVE: 2004-03-30-UnclosedFunctionCrash.ll
 ✓ POSITIVE: 2004-04-04-GetElementPtrIndexTypes.ll
 ✓ POSITIVE: 2004-06-07-VerifierBug.ll
@@ -76,7 +76,7 @@
 ✓ POSITIVE: ConstantExprFold.ll
 ✓ POSITIVE: ConstantExprFoldCast.ll
 ✓ POSITIVE: ConstantExprFoldSelect.ll
-✗ POSITIVE (failed but should parse): ConstantExprNoFold.ll
+✓ POSITIVE: ConstantExprNoFold.ll
 ✓ POSITIVE: DICommonBlock.ll
 ✓ POSITIVE: DIDefaultTemplateParam.ll
 ✓ POSITIVE: DIEnumerator.ll
@@ -90,7 +90,7 @@
 ✓ POSITIVE: aggregate-constant-values.ll
 ✓ POSITIVE: aggregate-return-single-value.ll
 ✗ NEGATIVE (parsed but should fail): alias-redefinition.ll
-✗ POSITIVE (failed but should parse): alias-use-list-order.ll
+✓ POSITIVE: alias-use-list-order.ll
 ✓ NEGATIVE: align-inst-alloca.ll
 ✓ NEGATIVE: align-inst-load.ll
 ✓ NEGATIVE: align-inst-store.ll
@@ -110,13 +110,13 @@
 ✗ NEGATIVE (parsed but should fail): allockind-missing.ll
 ✓ NEGATIVE: allockind.ll
 ✓ POSITIVE: amdgcn-intrinsic-attributes.ll
-✗ POSITIVE (failed but should parse): amdgcn-unreachable.ll
+✓ POSITIVE: amdgcn-unreachable.ll
 ✓ POSITIVE: amdgpu-cs-chain-cc.ll
-✗ POSITIVE (failed but should parse): amdgpu-image-atomic-attributes.ll
+✓ POSITIVE: amdgpu-image-atomic-attributes.ll
 ✓ POSITIVE: anon-functions.ll
 ✓ POSITIVE: asm-path-writer.ll
 ✓ POSITIVE: associated-metadata.ll
-✗ POSITIVE (failed but should parse): atomic.ll
+✓ POSITIVE: atomic.ll
 ✓ POSITIVE: atomicrmw.ll
 ✗ NEGATIVE (parsed but should fail): attribute-builtin.ll
 ✓ POSITIVE: auto_upgrade_intrinsics.ll
@@ -182,7 +182,7 @@
 ✗ NEGATIVE (parsed but should fail): dicompileunit-invalid-language.ll
 ✓ POSITIVE: dicompileunit.ll
 ✓ POSITIVE: dicompositetype-members.ll
-✗ POSITIVE (failed but should parse): diexpression.ll
+✓ POSITIVE: diexpression.ll
 ✓ POSITIVE: difile-empty-source.ll
 ✓ POSITIVE: difile-escaped-chars.ll
 ✓ POSITIVE: diglobalvariable.ll
@@ -210,12 +210,12 @@
 ✓ POSITIVE: externally-initialized.ll
 ✗ NEGATIVE (parsed but should fail): extractvalue-invalid-idx.ll
 ✗ NEGATIVE (parsed but should fail): extractvalue-no-idx.ll
-✗ POSITIVE (failed but should parse): fast-math-flags.ll
+✓ POSITIVE: fast-math-flags.ll
 ✓ POSITIVE: flags.ll
 ✓ POSITIVE: fp-intrinsics-attr.ll
 ✓ POSITIVE: function-operand-uselistorder.ll
 ✓ POSITIVE: generic-debug-node.ll
-✗ POSITIVE (failed but should parse): getelementptr.ll
+✓ POSITIVE: getelementptr.ll
 ✓ NEGATIVE: getelementptr_invalid_ptr.ll
 ✗ NEGATIVE (parsed but should fail): getelementptr_struct.ll
 ✓ POSITIVE: getelementptr_vec_ce.ll
@@ -238,7 +238,7 @@
 ✓ POSITIVE: ifunc-program-addrspace.ll
 ✓ POSITIVE: ifunc-stripPointerCastsAndAliases.ll
 ✓ POSITIVE: ifunc-use-list-order.ll
-✗ POSITIVE (failed but should parse): immarg-param-attribute.ll
+✓ POSITIVE: immarg-param-attribute.ll
 ✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid.ll
 ✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid2.ll
 ✗ NEGATIVE (parsed but should fail): implicit-intrinsic-declaration-invalid3.ll
@@ -334,7 +334,7 @@
 ✓ NEGATIVE: invalid-immarg.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg2.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg3.ll
-✓ NEGATIVE: invalid-immarg4.ll
+✗ NEGATIVE (parsed but should fail): invalid-immarg4.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg5.ll
 ✓ NEGATIVE: invalid-inline-constraint.ll
 ✗ NEGATIVE (parsed but should fail): invalid-inttype.ll
@@ -463,7 +463,7 @@
 ✗ NEGATIVE (parsed but should fail): target-type-param-errors.ll
 ✓ POSITIVE: target-type-params.ll
 ✓ NEGATIVE: target-type-properties.ll
-✗ POSITIVE (failed but should parse): target-types.ll
+✓ POSITIVE: target-types.ll
 ✓ POSITIVE: thinlto-bad-summary1.ll
 ✓ POSITIVE: thinlto-bad-summary2.ll
 ✓ POSITIVE: thinlto-bad-summary3.ll
@@ -483,7 +483,7 @@
 ✓ POSITIVE: unnamed.ll
 ✗ NEGATIVE (parsed but should fail): unsized-recursive-type.ll
 ✓ NEGATIVE: unsupported-constexprs.ll
-✗ POSITIVE (failed but should parse): uselistorder.ll
+✓ POSITIVE: uselistorder.ll
 ✓ POSITIVE: uselistorder_bb.ll
 ✓ POSITIVE: uselistorder_global.ll
 ✗ NEGATIVE (parsed but should fail): uwtable-1.ll
