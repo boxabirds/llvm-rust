@@ -868,6 +868,22 @@ impl<'a> Verifier<'a> {
                 _ => {}
             }
 
+            // Check X86_INTR calling convention requires byval on all parameters
+            if matches!(cc, CallingConvention::X86_INTR) {
+                for (idx, _param_type) in param_types.iter().enumerate() {
+                    let has_byval = attrs.parameter_attributes.get(idx)
+                        .map(|attr| attr.byval.is_some())
+                        .unwrap_or(false);
+                    if !has_byval {
+                        self.errors.push(VerificationError::InvalidInstruction {
+                            reason: "Calling convention parameter requires byval".to_string(),
+                            location: format!("ptr @{}", fn_name),
+                        });
+                        break; // Only report once per function
+                    }
+                }
+            }
+
             for (idx, param_type) in param_types.iter().enumerate() {
                 // Parameters cannot have label type
                 if param_type.is_label() {
