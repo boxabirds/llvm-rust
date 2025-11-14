@@ -95,9 +95,9 @@
 ✓ NEGATIVE: align-inst-load.ll
 ✓ NEGATIVE: align-inst-store.ll
 ✓ POSITIVE: align-inst.ll
-✗ NEGATIVE (parsed but should fail): align-param-attr-error0.ll
+✓ NEGATIVE: align-param-attr-error0.ll
 ✗ NEGATIVE (parsed but should fail): align-param-attr-error1.ll
-✗ NEGATIVE (parsed but should fail): align-param-attr-error2.ll
+✓ NEGATIVE: align-param-attr-error2.ll
 ✓ POSITIVE: align-param-attr-format.ll
 ✓ POSITIVE: alignstack.ll
 ✓ POSITIVE: alloca-addrspace-elems.ll

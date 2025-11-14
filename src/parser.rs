@@ -4876,7 +4876,27 @@ impl Parser {
                 },
                 Some(Token::Align) => {
                     self.advance();
-                    if let Some(Token::Integer(n)) = self.peek() {
+                    // Handle both `align N` and `align(N)` forms
+                    if self.check(&Token::LParen) {
+                        // align(N) form
+                        self.advance(); // consume (
+                        if let Some(Token::Integer(n)) = self.peek() {
+                            attrs.align = Some(*n as u32);
+                            self.advance();
+                        } else {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "expected integer".to_string(),
+                                position: self.current,
+                            });
+                        }
+                        if !self.match_token(&Token::RParen) {
+                            return Err(ParseError::InvalidSyntax {
+                                message: "expected ')'".to_string(),
+                                position: self.current,
+                            });
+                        }
+                    } else if let Some(Token::Integer(n)) = self.peek() {
+                        // align N form (without parentheses)
                         attrs.align = Some(*n as u32);
                         self.advance();
                     }
