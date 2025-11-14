@@ -88,6 +88,7 @@ pub struct FunctionAttributes {
     pub hot: bool,
     pub naked: bool,
     pub builtin: bool,
+    pub has_immarg: bool, // For validation - immarg is invalid on functions
 
     // Return attributes
     pub return_attributes: ReturnAttributes,
@@ -121,6 +122,7 @@ pub struct ReturnAttributes {
     pub swifterror: bool,
     pub dereferenceable: Option<u64>,
     pub align: Option<u32>,
+    pub has_immarg: bool, // For validation - immarg is invalid on return values
 }
 
 /// Parameter attributes

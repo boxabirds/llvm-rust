@@ -743,6 +743,10 @@ impl Lexer {
         // Check if it's an integer type
         if word.starts_with('i') && word.len() > 1 {
             if let Ok(bits) = word[1..].parse::<u32>() {
+                // LLVM enforces a maximum bitwidth of 2^23 = 8388608
+                if bits > 8388608 {
+                    return Err("bitwidth for integer type out of range".to_string());
+                }
                 return Ok(Token::IntType(bits));
             }
         }

@@ -50,7 +50,7 @@
 ✗ NEGATIVE (parsed but should fail): 2007-01-02-Undefined-Arg-Type.ll
 ✓ POSITIVE: 2007-01-05-Cmp-ConstExpr.ll
 ✓ NEGATIVE: 2007-01-16-CrashOnBadCast.ll
-✗ NEGATIVE (parsed but should fail): 2007-01-16-CrashOnBadCast2.ll
+✓ NEGATIVE: 2007-01-16-CrashOnBadCast2.ll
 ✗ NEGATIVE (parsed but should fail): 2007-03-18-InvalidNumberedVar.ll
 ✓ POSITIVE: 2007-03-19-NegValue.ll
 ✓ POSITIVE: 2007-04-20-AlignedLoad.ll
@@ -152,10 +152,10 @@
 ✓ POSITIVE: callee-type-metadata.ll
 ✓ NEGATIVE: captures-errors.ll
 ✓ POSITIVE: captures.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-2.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-3.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering-4.ll
-✗ NEGATIVE (parsed but should fail): cmpxchg-ordering.ll
+✓ NEGATIVE: cmpxchg-ordering-2.ll
+✓ NEGATIVE: cmpxchg-ordering-3.ll
+✓ NEGATIVE: cmpxchg-ordering-4.ll
+✓ NEGATIVE: cmpxchg-ordering.ll
 ✓ POSITIVE: comment.ll
 ✗ NEGATIVE (parsed but should fail): constant-getelementptr-scalable_pointee.ll
 ✓ NEGATIVE: constant-splat-diagnostics.ll
@@ -263,9 +263,9 @@
 ✓ NEGATIVE: internal-protected-function.ll
 ✓ NEGATIVE: internal-protected-variable.ll
 ✓ NEGATIVE: invalid-addrspace.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-add-must-be-integer-type.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-fadd-must-be-fp-type.ll
-✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-fsub-must-be-fp-type.ll
+✓ NEGATIVE: invalid-atomicrmw-add-must-be-integer-type.ll
+✓ NEGATIVE: invalid-atomicrmw-fadd-must-be-fp-type.ll
+✓ NEGATIVE: invalid-atomicrmw-fsub-must-be-fp-type.ll
 ✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-scalable.ll
 ✗ NEGATIVE (parsed but should fail): invalid-atomicrmw-xchg-fp-vector.ll
 ✗ NEGATIVE (parsed but should fail): invalid-attrgrp.ll
@@ -332,13 +332,13 @@
 ✓ NEGATIVE: invalid-gep-missing-explicit-type.ll
 ✓ NEGATIVE: invalid-hexint.ll
 ✓ NEGATIVE: invalid-immarg.ll
-✗ NEGATIVE (parsed but should fail): invalid-immarg2.ll
-✗ NEGATIVE (parsed but should fail): invalid-immarg3.ll
+✓ NEGATIVE: invalid-immarg2.ll
+✓ NEGATIVE: invalid-immarg3.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg4.ll
 ✗ NEGATIVE (parsed but should fail): invalid-immarg5.ll
 ✓ NEGATIVE: invalid-inline-constraint.ll
-✗ NEGATIVE (parsed but should fail): invalid-inttype.ll
-✗ NEGATIVE (parsed but should fail): invalid-label-call-arg.ll
+✓ NEGATIVE: invalid-inttype.ll
+✓ NEGATIVE: invalid-label-call-arg.ll
 ✓ NEGATIVE: invalid-label.ll
 ✗ NEGATIVE (parsed but should fail): invalid-landingpad.ll
 ✗ NEGATIVE (parsed but should fail): invalid-load-missing-explicit-type.ll
@@ -385,10 +385,10 @@
 ✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-not-func.ll
 ✗ NEGATIVE (parsed but should fail): invalid-uselistorder_bb-numbered.ll
 ✗ POSITIVE (failed but should parse): invalid-vecreduce.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast2.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast3.ll
-✗ NEGATIVE (parsed but should fail): invalid_cast4.ll
+✓ NEGATIVE: invalid_cast.ll
+✓ NEGATIVE: invalid_cast2.ll
+✓ NEGATIVE: invalid_cast3.ll
+✓ NEGATIVE: invalid_cast4.ll
 ✗ NEGATIVE (parsed but should fail): invoke-nonzero-program-addrspace.ll
 ✓ POSITIVE: large-comdat.ll
 ✓ POSITIVE: local-unnamed-addr.ll

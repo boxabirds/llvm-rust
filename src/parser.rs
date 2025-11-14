@@ -1837,6 +1837,70 @@ impl Parser {
                 operands.push(val);
                 self.consume(&Token::To)?;
                 let dest_ty = self.parse_type()?;
+
+                // Validate cast operations
+                match opcode {
+                    Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt => {
+                        // Trunc/ZExt/SExt cannot be used with pointer types (use inttoptr/ptrtoint)
+                        if src_ty.is_pointer() || dest_ty.is_pointer() {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                    src_ty, dest_ty),
+                                position: self.current,
+                            });
+                        }
+                        // For vector casts, both must be vectors with same size
+                        // Can't cast vector to scalar or scalar to vector
+                        let src_is_vec = src_ty.is_vector();
+                        let dest_is_vec = dest_ty.is_vector();
+                        if src_is_vec != dest_is_vec {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                    src_ty, dest_ty),
+                                position: self.current,
+                            });
+                        }
+                        if src_is_vec && dest_is_vec {
+                            if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                if src_size != dest_size {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                            src_ty, dest_ty),
+                                        position: self.current,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Opcode::BitCast => {
+                        // Bitcast validation is complex - different rules for pointers vs values
+                        // Only validate pointer vector bitcasts (element count must match)
+                        if src_ty.is_vector() && dest_ty.is_vector() {
+                            if let (Some((src_elem, src_size)), Some((dest_elem, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                // For pointer vectors, element count must match
+                                if src_elem.is_pointer() && dest_elem.is_pointer() && src_size != dest_size {
+                                    return Err(ParseError::InvalidSyntax {
+                                        message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                            src_ty, dest_ty),
+                                        position: self.current,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                    Opcode::IntToPtr => {
+                        // Destination must be pointer type
+                        if !dest_ty.is_pointer() {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                    src_ty, dest_ty),
+                                position: self.current,
+                            });
+                        }
+                    }
+                    _ => {}
+                }
+
                 result_type = Some(dest_ty);  // Cast result type is the destination type
             }
             Opcode::ExtractElement => {
@@ -1918,9 +1982,38 @@ impl Parser {
                 // Skip syncscope if present
                 self.skip_syncscope();
 
-                // Parse two memory orderings (as keyword tokens, not identifiers)
-                self.skip_memory_ordering();
-                self.skip_memory_ordering();
+                // Parse two memory orderings and validate them
+                let success_ordering = self.parse_memory_ordering_for_cmpxchg()?;
+                let failure_ordering = self.parse_memory_ordering_for_cmpxchg()?;
+
+                // Validate success ordering for cmpxchg
+                // Success ordering cannot be unordered
+                if success_ordering == "unordered" {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "invalid cmpxchg success ordering".to_string(),
+                        position: self.current,
+                    });
+                }
+
+                // Validate failure ordering for cmpxchg
+                // Failure ordering cannot be:
+                // 1. unordered
+                // 2. release (can only acquire, not release)
+                // 3. acq_rel (can only acquire, not release)
+                if matches!(failure_ordering, "unordered" | "release" | "acq_rel") {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "invalid cmpxchg failure ordering".to_string(),
+                        position: self.current,
+                    });
+                }
+
+                // Failure ordering cannot be stronger than success ordering
+                if success_ordering == "acq_rel" && failure_ordering == "acq_rel" {
+                    return Err(ParseError::InvalidSyntax {
+                        message: "invalid cmpxchg failure ordering".to_string(),
+                        position: self.current,
+                    });
+                }
 
                 // Handle optional align parameter using same logic as load/store
                 if self.match_token(&Token::Comma) {
@@ -1940,21 +2033,23 @@ impl Parser {
 
                 // Parse operation (xchg, add, sub, and, or, xor, max, min, umax, umin, etc.)
                 // These can be opcodes (Add, Sub, etc.) or identifiers (xchg, max, min, etc.)
-                if let Some(token) = self.peek() {
-                    match token {
-                        // Match known atomic RMW operation tokens/keywords
-                        Token::Add | Token::Sub | Token::And | Token::Or | Token::Xor |
-                        Token::Identifier(_) => {
-                            self.advance(); // Skip the operation
-                        }
-                        _ => {
-                            // Unknown operation, try to skip anyway
-                            self.advance();
-                        }
-                    }
+                let operation = if let Some(token) = self.peek().cloned() {
+                    let op_name = match &token {
+                        Token::Add => "add",
+                        Token::Sub => "sub",
+                        Token::And => "and",
+                        Token::Or => "or",
+                        Token::Xor => "xor",
+                        Token::FAdd => "fadd",
+                        Token::FSub => "fsub",
+                        Token::Identifier(s) => s.as_str(),
+                        _ => "",
+                    };
+                    self.advance();
+                    op_name.to_string()
                 } else {
                     return Err(ParseError::UnexpectedEOF);
-                }
+                };
 
                 // Parse pointer type and value
                 let _ptr_ty = self.parse_type()?;
@@ -1964,6 +2059,42 @@ impl Parser {
                 // Parse value type and value
                 let val_ty = self.parse_type()?;
                 let _val = self.parse_value()?;
+
+                // Validate operand type for atomic RMW operation
+                match operation.as_str() {
+                    "add" | "sub" | "and" | "or" | "xor" | "nand" |
+                    "max" | "min" | "umax" | "umin" => {
+                        // Integer operations require integer type (scalar or vector of integers)
+                        let is_valid = if val_ty.is_vector() {
+                            // For vectors, check if element type is integer
+                            val_ty.vector_info().map(|(elem, _)| elem.is_integer()).unwrap_or(false)
+                        } else {
+                            val_ty.is_integer()
+                        };
+                        if !is_valid {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("atomicrmw {} operand must be an integer", operation),
+                                position: self.current,
+                            });
+                        }
+                    }
+                    "fadd" | "fsub" | "fmax" | "fmin" => {
+                        // Floating-point operations require float type (scalar or vector of floats)
+                        let is_valid = if val_ty.is_vector() {
+                            // For vectors, check if element type is float
+                            val_ty.vector_info().map(|(elem, _)| elem.is_float()).unwrap_or(false)
+                        } else {
+                            val_ty.is_float()
+                        };
+                        if !is_valid {
+                            return Err(ParseError::InvalidSyntax {
+                                message: format!("atomicrmw {} operand must be a floating point type", operation),
+                                position: self.current,
+                            });
+                        }
+                    }
+                    _ => {} // xchg and other operations accept any type
+                }
 
                 // atomicrmw returns the old value, same type as the value parameter
                 result_type = Some(val_ty);
@@ -2752,6 +2883,14 @@ impl Parser {
             }
 
             let ty = self.parse_type()?;
+
+            // Label types are not allowed as function arguments
+            if ty.is_label() {
+                return Err(ParseError::InvalidSyntax {
+                    message: "invalid type for function argument".to_string(),
+                    position: self.current,
+                });
+            }
 
             // Parse and validate parameter attributes (byval, sret, noundef, allocalign, etc.)
             let mut has_signext = false;
@@ -3785,6 +3924,67 @@ impl Parser {
                                Opcode::AddrSpaceCast) {
                 if self.match_token(&Token::To) {
                     let dest_ty = self.parse_type()?;
+
+                    // Validate cast operations (same checks as instructions)
+                    match opcode {
+                        Opcode::Trunc | Opcode::ZExt | Opcode::SExt | Opcode::FPTrunc | Opcode::FPExt => {
+                            // Trunc/ZExt/SExt cannot be used with pointer types
+                            if src_ty.is_pointer() || dest_ty.is_pointer() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        src_ty, dest_ty),
+                                    position: self.current,
+                                });
+                            }
+                            let src_is_vec = src_ty.is_vector();
+                            let dest_is_vec = dest_ty.is_vector();
+                            if src_is_vec != dest_is_vec {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        src_ty, dest_ty),
+                                    position: self.current,
+                                });
+                            }
+                            if src_is_vec && dest_is_vec {
+                                if let (Some((_, src_size)), Some((_, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                    if src_size != dest_size {
+                                        return Err(ParseError::InvalidSyntax {
+                                            message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                                src_ty, dest_ty),
+                                            position: self.current,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        Opcode::BitCast => {
+                            // Bitcast validation is complex - different rules for pointers vs values
+                            // Only validate pointer vector bitcasts (element count must match)
+                            if src_ty.is_vector() && dest_ty.is_vector() {
+                                if let (Some((src_elem, src_size)), Some((dest_elem, dest_size))) = (src_ty.vector_info(), dest_ty.vector_info()) {
+                                    // For pointer vectors, element count must match
+                                    if src_elem.is_pointer() && dest_elem.is_pointer() && src_size != dest_size {
+                                        return Err(ParseError::InvalidSyntax {
+                                            message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                                src_ty, dest_ty),
+                                            position: self.current,
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                        Opcode::IntToPtr => {
+                            if !dest_ty.is_pointer() {
+                                return Err(ParseError::InvalidSyntax {
+                                    message: format!("invalid cast opcode for cast from '{}' to '{}'",
+                                        src_ty, dest_ty),
+                                    position: self.current,
+                                });
+                            }
+                        }
+                        _ => {}
+                    }
+
                     result_type = Some(dest_ty);  // Cast result is destination type
                 }
             } else if matches!(opcode, Opcode::ICmp | Opcode::FCmp) {
@@ -4208,13 +4408,18 @@ impl Parser {
                 continue;
             }
 
-            // Skip other attributes we don't parse yet
+            // Skip other attributes we don't parse yet (but immarg is tracked for validation)
             if self.match_token(&Token::Nocapture) ||
                self.match_token(&Token::Nest) ||
                self.match_token(&Token::Readonly) ||
                self.match_token(&Token::Writeonly) ||
-               self.match_token(&Token::Swiftself) ||
-               self.match_token(&Token::Immarg) {
+               self.match_token(&Token::Swiftself) {
+                continue;
+            }
+
+            // Track immarg in return position (will be validated as error)
+            if self.match_token(&Token::Immarg) {
+                attrs.has_immarg = true; // Track this for validation
                 continue;
             }
 
@@ -4750,6 +4955,7 @@ impl Parser {
                 Some(Token::Hot) => { self.advance(); attrs.hot = true; },
                 Some(Token::Naked) => { self.advance(); attrs.naked = true; },
                 Some(Token::Builtin) => { self.advance(); attrs.builtin = true; },
+                Some(Token::Immarg) => { self.advance(); attrs.has_immarg = true; },
                 _ => {
                     // Handle other attributes and unrecognized ones
                     if self.match_token(&Token::Inaccessiblememonly) ||
@@ -5087,6 +5293,28 @@ impl Parser {
             || self.match_token(&Token::Release)
             || self.match_token(&Token::Acq_rel)
             || self.match_token(&Token::Seq_cst)
+    }
+
+    fn parse_memory_ordering_for_cmpxchg(&mut self) -> ParseResult<&'static str> {
+        // Parse and return the memory ordering as a string
+        if self.match_token(&Token::Unordered) {
+            Ok("unordered")
+        } else if self.match_token(&Token::Monotonic) {
+            Ok("monotonic")
+        } else if self.match_token(&Token::Acquire) {
+            Ok("acquire")
+        } else if self.match_token(&Token::Release) {
+            Ok("release")
+        } else if self.match_token(&Token::Acq_rel) {
+            Ok("acq_rel")
+        } else if self.match_token(&Token::Seq_cst) {
+            Ok("seq_cst")
+        } else {
+            Err(ParseError::InvalidSyntax {
+                message: "expected memory ordering".to_string(),
+                position: self.current,
+            })
+        }
     }
 
     fn parse_load_store_attributes(&mut self) -> Option<u64> {
