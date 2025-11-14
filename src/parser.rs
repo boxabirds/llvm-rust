@@ -710,21 +710,36 @@ impl Parser {
                 Some(Token::Comdat) => {
                     self.advance();
                     // Comdat can have an optional name: comdat($name) or comdat(identifier)
-                    if self.match_token(&Token::LParen) {
+                    let comdat_name = if self.match_token(&Token::LParen) {
                         // Handle $name format (GlobalIdent)
-                        if let Some(Token::GlobalIdent(name)) = self.peek() {
-                            comdat = Some(name.clone());
+                        let cname = if let Some(Token::GlobalIdent(name)) = self.peek() {
+                            let n = name.clone();
                             self.advance();
+                            n
                         } else if let Some(Token::Identifier(name)) = self.peek() {
                             // Handle plain identifier format
-                            comdat = Some(name.clone());
+                            let n = name.clone();
                             self.advance();
-                        }
+                            n
+                        } else {
+                            String::new()
+                        };
                         self.match_token(&Token::RParen);
+                        cname
                     } else {
                         // comdat without explicit name means use the global's own name
-                        comdat = Some(name.clone());
+                        name.clone()
+                    };
+
+                    // Validate that the comdat is defined
+                    if !comdat_name.is_empty() && !self.comdat_definitions.contains_key(&comdat_name) {
+                        return Err(ParseError::InvalidSyntax {
+                            message: format!("use of undefined comdat '{}'", comdat_name),
+                            position: self.current,
+                        });
                     }
+
+                    comdat = Some(comdat_name);
                 },
                 _ => break,
             }
